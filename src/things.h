@@ -52,6 +52,7 @@ typedef struct {
 
 OPTION(sk_HandlePoint, sk_Error);
 OPTION_NAME(sk_Point*, sk_Error, sk_PointPtrOpt);
+OPTION_NAME(sk_Constraint*, sk_Error, sk_ConstraintPtrOpt);
 
 sk_HandlePointOpt sk_pushPoint(sk_Sketch* sketch, HMM_Vec2 pt) {
     for (int64_t i = 0; i < SK_MAX_PT_COUNT; i++) {
@@ -88,22 +89,28 @@ sk_PointPtrOpt sk_getPoint(sk_Sketch* sketch, sk_HandlePoint pointHandle) {
 //     memset(p, 0, sizeof(p));
 // }
 
-sk_Error sk_pushDistanceConstraint(sk_Sketch* sketch, float length, sk_HandlePoint p1, sk_HandlePoint p2) {
+sk_ConstraintPtrOpt _sk_pushConstraint(sk_Sketch* sketch) {
     for (int64_t i = 0; i < SK_MAX_CONSTRAINT_COUNT; i++) {
         sk_Constraint* c = &sketch->constraints[i];
         if (c->inUse == false) {
             int64_t gen = c->generation;
             memset(c, 0, sizeof(sk_Constraint));
-            c->kind = SK_CK_DISTANCE;
-            c->point1 = p1;
-            c->point2 = p2;
-            c->value = length;
             c->inUse = true;
             c->generation = gen + 1;
-            return SKE_OK;
+            return (sk_ConstraintPtrOpt){.error = SKE_OK, .ok = c};
         }
     }
-    return SKE_OUT_OF_SPACE;
+    return (sk_ConstraintPtrOpt){.error = SKE_OUT_OF_SPACE};
+}
+
+sk_Error sk_pushDistanceConstraint(sk_Sketch* sketch, float length, sk_HandlePoint p1, sk_HandlePoint p2) {
+    sk_ConstraintPtrOpt c = _sk_pushConstraint(sketch);
+    if (c.error != SKE_OK) {
+        return c.error;
+    }
+    c.ok->kind = SK_CK_DISTANCE;
+    c.ok->point1 = p1;
+    c.ok->point2 = p2;
 }
 
 // verifies that all constraints in use have valid values and valid point handles
