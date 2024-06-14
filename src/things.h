@@ -33,14 +33,27 @@ typedef struct {
 
 typedef enum {
     SK_CK_DISTANCE,
-    SK_CK_ANGLE,
+    SK_CK_ANGLE3,
 } sk_ConstraintKind;
 
 typedef struct {
     sk_HandlePoint point1;
     sk_HandlePoint point2;
+    float length;
+} _sk_ConstraintDistance;
+typedef struct {
+    sk_HandlePoint point1;
+    sk_HandlePoint point2;
+    sk_HandlePoint centerPoint;
+    float angle;
+} _sk_ConstraintAngle3;
+
+typedef struct {
+    union {
+        _sk_ConstraintDistance dist;
+        _sk_ConstraintAngle3 angle3;
+    } variants;
     sk_ConstraintKind kind;
-    float value;
     int32_t generation;
     bool inUse;
 } sk_Constraint;
@@ -109,8 +122,24 @@ sk_Error sk_pushDistanceConstraint(sk_Sketch* sketch, float length, sk_HandlePoi
         return c.error;
     }
     c.ok->kind = SK_CK_DISTANCE;
-    c.ok->point1 = p1;
-    c.ok->point2 = p2;
+    _sk_ConstraintDistance* d = &c.ok->variants.dist;
+    d->point1 = p1;
+    d->point2 = p2;
+    d->length = length;
+    return SKE_OK;
+}
+
+sk_Error sk_pushAngle3Constraint(sk_Sketch* sketch, float angle, sk_HandlePoint p1, sk_HandlePoint p2, sk_HandlePoint center) {
+    sk_ConstraintPtrOpt c = _sk_pushConstraint(sketch);
+    if (c.error != SKE_OK) {
+        return c.error;
+    }
+    c.ok->kind = SK_CK_ANGLE3;
+    _sk_ConstraintAngle3* a = &c.ok->variants.angle3;
+    a->point1 = p1;
+    a->point2 = p2;
+    a->centerPoint = center;
+    a->angle = angle;
     return SKE_OK;
 }
 
@@ -123,16 +152,33 @@ sk_Error _sk_validateConstraints(sk_Sketch* sketch) {
         }
 
         if (c->kind == SK_CK_DISTANCE) {
-            sk_PointPtrOpt p1 = sk_getPoint(sketch, c->point1);
+            _sk_ConstraintDistance* dist = &c->variants.dist;
+            sk_PointPtrOpt p1 = sk_getPoint(sketch, dist->point1);
             if (p1.error != SKE_OK) {
                 return p1.error;
             }
-            sk_PointPtrOpt p2 = sk_getPoint(sketch, c->point2);
+            sk_PointPtrOpt p2 = sk_getPoint(sketch, dist->point2);
             if (p2.error != SKE_OK) {
                 return p2.error;
             }
-
-            if (c->value <= 0) {
+            if (dist->length <= 0) {
+                return SKE_INVALID_CONSTRAINT_VALUE;
+            }
+        } else if (c->kind == SK_CK_ANGLE3) {
+            _sk_ConstraintAngle3* ang = &c->variants.angle3;
+            sk_PointPtrOpt p1 = sk_getPoint(sketch, ang->point1);
+            if (p1.error != SKE_OK) {
+                return p1.error;
+            }
+            sk_PointPtrOpt p2 = sk_getPoint(sketch, ang->point2);
+            if (p2.error != SKE_OK) {
+                return p2.error;
+            }
+            sk_PointPtrOpt p3 = sk_getPoint(sketch, ang->centerPoint);
+            if (p3.error != SKE_OK) {
+                return p3.error;
+            }
+            if (ang->angle == 0) {
                 return SKE_INVALID_CONSTRAINT_VALUE;
             }
         } else {
@@ -140,6 +186,16 @@ sk_Error _sk_validateConstraints(sk_Sketch* sketch) {
         }
     }
     return SKE_OK;
+}
+
+float _sk_normalizeAngle(float a) {
+    while (a > 180) {
+        a -= 360;
+    }
+    while (a < -180) {
+        a += 360;
+    }
+    return a;
 }
 
 // assumes that _sk_validateConstraints has been called (and was OK) and that no constraints or points have been added/removed since
@@ -152,14 +208,15 @@ float _sk_solveIteration(sk_Sketch* sketch) {
         }
 
         if (c->kind == SK_CK_DISTANCE) {
-            sk_Point* p1 = &sketch->points[c->point1.index];
-            sk_Point* p2 = &sketch->points[c->point2.index];
+            _sk_ConstraintDistance* d = &c->variants.dist;
+            sk_Point* p1 = &sketch->points[d->point1.index];
+            sk_Point* p2 = &sketch->points[d->point2.index];
             HMM_Vec2 diff = HMM_SubV2(p2->pt, p1->pt);  // p2 relative to p1
 
-            float error = c->value - HMM_LenV2(diff);  // positive error = points too close
+            float error = d->length - HMM_LenV2(diff);  // positive error = points too close
             // printf("initial error for constraint %d: %f\n", constraintIndex, error);
             if (fabsf(error) > maxError) {
-                maxError = fabsf(error);
+                maxError = fabsf(error);  // TODO: I believe that calculating this now is wrong, and it should be done after every constraint has been solved, but it's good enough for now
             }
 
             HMM_Vec2 pointDelta = HMM_MulV2F(HMM_NormV2(diff), -error / 2);
@@ -168,6 +225,35 @@ float _sk_solveIteration(sk_Sketch* sketch) {
             // float postDist = HMM_LenV2(HMM_SubV2(p1->pt, p2->pt));
             // printf("post solve error for constraint %d: %f\n", constraintIndex, fabsf(postDist - c->value));
             // printf("\n");
+        } else if (c->kind == SK_CK_ANGLE3) {
+            _sk_ConstraintAngle3* a = &c->variants.angle3;
+            sk_Point* p1 = &sketch->points[a->point1.index];
+            sk_Point* p2 = &sketch->points[a->point2.index];
+            sk_Point* center = &sketch->points[a->centerPoint.index];
+
+            HMM_Vec2 p1Rel = HMM_SubV2(p1->pt, center->pt);
+            HMM_Vec2 p2Rel = HMM_SubV2(p2->pt, center->pt);
+            float p1Angle = HMM_AngleRad(atan2f(p1Rel.Y, p1Rel.X));
+            float p2Angle = HMM_AngleRad(atan2f(p2Rel.Y, p2Rel.X));
+            float relAngle = _sk_normalizeAngle(p2Angle - p1Angle);
+            float error = (fabsf(relAngle)) - a->angle;  // positive indicates points too far
+
+            if (fabsf(error) > maxError) {  // see TODO above this
+                maxError = fabsf(error);
+            }
+
+            float relAngleNormalized = relAngle;
+            if (relAngleNormalized > 0) {
+                relAngleNormalized = 1;
+            } else if (relAngleNormalized < 0) {
+                relAngleNormalized = -1;
+            } else {
+                assert(false);
+            }
+            p1->pt = HMM_RotateV2(HMM_V2(HMM_LenV2(p1Rel), 0), (p1Angle + relAngleNormalized * (error / 2)));
+            p2->pt = HMM_RotateV2(HMM_V2(HMM_LenV2(p2Rel), 0), (p2Angle - relAngleNormalized * (error / 2)));
+            p1->pt = HMM_AddV2(p1->pt, center->pt);
+            p2->pt = HMM_AddV2(p2->pt, center->pt);
         } else {
             assert(false);
         }
@@ -197,13 +283,14 @@ void sk_tests() {
 
     sk_HandlePointOpt p1 = sk_pushPoint(&s, HMM_V2(0, 0));
     assert(p1.error == SKE_OK);
-    sk_HandlePointOpt p2 = sk_pushPoint(&s, HMM_V2(0.001, -0.001));
+    sk_HandlePointOpt p2 = sk_pushPoint(&s, HMM_V2(2, 5));
     assert(p2.error == SKE_OK);
-    sk_HandlePointOpt p3 = sk_pushPoint(&s, HMM_V2(-0.1, 0.1));
+    sk_HandlePointOpt p3 = sk_pushPoint(&s, HMM_V2(2, 4));
     assert(p3.error == SKE_OK);
 
     sk_pushDistanceConstraint(&s, 1, p1.ok, p2.ok);
     sk_pushDistanceConstraint(&s, 2, p2.ok, p3.ok);
+    sk_pushAngle3Constraint(&s, 90, p2.ok, p3.ok, p1.ok);
 
     assert(sk_solveSketch(&s) == SKE_OK);
 }
