@@ -111,6 +111,7 @@ sk_Error sk_pushDistanceConstraint(sk_Sketch* sketch, float length, sk_HandlePoi
     c.ok->kind = SK_CK_DISTANCE;
     c.ok->point1 = p1;
     c.ok->point2 = p2;
+    return SKE_OK;
 }
 
 // verifies that all constraints in use have valid values and valid point handles
