@@ -33,7 +33,7 @@ typedef struct {
     int32_t index;
     int32_t generation;
     sk_Point* ptr;
-} sk_HandlePoint;
+} sk_PointHandle;
 
 typedef enum {
     SK_LK_STRAIGHT,
@@ -43,8 +43,8 @@ typedef enum {
 } sk_LineKind;
 
 typedef struct {
-    sk_HandlePoint p1;
-    sk_HandlePoint p2;
+    sk_PointHandle p1;
+    sk_PointHandle p2;
 } sk_LineStraight;
 
 typedef struct {
@@ -60,7 +60,7 @@ typedef struct {
     int32_t index;
     int32_t generation;
     sk_Line* ptr;
-} sk_HandleLine;
+} sk_LineHandle;
 
 typedef enum {
     SK_CK_DISTANCE,
@@ -69,12 +69,12 @@ typedef enum {
 
 typedef struct {
     float length;
-    sk_HandleLine line;
+    sk_LineHandle line;
 } _sk_ConstraintDistance;
 
 typedef struct {
-    sk_HandleLine line1;
-    sk_HandleLine line2;
+    sk_LineHandle line1;
+    sk_LineHandle line2;
     float angle;
 } _sk_ConstraintAngleLines;
 
@@ -94,13 +94,13 @@ typedef struct {
     sk_Line lines[SK_MAX_LINE_COUNT];
 } sk_Sketch;
 
-OPTION(sk_HandlePoint, sk_Error);
-OPTION(sk_HandleLine, sk_Error);
+OPTION(sk_PointHandle, sk_Error);
+OPTION(sk_LineHandle, sk_Error);
 OPTION_NAME(sk_Line*, sk_Error, sk_LinePtrOpt);
 OPTION_NAME(sk_Point*, sk_Error, sk_PointPtrOpt);
 OPTION_NAME(sk_Constraint*, sk_Error, sk_ConstraintPtrOpt);
 
-sk_HandlePointOpt sk_pushPoint(sk_Sketch* sketch, HMM_Vec2 pt) {
+sk_PointHandleOpt sk_pointPush(sk_Sketch* sketch, HMM_Vec2 pt) {
     for (int64_t i = 0; i < SK_MAX_PT_COUNT; i++) {
         sk_Point* p = &sketch->points[i];
         if (p->inUse == false) {
@@ -109,16 +109,16 @@ sk_HandlePointOpt sk_pushPoint(sk_Sketch* sketch, HMM_Vec2 pt) {
             p->pt = pt;
             p->inUse = true;
             p->generation = gen + 1;
-            return (sk_HandlePointOpt){
+            return (sk_PointHandleOpt){
                 .error = SKE_OK,
                 .ok = {.index = i, .generation = p->generation},
             };
         }
     }
-    return (sk_HandlePointOpt){.error = SKE_OUT_OF_SPACE};
+    return (sk_PointHandleOpt){.error = SKE_OUT_OF_SPACE};
 }
 
-sk_PointPtrOpt sk_getPoint(sk_Sketch* sketch, sk_HandlePoint pointHandle) {
+sk_PointPtrOpt sk_pointGet(sk_Sketch* sketch, sk_PointHandle pointHandle) {
     sk_Point* p = &sketch->points[pointHandle.index];
     sk_Error e = SKE_OK;
     if (!p->inUse) {
@@ -129,8 +129,12 @@ sk_PointPtrOpt sk_getPoint(sk_Sketch* sketch, sk_HandlePoint pointHandle) {
     return (sk_PointPtrOpt){.ok = (e != SKE_OK) ? NULL : p, .error = e};
 }
 
-sk_Error sk_removePoint(sk_Sketch* sketch, sk_HandlePoint pointHandle) {
-    sk_PointPtrOpt p = sk_getPoint(sketch, pointHandle);
+bool sk_pointHandleEqual(sk_PointHandle a, sk_PointHandle b) {
+    return (a.generation == b.generation) && (a.index == b.index);
+}
+
+sk_Error sk_pointRemove(sk_Sketch* sketch, sk_PointHandle pointHandle) {
+    sk_PointPtrOpt p = sk_pointGet(sketch, pointHandle);
     if (p.error != SKE_OK) {
         return p.error;
     }
@@ -139,7 +143,7 @@ sk_Error sk_removePoint(sk_Sketch* sketch, sk_HandlePoint pointHandle) {
     return SKE_OK;
 }
 
-sk_HandleLineOpt _sk_pushLine(sk_Sketch* sketch) {
+sk_LineHandleOpt _sk_linePush(sk_Sketch* sketch) {
     for (int64_t i = 0; i < SK_MAX_LINE_COUNT; i++) {
         sk_Line* l = &sketch->lines[i];
         if (l->inUse == false) {
@@ -147,29 +151,46 @@ sk_HandleLineOpt _sk_pushLine(sk_Sketch* sketch) {
             memset(l, 0, sizeof(sk_Line));
             l->inUse = true;
             l->generation = gen + 1;
-            return (sk_HandleLineOpt){
+            return (sk_LineHandleOpt){
                 .error = SKE_OK,
-                .ok = (sk_HandleLine){.generation = l->generation, .index = i},
+                .ok = (sk_LineHandle){.generation = l->generation, .index = i},
             };
         }
     }
-    return (sk_HandleLineOpt){.error = SKE_OUT_OF_SPACE};
+    return (sk_LineHandleOpt){.error = SKE_OUT_OF_SPACE};
 }
 
-sk_HandleLineOpt sk_pushStraightLine(sk_Sketch* sketch, sk_HandlePoint pt1, sk_HandlePoint pt2) {
-    sk_HandleLineOpt l = _sk_pushLine(sketch);
+sk_LineHandleOpt sk_lineStraightPush(sk_Sketch* sketch, sk_PointHandle pt1, sk_PointHandle pt2) {
+    sk_LineHandleOpt l = _sk_linePush(sketch);
     if (l.error != SKE_OK) {
-        return (sk_HandleLineOpt){.error = l.error};
+        return (sk_LineHandleOpt){.error = l.error};
     }
     sk_Line* line = &sketch->lines[l.ok.index];
     line->kind = SK_LK_STRAIGHT;
     line->variants.straight.p1 = pt1;
     line->variants.straight.p2 = pt2;
+
+    for (int i = 0; i < SK_MAX_LINE_COUNT; i++) {
+        sk_Line* other = &sketch->lines[i];
+        if (!other->inUse) {
+            continue;
+        }
+        if (other->kind != SK_LK_STRAIGHT) {
+            continue;
+        }
+        sk_LineStraight* otherS = &other->variants.straight;
+        sk_LineStraight* thisS = &line->variants.straight;
+        if (otherS->p1 == thisS->p1 && otherS->p2 == thisS->p2) {
+            return (sk_LineHandleOpt){.error = SKE_DUPLICATE_REFERENCES};
+        } else if (otherS->p1 == thisS->p2 && otherS->p2 == thisS->p1) {
+            return (sk_LineHandleOpt){.error = SKE_DUPLICATE_REFERENCES};
+        }
+    }
     return l;
 }
 
 // NOTE: only validates the handle to the line, not any points inside of the line
-sk_LinePtrOpt sk_getLine(sk_Sketch* sketch, sk_HandleLine handle) {
+sk_LinePtrOpt sk_lineGet(sk_Sketch* sketch, sk_LineHandle handle) {
     sk_Line* l = &sketch->lines[handle.index];
     sk_Error e = SKE_OK;
     if (!l->inUse) {
@@ -180,8 +201,8 @@ sk_LinePtrOpt sk_getLine(sk_Sketch* sketch, sk_HandleLine handle) {
     return (sk_LinePtrOpt){.ok = (e != SKE_OK) ? NULL : l, .error = e};
 }
 
-sk_Error sk_removeLine(sk_Sketch* sketch, sk_HandleLine handle) {
-    sk_LinePtrOpt l = sk_getLine(sketch, handle);
+sk_Error sk_lineRemove(sk_Sketch* sketch, sk_LineHandle handle) {
+    sk_LinePtrOpt l = sk_lineGet(sketch, handle);
     if (l.error != SKE_OK) {
         return l.error;
     }
@@ -190,7 +211,7 @@ sk_Error sk_removeLine(sk_Sketch* sketch, sk_HandleLine handle) {
     return SKE_OK;
 }
 
-sk_ConstraintPtrOpt _sk_pushConstraint(sk_Sketch* sketch) {
+sk_ConstraintPtrOpt _sk_constraintPush(sk_Sketch* sketch) {
     for (int64_t i = 0; i < SK_MAX_CONSTRAINT_COUNT; i++) {
         sk_Constraint* c = &sketch->constraints[i];
         if (c->inUse == false) {
@@ -204,8 +225,8 @@ sk_ConstraintPtrOpt _sk_pushConstraint(sk_Sketch* sketch) {
     return (sk_ConstraintPtrOpt){.error = SKE_OUT_OF_SPACE};
 }
 
-sk_Error sk_pushDistanceConstraint(sk_Sketch* sketch, float length, sk_HandleLine line) {
-    sk_ConstraintPtrOpt c = _sk_pushConstraint(sketch);
+sk_Error sk_constraintDistancePush(sk_Sketch* sketch, float length, sk_LineHandle line) {
+    sk_ConstraintPtrOpt c = _sk_constraintPush(sketch);
     if (c.error != SKE_OK) {
         return c.error;
     }
@@ -216,8 +237,8 @@ sk_Error sk_pushDistanceConstraint(sk_Sketch* sketch, float length, sk_HandleLin
     return SKE_OK;
 }
 
-sk_Error sk_pushAngle3Constraint(sk_Sketch* sketch, float angle, sk_HandleLine line1, sk_HandleLine line2) {
-    sk_ConstraintPtrOpt c = _sk_pushConstraint(sketch);
+sk_Error sk_constraintAngleLinesPush(sk_Sketch* sketch, float angle, sk_LineHandle line1, sk_LineHandle line2) {
+    sk_ConstraintPtrOpt c = _sk_constraintPush(sketch);
     if (c.error != SKE_OK) {
         return c.error;
     }
@@ -230,7 +251,7 @@ sk_Error sk_pushAngle3Constraint(sk_Sketch* sketch, float angle, sk_HandleLine l
 }
 
 // verifies that all constraints in use have valid values and valid point handles
-sk_Error _sk_validateSketch(sk_Sketch* sketch) {
+sk_Error _sk_sketchValidate(sk_Sketch* sketch) {
     // CHECK ALL LINE REFS, FILL IN DIRECT POINTERS
     for (int i = 0; i < SK_MAX_LINE_COUNT; i++) {
         sk_Line* l = &sketch->lines[i];
@@ -240,12 +261,12 @@ sk_Error _sk_validateSketch(sk_Sketch* sketch) {
 
         if (l->kind == SK_LK_STRAIGHT) {
             sk_LineStraight* straight = &l->variants.straight;
-            sk_PointPtrOpt p1 = sk_getPoint(sketch, straight->p1);
+            sk_PointPtrOpt p1 = sk_pointGet(sketch, straight->p1);
             if (p1.error != SKE_OK) {
                 return p1.error;
             }
             straight->p1.ptr = p1.ok;
-            sk_PointPtrOpt p2 = sk_getPoint(sketch, straight->p2);
+            sk_PointPtrOpt p2 = sk_pointGet(sketch, straight->p2);
             if (p2.error != SKE_OK) {
                 return p2.error;
             }
@@ -268,7 +289,7 @@ sk_Error _sk_validateSketch(sk_Sketch* sketch) {
 
         if (c->kind == SK_CK_DISTANCE) {
             _sk_ConstraintDistance* dist = &c->variants.dist;
-            sk_LinePtrOpt e = sk_getLine(sketch, dist->line);
+            sk_LinePtrOpt e = sk_lineGet(sketch, dist->line);
             if (e.error != SKE_OK) {
                 return e.error;
             }
@@ -282,7 +303,7 @@ sk_Error _sk_validateSketch(sk_Sketch* sketch) {
         } else if (c->kind == SK_CK_ANGLE_LINES) {
             _sk_ConstraintAngleLines* ang = &c->variants.angleLines;
             {
-                sk_LinePtrOpt l1 = sk_getLine(sketch, ang->line1);
+                sk_LinePtrOpt l1 = sk_lineGet(sketch, ang->line1);
                 if (l1.error != SKE_OK) {
                     return l1.error;
                 }
@@ -292,7 +313,7 @@ sk_Error _sk_validateSketch(sk_Sketch* sketch) {
                 ang->line1.ptr = l1.ok;
             }
             {
-                sk_LinePtrOpt l2 = sk_getLine(sketch, ang->line2);
+                sk_LinePtrOpt l2 = sk_lineGet(sketch, ang->line2);
                 if (l2.error != SKE_OK) {
                     return l2.error;
                 }
@@ -318,7 +339,7 @@ float _sk_normalizeAngle(float a) {
     return a;
 }
 
-// assumes that _sk_validateSketch has been called (and was OK) and that no constraints or points or lines have been added/removed since (and the no kinds have changed)
+// assumes that _sk_sketchValidate has been called (and was OK) and that no constraints or points or lines have been added/removed since (and the no kinds have changed)
 float _sk_solveIteration(sk_Sketch* sketch) {
     float maxError = 0;
     for (int constraintIndex = 0; constraintIndex < SK_MAX_CONSTRAINT_COUNT; constraintIndex++) {
@@ -381,9 +402,9 @@ float _sk_solveIteration(sk_Sketch* sketch) {
     return maxError;
 }
 
-sk_Error sk_solveSketch(sk_Sketch* sketch) {
+sk_Error sk_sketchSolve(sk_Sketch* sketch) {
     // TODO: cull bad dependencies instead of stopping
-    sk_Error e = _sk_validateSketch(sketch);
+    sk_Error e = _sk_sketchValidate(sketch);
     if (e != SKE_OK) {
         return e;
     }
@@ -402,24 +423,24 @@ void sk_tests() {
     sk_Sketch s;
     memset(&s, 0, sizeof(s));
 
-    sk_HandlePointOpt p1 = sk_pushPoint(&s, HMM_V2(-1, -1));
+    sk_PointHandleOpt p1 = sk_pointPush(&s, HMM_V2(-1, -1));
     assert(p1.error == SKE_OK);
-    sk_HandlePointOpt p2 = sk_pushPoint(&s, HMM_V2(1, 0));
+    sk_PointHandleOpt p2 = sk_pointPush(&s, HMM_V2(1, 0));
     assert(p2.error == SKE_OK);
-    sk_HandlePointOpt p3 = sk_pushPoint(&s, HMM_V2(1, 1));
+    sk_PointHandleOpt p3 = sk_pointPush(&s, HMM_V2(1, 1));
     assert(p3.error == SKE_OK);
-    sk_HandlePointOpt p4 = sk_pushPoint(&s, HMM_V2(0, 1));
+    sk_PointHandleOpt p4 = sk_pointPush(&s, HMM_V2(0, 1));
     assert(p3.error == SKE_OK);
 
-    sk_pushDistanceConstraint(&s, 1, p1.ok, p2.ok);
-    sk_pushDistanceConstraint(&s, 1, p2.ok, p3.ok);
-    sk_pushDistanceConstraint(&s, 1, p3.ok, p4.ok);
-    sk_pushDistanceConstraint(&s, 1, p4.ok, p1.ok);
+    sk_constraintDistancePush(&s, 1, p1.ok, p2.ok);
+    sk_constraintDistancePush(&s, 1, p2.ok, p3.ok);
+    sk_constraintDistancePush(&s, 1, p3.ok, p4.ok);
+    sk_constraintDistancePush(&s, 1, p4.ok, p1.ok);
 
-    sk_pushAngle3Constraint(&s, 90, p3.ok, p1.ok, p2.ok);
-    sk_pushAngle3Constraint(&s, 90, p2.ok, p4.ok, p3.ok);
-    sk_pushAngle3Constraint(&s, 90, p1.ok, p3.ok, p4.ok);
-    sk_pushAngle3Constraint(&s, 90, p2.ok, p4.ok, p1.ok);
+    sk_constraintAngleLinesPush(&s, 90, p3.ok, p1.ok, p2.ok);
+    sk_constraintAngleLinesPush(&s, 90, p2.ok, p4.ok, p3.ok);
+    sk_constraintAngleLinesPush(&s, 90, p1.ok, p3.ok, p4.ok);
+    sk_constraintAngleLinesPush(&s, 90, p2.ok, p4.ok, p1.ok);
 
-    assert(sk_solveSketch(&s) == SKE_OK);
+    assert(sk_sketchSolve(&s) == SKE_OK);
 }
