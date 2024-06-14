@@ -236,7 +236,7 @@ float _sk_solveIteration(sk_Sketch* sketch) {
             float p1Angle = HMM_AngleRad(atan2f(p1Rel.Y, p1Rel.X));
             float p2Angle = HMM_AngleRad(atan2f(p2Rel.Y, p2Rel.X));
             float relAngle = _sk_normalizeAngle(p2Angle - p1Angle);
-            float error = (fabsf(relAngle)) - a->angle;  // positive indicates points too far
+            float error = fabsf(relAngle) - a->angle;  // positive indicates points too far
 
             if (fabsf(error) > maxError) {  // see TODO above this
                 maxError = fabsf(error);
@@ -281,16 +281,24 @@ void sk_tests() {
     sk_Sketch s;
     memset(&s, 0, sizeof(s));
 
-    sk_HandlePointOpt p1 = sk_pushPoint(&s, HMM_V2(0, 0));
+    sk_HandlePointOpt p1 = sk_pushPoint(&s, HMM_V2(-1, -1));
     assert(p1.error == SKE_OK);
-    sk_HandlePointOpt p2 = sk_pushPoint(&s, HMM_V2(2, 5));
+    sk_HandlePointOpt p2 = sk_pushPoint(&s, HMM_V2(1, 0));
     assert(p2.error == SKE_OK);
-    sk_HandlePointOpt p3 = sk_pushPoint(&s, HMM_V2(2, 4));
+    sk_HandlePointOpt p3 = sk_pushPoint(&s, HMM_V2(1, 1));
+    assert(p3.error == SKE_OK);
+    sk_HandlePointOpt p4 = sk_pushPoint(&s, HMM_V2(0, 1));
     assert(p3.error == SKE_OK);
 
     sk_pushDistanceConstraint(&s, 1, p1.ok, p2.ok);
-    sk_pushDistanceConstraint(&s, 2, p2.ok, p3.ok);
-    sk_pushAngle3Constraint(&s, 90, p2.ok, p3.ok, p1.ok);
+    sk_pushDistanceConstraint(&s, 1, p2.ok, p3.ok);
+    sk_pushDistanceConstraint(&s, 1, p3.ok, p4.ok);
+    sk_pushDistanceConstraint(&s, 1, p4.ok, p1.ok);
+
+    sk_pushAngle3Constraint(&s, 90, p3.ok, p1.ok, p2.ok);
+    sk_pushAngle3Constraint(&s, 90, p2.ok, p4.ok, p3.ok);
+    sk_pushAngle3Constraint(&s, 90, p1.ok, p3.ok, p4.ok);
+    sk_pushAngle3Constraint(&s, 90, p2.ok, p4.ok, p1.ok);
 
     assert(sk_solveSketch(&s) == SKE_OK);
 }
