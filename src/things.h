@@ -96,11 +96,15 @@ sk_PointPtrOpt sk_getPoint(sk_Sketch* sketch, sk_HandlePoint pointHandle) {
     return (sk_PointPtrOpt){.ok = (e != SKE_OK) ? NULL : p, .error = e};
 }
 
-// void sk_removePoint(sk_Sketch* sketch, sk_HandlePoint pointHandle) {
-//     sk_Point* p = sk_getPoint(sketch, pointHandle);
-//     p->inUse = false;
-//     memset(p, 0, sizeof(p));
-// }
+sk_Error sk_removePoint(sk_Sketch* sketch, sk_HandlePoint pointHandle) {
+    sk_PointPtrOpt p = sk_getPoint(sketch, pointHandle);
+    if (p.error != SKE_OK) {
+        return p.error;
+    }
+    p.ok->inUse = false;
+    memset(p.ok, 0, sizeof(sk_Point));
+    return SKE_OK;
+}
 
 sk_ConstraintPtrOpt _sk_pushConstraint(sk_Sketch* sketch) {
     for (int64_t i = 0; i < SK_MAX_CONSTRAINT_COUNT; i++) {
