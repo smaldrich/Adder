@@ -424,6 +424,16 @@ float _sk_normalizeAngle(float a) {
     return a;
 }
 
+float _sk_normalizeLineAngle(float a) {
+    while (a > 90) {
+        a -= 180;
+    }
+    while (a < -90) {
+        a += 180;
+    }
+    return a;
+}
+
 // p1 and p2 are both read from and written to
 // rotates both points around their center by the given angle
 void _sk_rotateStraightLine(HMM_Vec2* p1, HMM_Vec2* p2, float angle) {
@@ -473,8 +483,8 @@ float _sk_solveIteration(sk_Sketch* sketch) {
 
             HMM_Vec2 l1Rel = HMM_SubV2(*l1b, *l1a);  // p2 relative to p1
             HMM_Vec2 l2Rel = HMM_SubV2(*l2b, *l2a);
-            float l1Angle = HMM_AngleRad(atan2f(l1Rel.Y, l1Rel.X));
-            float l2Angle = HMM_AngleRad(atan2f(l2Rel.Y, l2Rel.X));
+            float l1Angle = _sk_normalizeLineAngle(HMM_AngleRad(atan2f(l1Rel.Y, l1Rel.X)));
+            float l2Angle = _sk_normalizeLineAngle(HMM_AngleRad(atan2f(l2Rel.Y, l2Rel.X)));
             float relAngle = _sk_normalizeAngle(l2Angle - l1Angle);  // l2 relative to l1
             float error = fabsf(relAngle) - a->angle;                // positive indicates points too far
 
@@ -488,7 +498,7 @@ float _sk_solveIteration(sk_Sketch* sketch) {
             } else if (relAngleNormalized < 0) {
                 relAngleNormalized = -1;
             } else {
-                assert(false);
+                relAngleNormalized = 0;
             }
 
             // apply calculated rotations to the points
@@ -545,10 +555,16 @@ void sk_tests() {
     sk_constraintDistancePush(&s, 1, l23.ok);
     sk_constraintDistancePush(&s, 1, l34.ok);
     sk_constraintDistancePush(&s, 1, l41.ok);
-    sk_constraintAngleLinesPush(&s, 90, l12.ok, l23.ok);
-    sk_constraintAngleLinesPush(&s, 90, l23.ok, l34.ok);
-    sk_constraintAngleLinesPush(&s, 90, l34.ok, l41.ok);
-    sk_constraintAngleLinesPush(&s, 90, l41.ok, l12.ok);
 
-    assert(sk_sketchSolve(&s) == SKE_OK);
+    sk_constraintAngleLinesPush(&s, 90, l12.ok, l23.ok);
+    sk_constraintAngleLinesPush(&s, 90, l34.ok, l41.ok);
+    sk_constraintAngleLinesPush(&s, 90, l12.ok, l41.ok);
+    sk_constraintAngleLinesPush(&s, 90, l23.ok, l34.ok);
+
+    sk_constraintAngleLinesPush(&s, 0, l12.ok, l34.ok);
+    sk_constraintAngleLinesPush(&s, 0, l23.ok, l41.ok);
+
+    sk_Error e = sk_sketchSolve(&s);
+    printf("solve result was: %d\n", (int)e);
+    assert(e == SKE_OK);
 }
