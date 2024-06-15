@@ -5,6 +5,7 @@
 #include "HMM/HandmadeMath.h"
 #include "base/allocators.h"
 #include "base/options.h"
+#include "base/testing.h"
 
 #define SK_MAX_PT_COUNT 10000
 #define SK_MAX_CONSTRAINT_COUNT 10000
@@ -148,7 +149,7 @@ sk_Error sk_pointRemove(sk_Sketch* sketch, sk_PointHandle pointHandle) {
         return p.error;
     }
     p.ok->inUse = false;
-    memset(p.ok, 0, sizeof(sk_Point));
+    p.ok->pt = HMM_V2(0, 0); // just in cose lol
     return SKE_OK;
 }
 
@@ -498,7 +499,7 @@ float _sk_solveIteration(sk_Sketch* sketch) {
             } else if (relAngleNormalized < 0) {
                 relAngleNormalized = -1;
             } else {
-                relAngleNormalized = 0;
+                relAngleNormalized = 1;  // in the case of the lines being perfectly parallel, pick a direction
             }
 
             // apply calculated rotations to the points
@@ -521,7 +522,7 @@ sk_Error sk_sketchSolve(sk_Sketch* sketch) {
 
     for (int i = 0; i < SK_MAX_SOLVE_ITERATIONS; i++) {
         float maxError = _sk_solveIteration(sketch);
-        printf("Error for iteration %d: %f\n", i, maxError);
+        // printf("Error for iteration %d: %f\n", i, maxError);
         if (maxError < SK_SOLVE_FAILED_THRESHOLD) {
             return SKE_OK;
         }
@@ -529,42 +530,111 @@ sk_Error sk_sketchSolve(sk_Sketch* sketch) {
     return SKE_SOLVE_FAILED;
 }
 
+void sk_sketchClear(sk_Sketch* sketch) {
+    memset(sketch, 0, sizeof(sk_Sketch));
+}
+
 void sk_tests() {
     sk_Sketch s;
-    memset(&s, 0, sizeof(s));
+    printf("\nRunning sketch tests:\n");
 
-    sk_PointHandleOpt p1 = sk_pointPush(&s, HMM_V2(-1, -1));
-    sk_PointHandleOpt p2 = sk_pointPush(&s, HMM_V2(1, 0));
-    sk_PointHandleOpt p3 = sk_pointPush(&s, HMM_V2(1, 1));
-    sk_PointHandleOpt p4 = sk_pointPush(&s, HMM_V2(0, 1));
-    assert(p1.error == SKE_OK);
-    assert(p2.error == SKE_OK);
-    assert(p3.error == SKE_OK);
-    assert(p4.error == SKE_OK);
+    {
+        sk_sketchClear(&s);
+        sk_PointHandleOpt p1 = sk_pointPush(&s, HMM_V2(-1, -1));
+        sk_PointHandleOpt p2 = sk_pointPush(&s, HMM_V2(1, 0));
+        sk_PointHandleOpt p3 = sk_pointPush(&s, HMM_V2(1, 1));
+        sk_PointHandleOpt p4 = sk_pointPush(&s, HMM_V2(0, 1));
 
-    sk_LineHandleOpt l12 = sk_lineStraightPush(&s, p1.ok, p2.ok);
-    sk_LineHandleOpt l23 = sk_lineStraightPush(&s, p2.ok, p3.ok);
-    sk_LineHandleOpt l34 = sk_lineStraightPush(&s, p3.ok, p4.ok);
-    sk_LineHandleOpt l41 = sk_lineStraightPush(&s, p4.ok, p1.ok);
-    assert(l12.error == SKE_OK);
-    assert(l23.error == SKE_OK);
-    assert(l34.error == SKE_OK);
-    assert(l41.error == SKE_OK);
+        sk_LineHandleOpt l12 = sk_lineStraightPush(&s, p1.ok, p2.ok);
+        sk_LineHandleOpt l23 = sk_lineStraightPush(&s, p2.ok, p3.ok);
+        sk_LineHandleOpt l34 = sk_lineStraightPush(&s, p3.ok, p4.ok);
+        sk_LineHandleOpt l41 = sk_lineStraightPush(&s, p4.ok, p1.ok);
 
-    sk_constraintDistancePush(&s, 1, l12.ok);
-    sk_constraintDistancePush(&s, 1, l23.ok);
-    sk_constraintDistancePush(&s, 1, l34.ok);
-    sk_constraintDistancePush(&s, 1, l41.ok);
+        sk_constraintDistancePush(&s, 1, l12.ok);
+        sk_constraintDistancePush(&s, 1, l23.ok);
+        sk_constraintDistancePush(&s, 1, l34.ok);
+        sk_constraintDistancePush(&s, 1, l41.ok);
 
-    sk_constraintAngleLinesPush(&s, 90, l12.ok, l23.ok);
-    sk_constraintAngleLinesPush(&s, 90, l34.ok, l41.ok);
-    sk_constraintAngleLinesPush(&s, 90, l12.ok, l41.ok);
-    sk_constraintAngleLinesPush(&s, 90, l23.ok, l34.ok);
+        sk_constraintAngleLinesPush(&s, 90, l12.ok, l23.ok);
+        sk_constraintAngleLinesPush(&s, 90, l34.ok, l41.ok);
+        sk_constraintAngleLinesPush(&s, 90, l12.ok, l41.ok);
+        sk_constraintAngleLinesPush(&s, 90, l23.ok, l34.ok);
 
-    sk_constraintAngleLinesPush(&s, 0, l12.ok, l34.ok);
-    sk_constraintAngleLinesPush(&s, 0, l23.ok, l41.ok);
+        sk_constraintAngleLinesPush(&s, 0, l12.ok, l34.ok);
+        sk_constraintAngleLinesPush(&s, 0, l23.ok, l41.ok);
 
-    sk_Error e = sk_sketchSolve(&s);
-    printf("solve result was: %d\n", (int)e);
-    assert(e == SKE_OK);
+        test_print(sk_sketchSolve(&s) == SKE_OK, "square test");
+    }
+
+    {
+        sk_sketchClear(&s);
+        sk_PointHandleOpt pt = sk_pointPush(&s, HMM_V2(0, 0));
+        sk_lineStraightPush(&s, pt.ok, pt.ok);
+
+        test_print(sk_sketchSolve(&s) == SKE_DUPLICATE_REFERENCES, "line with only one point");
+    }
+
+    {
+        sk_sketchClear(&s);
+        sk_PointHandleOpt p1 = sk_pointPush(&s, HMM_V2(0, 0));
+        sk_PointHandleOpt p2 = sk_pointPush(&s, HMM_V2(0, 0));
+        sk_lineStraightPush(&s, p1.ok, p2.ok);
+        sk_lineStraightPush(&s, p2.ok, p1.ok);
+
+        test_print(sk_sketchSolve(&s) == SKE_DUPLICATE_REFERENCES, "two lines across same points");
+    }
+
+    {
+        sk_sketchClear(&s);
+        sk_PointHandleOpt p1 = sk_pointPush(&s, HMM_V2(0, 0));
+        sk_PointHandleOpt p2 = sk_pointPush(&s, HMM_V2(0, 0));
+        sk_LineHandleOpt line = sk_lineStraightPush(&s, p1.ok, p2.ok);
+        sk_constraintDistancePush(&s, 1, line.ok);
+        sk_constraintDistancePush(&s, 2, line.ok);
+
+        test_print(sk_sketchSolve(&s) == SKE_DUPLICATE_REFERENCES, "duplicated distance constraint");
+    }
+
+    {
+        sk_sketchClear(&s);
+        sk_PointHandleOpt p1 = sk_pointPush(&s, HMM_V2(1, 0));
+        sk_PointHandleOpt p2 = sk_pointPush(&s, HMM_V2(0, 0));
+        sk_PointHandleOpt p3 = sk_pointPush(&s, HMM_V2(-1, 0));
+        sk_LineHandleOpt l12 = sk_lineStraightPush(&s, p1.ok, p2.ok);
+        sk_LineHandleOpt l23 = sk_lineStraightPush(&s, p2.ok, p3.ok);
+        sk_constraintAngleLinesPush(&s, 90, l12.ok, l23.ok);
+
+        test_print(sk_sketchSolve(&s) == SKE_OK, "flat joined angle constraint");
+    }
+
+    {
+        sk_sketchClear(&s);
+        sk_PointHandleOpt p1 = sk_pointPush(&s, HMM_V2(0, 0));
+        sk_PointHandleOpt p2 = sk_pointPush(&s, HMM_V2(0, 0));
+        sk_PointHandleOpt p3 = sk_pointPush(&s, HMM_V2(0, 0));
+        sk_LineHandleOpt l12 = sk_lineStraightPush(&s, p1.ok, p2.ok);
+        sk_LineHandleOpt l23 = sk_lineStraightPush(&s, p2.ok, p3.ok);
+        sk_constraintAngleLinesPush(&s, 90, l12.ok, l23.ok);
+        sk_constraintAngleLinesPush(&s, 90, l23.ok, l12.ok);
+
+        test_print(sk_sketchSolve(&s) == SKE_DUPLICATE_REFERENCES, "duplicated angle constraint");
+    }
+
+    {
+        sk_sketchClear(&s);
+        sk_PointHandleOpt pt = sk_pointPush(&s, HMM_V2(0, 0));
+        sk_pointPush(&s, HMM_V2(0, 0));
+        sk_pointRemove(&s, pt.ok);
+        pt = sk_pointPush(&s, HMM_V2(0, 0));
+        test_print((pt.ok.index == 0 && pt.ok.generation == 2), "point reallocation");
+    }
+
+    {
+        sk_sketchClear(&s);
+        sk_PointHandleOpt p1 = sk_pointPush(&s, HMM_V2(0, 0));
+        sk_PointHandleOpt p2 = sk_pointPush(&s, HMM_V2(0, 0));
+        sk_lineStraightPush(&s, p1.ok, p2.ok);
+        sk_pointRemove(&s, p2.ok);
+        test_print(sk_sketchSolve(&s) == SKE_RESOURCE_FREED, "line dependant point removed");
+    }
 }
