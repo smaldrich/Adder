@@ -80,6 +80,7 @@ typedef enum {
     SK_CK_DISTANCE,
     SK_CK_ANGLE_LINES,
     SK_CK_ANGLE_ARC,
+    SK_CK_ARC_UNIFORM,  // makes sure both ends are the same distance from the center // kind of a hack over having two distance constraints // TODO: should it be two distances or not?
 } sk_ConstraintKind;
 
 typedef struct {
@@ -99,10 +100,16 @@ typedef struct {
 } _sk_ConstraintAngleArc;
 
 typedef struct {
+    sk_LineHandle arc;
+    float radius;
+} _sk_ConstraintArcUniform;
+
+typedef struct {
     union {
         _sk_ConstraintDistance dist;
         _sk_ConstraintAngleLines angleLines;
         _sk_ConstraintAngleArc angleArc;
+        _sk_ConstraintArcUniform arcUniform;
     } variants;
     sk_ConstraintKind kind;
     int32_t generation;
@@ -300,6 +307,18 @@ sk_Error sk_constraintAngleArcPush(sk_Sketch* sketch, float angle, sk_LineHandle
     return SKE_OK;
 }
 
+sk_Error sk_constraintArcUniformPush(sk_Sketch* sketch, float radius, sk_LineHandle arc) {
+    sk_ConstraintPtrOpt c = _sk_constraintPush(sketch);
+    if (c.error != SKE_OK) {
+        return c.error;
+    }
+    c.ok->kind = SK_CK_ANGLE_ARC;
+    _sk_ConstraintArcUniform* a = &c.ok->variants.arcUniform;
+    a->arc = arc;
+    a->radius = radius;
+    return SKE_OK;
+}
+
 // verifies that all constraints in use have valid values and valid point handles
 // does line/constraint duplication checks - which aren't handled at push time
 // editing behaviour of this will likely change the correctness of _sk_solveIteration, because it directly relies on this
@@ -476,6 +495,19 @@ sk_Error _sk_sketchValidate(sk_Sketch* sketch) {
                 return SKE_INVALID_CONSTRAINT_VALUE;
             }
             ang->arc.ptr = arc.ok;
+        } else if (a->kind == SK_CK_ARC_UNIFORM) {
+            _sk_ConstraintArcUniform* uni = &a->variants.arcUniform;
+            sk_LinePtrOpt arc = sk_lineGet(sketch, uni->arc);
+            if (arc.error != SKE_OK) {
+                return arc.error;
+            }
+            if (arc.ok->kind != SK_LK_ARC) {
+                return SKE_INVALID_LINE_KIND;
+            }
+            if (uni->radius <= 0) {
+                return SKE_INVALID_CONSTRAINT_VALUE;
+            }
+            uni->arc.ptr = arc.ok;
         } else {
             assert(false);
         }
@@ -509,6 +541,12 @@ sk_Error _sk_sketchValidate(sk_Sketch* sketch) {
             } else if (a->kind == SK_CK_ANGLE_ARC) {
                 _sk_ConstraintAngleArc* aArc = &a->variants.angleArc;
                 _sk_ConstraintAngleArc* bArc = &b->variants.angleArc;
+                if (sk_lineHandleEq(aArc->arc, bArc->arc)) {
+                    return SKE_DUPLICATE_REFERENCES;
+                }
+            } else if (a->kind == SK_CK_ARC_UNIFORM) {
+                _sk_ConstraintArcUniform* aArc = &a->variants.arcUniform;
+                _sk_ConstraintArcUniform* bArc = &b->variants.arcUniform;
                 if (sk_lineHandleEq(aArc->arc, bArc->arc)) {
                     return SKE_DUPLICATE_REFERENCES;
                 }
@@ -636,7 +674,15 @@ float _sk_solveIteration(sk_Sketch* sketch) {
             if (error > maxError) {
                 maxError = error;
             }
-
+        } else if (c->kind == SK_CK_ARC_UNIFORM) {
+            _sk_ConstraintArcUniform* uni = &c->variants.arcUniform;
+            sk_LineArc* arc = &uni->arc.ptr->variants.arc;
+            float error1 = _sk_solveDistance(&arc->p1.ptr->pt, &arc->center.ptr->pt, uni->radius);
+            float error2 = _sk_solveDistance(&arc->p2.ptr->pt, &arc->center.ptr->pt, uni->radius);
+            float error = fmaxf(error1, error2);
+            if (error > maxError) {
+                maxError = error;
+            }
         } else {
             assert(false);
         }
