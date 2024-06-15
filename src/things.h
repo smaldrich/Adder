@@ -14,6 +14,16 @@
 #define SK_MAX_SOLVE_ITERATIONS 100
 #define SK_SOLVE_FAILED_THRESHOLD 0.001f
 
+// does not double eval expr :)
+// returns the result of expr if expr evaluates to something other than SKE_OK
+#define _SK_VALID_OR_RETURN(expr) \
+    do {                          \
+        sk_Error e = expr;        \
+        if (e != SKE_OK) {        \
+            return e;             \
+        }                         \
+    } while (0)
+
 typedef enum {
     SKE_OK,
     SKE_RESOURCE_FREED,
@@ -151,15 +161,22 @@ sk_PointHandleOpt sk_pointPush(sk_Sketch* sketch, HMM_Vec2 pt) {
     return (sk_PointHandleOpt){.error = SKE_OUT_OF_SPACE};
 }
 
-sk_PointPtrOpt sk_pointGet(sk_Sketch* sketch, sk_PointHandle pointHandle) {
-    sk_Point* p = &sketch->points[pointHandle.index];
+// if successful, fills in the ptr prop of the handle to point directly at the point struct // otherwise sets it to null
+sk_Error sk_pointHandleValidate(sk_Sketch* sketch, sk_PointHandle* pointHandle) {
+    sk_Point* p = &sketch->points[pointHandle->index];
     sk_Error e = SKE_OK;
     if (!p->inUse) {
         e = SKE_RESOURCE_FREED;
-    } else if (p->generation != pointHandle.generation) {
+    } else if (p->generation != pointHandle->generation) {
         e = SKE_RESOURCE_FREED;
     }
-    return (sk_PointPtrOpt){.ok = (e != SKE_OK) ? NULL : p, .error = e};
+
+    if (e == SKE_OK) {
+        pointHandle->ptr = p;
+    } else {
+        pointHandle->ptr = NULL;
+    }
+    return e;
 }
 
 bool sk_pointHandleEq(sk_PointHandle a, sk_PointHandle b) {
@@ -167,14 +184,12 @@ bool sk_pointHandleEq(sk_PointHandle a, sk_PointHandle b) {
 }
 
 sk_Error sk_pointRemove(sk_Sketch* sketch, sk_PointHandle pointHandle) {
-    sk_PointPtrOpt p = sk_pointGet(sketch, pointHandle);
-    if (p.error != SKE_OK) {
-        return p.error;
-    }
-    p.ok->inUse = false;
-    int32_t gen = p.ok->generation;
-    memset(p.ok, 0, sizeof(sk_Point));
-    p.ok->generation = gen;
+    _SK_VALID_OR_RETURN(sk_pointHandleValidate(sketch, &pointHandle));
+    sk_Point* p = pointHandle.ptr;
+    p->inUse = false;
+    int32_t gen = p->generation;
+    memset(p, 0, sizeof(sk_Point));
+    p->generation = gen;
     return SKE_OK;
 }
 
@@ -225,16 +240,23 @@ sk_LineHandleOpt sk_lineArcPush(sk_Sketch* sketch, sk_PointHandle pt1, sk_PointH
     return l;
 }
 
-// NOTE: only validates the handle to the line, not any points inside of the line
-sk_LinePtrOpt sk_lineGet(sk_Sketch* sketch, sk_LineHandle handle) {
-    sk_Line* l = &sketch->lines[handle.index];
+// NOTE: only validates the handle to the line, not any of the points inside of the line
+// if successful, fills in the ptr prop of the handle to point directly at the point struct // otherwise sets it to null
+sk_Error sk_lineHandleValidate(sk_Sketch* sketch, sk_LineHandle* handle) {
+    sk_Line* l = &sketch->lines[handle->index];
     sk_Error e = SKE_OK;
     if (!l->inUse) {
         e = SKE_RESOURCE_FREED;
-    } else if (l->generation != handle.generation) {
+    } else if (l->generation != handle->generation) {
         e = SKE_RESOURCE_FREED;
     }
-    return (sk_LinePtrOpt){.ok = (e != SKE_OK) ? NULL : l, .error = e};
+
+    if (e == SKE_OK) {
+        handle->ptr = l;
+    } else {
+        handle->ptr = NULL;
+    }
+    return e;
 }
 
 bool sk_lineHandleEq(sk_LineHandle a, sk_LineHandle b) {
@@ -242,13 +264,11 @@ bool sk_lineHandleEq(sk_LineHandle a, sk_LineHandle b) {
 }
 
 sk_Error sk_lineRemove(sk_Sketch* sketch, sk_LineHandle handle) {
-    sk_LinePtrOpt l = sk_lineGet(sketch, handle);
-    if (l.error != SKE_OK) {
-        return l.error;
-    }
-    int32_t generation = l.ok->generation;
-    memset(l.ok, 0, sizeof(sk_Line));
-    l.ok->generation = generation;
+    _SK_VALID_OR_RETURN(sk_lineHandleValidate(sketch, &handle));
+    sk_Line* l = handle.ptr;
+    int32_t generation = l->generation;
+    memset(l, 0, sizeof(sk_Line));
+    l->generation = generation;
     return SKE_OK;
 }
 
@@ -333,43 +353,13 @@ sk_Error _sk_sketchValidate(sk_Sketch* sketch) {
 
         if (l->kind == SK_LK_STRAIGHT) {
             sk_LineStraight* straight = &l->variants.straight;
-            {
-                sk_PointPtrOpt p1 = sk_pointGet(sketch, straight->p1);
-                if (p1.error != SKE_OK) {
-                    return p1.error;
-                }
-                straight->p1.ptr = p1.ok;
-            }
-            {
-                sk_PointPtrOpt p2 = sk_pointGet(sketch, straight->p2);
-                if (p2.error != SKE_OK) {
-                    return p2.error;
-                }
-                straight->p2.ptr = p2.ok;
-            }
+            _SK_VALID_OR_RETURN(sk_pointHandleValidate(sketch, &straight->p1));
+            _SK_VALID_OR_RETURN(sk_pointHandleValidate(sketch, &straight->p2));
         } else if (l->kind == SK_LK_ARC) {
             sk_LineArc* arc = &l->variants.arc;
-            {
-                sk_PointPtrOpt p1 = sk_pointGet(sketch, arc->p1);
-                if (p1.error != SKE_OK) {
-                    return p1.error;
-                }
-                arc->p1.ptr = p1.ok;
-            }
-            {
-                sk_PointPtrOpt p2 = sk_pointGet(sketch, arc->p2);
-                if (p2.error != SKE_OK) {
-                    return p2.error;
-                }
-                arc->p2.ptr = p2.ok;
-            }
-            {
-                sk_PointPtrOpt center = sk_pointGet(sketch, arc->center);
-                if (center.error != SKE_OK) {
-                    return center.error;
-                }
-                arc->center.ptr = center.ok;
-            }
+            _SK_VALID_OR_RETURN(sk_pointHandleValidate(sketch, &arc->p1));
+            _SK_VALID_OR_RETURN(sk_pointHandleValidate(sketch, &arc->p2));
+            _SK_VALID_OR_RETURN(sk_pointHandleValidate(sketch, &arc->center));
         } else {
             assert(false);
         }
@@ -446,68 +436,43 @@ sk_Error _sk_sketchValidate(sk_Sketch* sketch) {
 
         if (a->kind == SK_CK_DISTANCE) {
             _sk_ConstraintDistance* dist = &a->variants.dist;
-            sk_LinePtrOpt e = sk_lineGet(sketch, dist->line);
-            if (e.error != SKE_OK) {
-                return e.error;
-            }
-            if (e.ok->kind != SK_LK_STRAIGHT) {
+            _SK_VALID_OR_RETURN(sk_lineHandleValidate(sketch, &dist->line));
+            if (dist->line.ptr->kind != SK_LK_STRAIGHT) {
                 return SKE_INVALID_LINE_KIND;
             }
             if (dist->length <= 0) {
                 return SKE_INVALID_CONSTRAINT_VALUE;
             }
-            dist->line.ptr = e.ok;
         } else if (a->kind == SK_CK_ANGLE_LINES) {
             _sk_ConstraintAngleLines* ang = &a->variants.angleLines;
-            {
-                sk_LinePtrOpt l1 = sk_lineGet(sketch, ang->line1);
-                if (l1.error != SKE_OK) {
-                    return l1.error;
-                }
-                if (l1.ok->kind != SK_LK_STRAIGHT) {  // NOTE: making sure child lines are straight is important and relied on later
-                    return SKE_INVALID_LINE_KIND;
-                }
-                ang->line1.ptr = l1.ok;
+            _SK_VALID_OR_RETURN(sk_lineHandleValidate(sketch, &ang->line1));
+            if (ang->line1.ptr->kind != SK_LK_STRAIGHT) {
+                return SKE_INVALID_LINE_KIND;
             }
-            {
-                sk_LinePtrOpt l2 = sk_lineGet(sketch, ang->line2);
-                if (l2.error != SKE_OK) {
-                    return l2.error;
-                }
-                if (l2.ok->kind != SK_LK_STRAIGHT) {
-                    return SKE_INVALID_LINE_KIND;
-                }
-                ang->line2.ptr = l2.ok;
+            _SK_VALID_OR_RETURN(sk_lineHandleValidate(sketch, &ang->line2));
+            if (ang->line2.ptr->kind != SK_LK_STRAIGHT) {
+                return SKE_INVALID_LINE_KIND;
             }
-
             // TODO: this is missing an error when an angle has value of 0 and lines that share a point
             // TODO: is that an error tho?
         } else if (a->kind == SK_CK_ANGLE_ARC) {
             _sk_ConstraintAngleArc* ang = &a->variants.angleArc;
-            sk_LinePtrOpt arc = sk_lineGet(sketch, ang->arc);
-            if (arc.error != SKE_OK) {
-                return arc.error;
-            }
-            if (arc.ok->kind != SK_LK_ARC) {
+            _SK_VALID_OR_RETURN(sk_lineHandleValidate(sketch, &ang->arc));
+            if (ang->arc.ptr->kind != SK_LK_ARC) {
                 return SKE_INVALID_LINE_KIND;
             }
             if (ang->angle <= 0) {
                 return SKE_INVALID_CONSTRAINT_VALUE;
             }
-            ang->arc.ptr = arc.ok;
         } else if (a->kind == SK_CK_ARC_UNIFORM) {
             _sk_ConstraintArcUniform* uni = &a->variants.arcUniform;
-            sk_LinePtrOpt arc = sk_lineGet(sketch, uni->arc);
-            if (arc.error != SKE_OK) {
-                return arc.error;
-            }
-            if (arc.ok->kind != SK_LK_ARC) {
+            _SK_VALID_OR_RETURN(sk_lineHandleValidate(sketch, &uni->arc));
+            if (uni->arc.ptr->kind != SK_LK_ARC) {
                 return SKE_INVALID_LINE_KIND;
             }
             if (uni->radius <= 0) {
                 return SKE_INVALID_CONSTRAINT_VALUE;
             }
-            uni->arc.ptr = arc.ok;
         } else {
             assert(false);
         }
