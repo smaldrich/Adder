@@ -92,15 +92,16 @@ typedef enum {
     SK_CK_ANGLE_LINES,
     SK_CK_ANGLE_ARC,
     SK_CK_ARC_UNIFORM,  // makes sure both ends are the same distance from the center // kind of a hack over having two distance constraints // TODO: should it be two distances or not?
+    SK_CK_AXIS_ALIGNED,
 } sk_ConstraintKind;
 
 typedef struct {
     float length;
-    sk_LineHandle line;
+    sk_LineHandle line;  // required to be straight
 } _sk_ConstraintDistance;
 
 typedef struct {
-    sk_LineHandle line1;
+    sk_LineHandle line1;  // both required to be straight
     sk_LineHandle line2;
     float angle;
 } _sk_ConstraintAngleLines;
@@ -116,11 +117,16 @@ typedef struct {
 } _sk_ConstraintArcUniform;
 
 typedef struct {
+    sk_LineHandle line;  // required to be straight
+} _sk_ConstraintAxisAligned;
+
+typedef struct {
     union {
         _sk_ConstraintDistance dist;
         _sk_ConstraintAngleLines angleLines;
         _sk_ConstraintAngleArc angleArc;
         _sk_ConstraintArcUniform arcUniform;
+        _sk_ConstraintAxisAligned axisAligned;
     } variants;
     sk_ConstraintKind kind;
     int32_t generation;
@@ -340,6 +346,17 @@ sk_Error sk_constraintArcUniformPush(sk_Sketch* sketch, float radius, sk_LineHan
     return SKE_OK;
 }
 
+sk_Error sk_constraintAxisAlignedPush(sk_Sketch* sketch, sk_LineHandle straight) {
+    sk_ConstraintPtrOpt c = _sk_constraintPush(sketch);
+    if (c.error != SKE_OK) {
+        return c.error;
+    }
+    c.ok->kind = SK_CK_AXIS_ALIGNED;
+    _sk_ConstraintAxisAligned* a = &c.ok->variants.axisAligned;
+    a->line = straight;
+    return SKE_OK;
+}
+
 // verifies that all constraints in use have valid values and valid point handles
 // does line/constraint duplication checks - which aren't handled at push time
 // editing behaviour of this will likely change the correctness of _sk_solveIteration, because it directly relies on this
@@ -474,6 +491,12 @@ sk_Error _sk_sketchValidate(sk_Sketch* sketch) {
             if (uni->radius <= 0) {
                 return SKE_INVALID_CONSTRAINT_VALUE;
             }
+        } else if (a->kind == SK_CK_AXIS_ALIGNED) {
+            _sk_ConstraintAxisAligned* aa = &a->variants.axisAligned;
+            _SK_VALID_OR_RETURN(sk_lineHandleValidate(sketch, &aa->line));
+            if (aa->line.ptr->kind != SK_LK_STRAIGHT) {
+                return SKE_INVALID_LINE_KIND;
+            }
         } else {
             assert(false);
         }
@@ -516,6 +539,12 @@ sk_Error _sk_sketchValidate(sk_Sketch* sketch) {
                 if (sk_lineHandleEq(aArc->arc, bArc->arc)) {
                     return SKE_DUPLICATE_REFERENCES;
                 }
+            } else if (a->kind == SK_CK_AXIS_ALIGNED) {
+                _sk_ConstraintAxisAligned* aAx = &a->variants.axisAligned;
+                _sk_ConstraintAxisAligned* bAx = &b->variants.axisAligned;
+                if (sk_lineHandleEq(aAx->line, bAx->line)) {
+                    return SKE_DUPLICATE_REFERENCES;
+                }
             } else {
                 assert(false);
             }
@@ -529,7 +558,7 @@ float _sk_normalizeAngle(float a) {
     while (a > 180) {
         a -= 360;
     }
-    while (a < -180) {
+    while (a <= -180) {
         a += 360;
     }
     return a;
@@ -539,7 +568,7 @@ float _sk_normalizeLineAngle(float a) {
     while (a > 90) {
         a -= 180;
     }
-    while (a < -90) {
+    while (a <= -90) {
         a += 180;
     }
     return a;
@@ -649,6 +678,20 @@ float _sk_solveIteration(sk_Sketch* sketch) {
             if (error > maxError) {
                 maxError = error;
             }
+        } else if (c->kind == SK_CK_AXIS_ALIGNED) {
+            _sk_ConstraintAxisAligned* ax = &c->variants.axisAligned;
+            HMM_Vec2* p1 = &ax->line.ptr->variants.straight.p1.ptr->pt;
+            HMM_Vec2* p2 = &ax->line.ptr->variants.straight.p2.ptr->pt;
+            HMM_Vec2 rel = HMM_SubV2(*p1, *p2);  // P1 RELATIVE TO P2
+            float angle = HMM_AngleRad(atan2f(rel.Y, rel.X));
+
+            float target = roundf(angle / 90) * 90;  // round to the closest 90 degree angle
+            float error = target - angle;
+            _sk_rotateStraightLine(p1, p2, error);
+
+            if (fabsf(error) > maxError) {
+                maxError = fabsf(error);
+            }
         } else {
             assert(false);
         }
@@ -699,12 +742,8 @@ void sk_tests() {
         sk_constraintDistancePush(&s, 1, l41.ok);
 
         sk_constraintAngleLinesPush(&s, 90, l12.ok, l23.ok);
-        sk_constraintAngleLinesPush(&s, 90, l34.ok, l41.ok);
-        sk_constraintAngleLinesPush(&s, 90, l12.ok, l41.ok);
-        sk_constraintAngleLinesPush(&s, 90, l23.ok, l34.ok);
-
-        sk_constraintAngleLinesPush(&s, 0, l12.ok, l34.ok);
         sk_constraintAngleLinesPush(&s, 0, l23.ok, l41.ok);
+        sk_constraintAxisAlignedPush(&s, l41.ok);
 
         test_print(sk_sketchSolve(&s) == SKE_OK, "square");
     }
