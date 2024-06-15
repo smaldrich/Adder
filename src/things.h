@@ -28,12 +28,15 @@ typedef struct {
     bool inUse;
     int32_t generation;
 } sk_Point;
+// inUse and genetration should only be edited by sk_pointXXX functions
 
 typedef struct {
     int32_t index;
     int32_t generation;
     sk_Point* ptr;
 } sk_PointHandle;
+// UI should should not change this
+// ptr is only valid after an SKE_OK result from _sk_sketchValidate, UI code should not touch
 
 typedef enum {
     SK_LK_STRAIGHT,
@@ -55,6 +58,7 @@ typedef struct {
     int32_t generation;
     bool inUse;
 } sk_Line;
+// Kind should be considered immutable after construction
 
 typedef struct {
     int32_t index;
@@ -87,6 +91,7 @@ typedef struct {
     int32_t generation;
     bool inUse;
 } sk_Constraint;
+// Kind should be considered immutable after construction
 
 typedef struct {
     sk_Point points[SK_MAX_PT_COUNT];
@@ -99,6 +104,10 @@ OPTION(sk_LineHandle, sk_Error);
 OPTION_NAME(sk_Line*, sk_Error, sk_LinePtrOpt);
 OPTION_NAME(sk_Point*, sk_Error, sk_PointPtrOpt);
 OPTION_NAME(sk_Constraint*, sk_Error, sk_ConstraintPtrOpt);
+
+/////////////////////
+// POINTS
+/////////////////////
 
 sk_PointHandleOpt sk_pointPush(sk_Sketch* sketch, HMM_Vec2 pt) {
     for (int64_t i = 0; i < SK_MAX_PT_COUNT; i++) {
@@ -129,7 +138,7 @@ sk_PointPtrOpt sk_pointGet(sk_Sketch* sketch, sk_PointHandle pointHandle) {
     return (sk_PointPtrOpt){.ok = (e != SKE_OK) ? NULL : p, .error = e};
 }
 
-bool sk_pointHandleEqual(sk_PointHandle a, sk_PointHandle b) {
+bool sk_pointHandleEq(sk_PointHandle a, sk_PointHandle b) {
     return (a.generation == b.generation) && (a.index == b.index);
 }
 
@@ -142,6 +151,10 @@ sk_Error sk_pointRemove(sk_Sketch* sketch, sk_PointHandle pointHandle) {
     memset(p.ok, 0, sizeof(sk_Point));
     return SKE_OK;
 }
+
+/////////////////////
+// LINES
+/////////////////////
 
 sk_LineHandleOpt _sk_linePush(sk_Sketch* sketch) {
     for (int64_t i = 0; i < SK_MAX_LINE_COUNT; i++) {
@@ -170,22 +183,6 @@ sk_LineHandleOpt sk_lineStraightPush(sk_Sketch* sketch, sk_PointHandle pt1, sk_P
     line->variants.straight.p1 = pt1;
     line->variants.straight.p2 = pt2;
 
-    for (int i = 0; i < SK_MAX_LINE_COUNT; i++) {
-        sk_Line* other = &sketch->lines[i];
-        if (!other->inUse) {
-            continue;
-        }
-        if (other->kind != SK_LK_STRAIGHT) {
-            continue;
-        }
-        sk_LineStraight* otherS = &other->variants.straight;
-        sk_LineStraight* thisS = &line->variants.straight;
-        if (otherS->p1 == thisS->p1 && otherS->p2 == thisS->p2) {
-            return (sk_LineHandleOpt){.error = SKE_DUPLICATE_REFERENCES};
-        } else if (otherS->p1 == thisS->p2 && otherS->p2 == thisS->p1) {
-            return (sk_LineHandleOpt){.error = SKE_DUPLICATE_REFERENCES};
-        }
-    }
     return l;
 }
 
@@ -201,6 +198,10 @@ sk_LinePtrOpt sk_lineGet(sk_Sketch* sketch, sk_LineHandle handle) {
     return (sk_LinePtrOpt){.ok = (e != SKE_OK) ? NULL : l, .error = e};
 }
 
+bool sk_lineHandleEq(sk_LineHandle a, sk_LineHandle b) {
+    return (a.generation == b.generation) && (a.index == b.index);
+}
+
 sk_Error sk_lineRemove(sk_Sketch* sketch, sk_LineHandle handle) {
     sk_LinePtrOpt l = sk_lineGet(sketch, handle);
     if (l.error != SKE_OK) {
@@ -210,6 +211,10 @@ sk_Error sk_lineRemove(sk_Sketch* sketch, sk_LineHandle handle) {
     memset(l.ok, 0, sizeof(sk_Line));
     return SKE_OK;
 }
+
+/////////////////////
+// CONSTRAINTS
+/////////////////////
 
 sk_ConstraintPtrOpt _sk_constraintPush(sk_Sketch* sketch) {
     for (int64_t i = 0; i < SK_MAX_CONSTRAINT_COUNT; i++) {
@@ -251,8 +256,11 @@ sk_Error sk_constraintAngleLinesPush(sk_Sketch* sketch, float angle, sk_LineHand
 }
 
 // verifies that all constraints in use have valid values and valid point handles
+// does line/constraint duplication checks - which aren't handled at push time
+// editing behaviour of this will likely change the correctness of _sk_solveIteration, because it directly relies on this
+// things like the allowed kinds of lines for a constraint are notable, because they aren't checked in _sk_solveIteration
 sk_Error _sk_sketchValidate(sk_Sketch* sketch) {
-    // CHECK ALL LINE REFS, FILL IN DIRECT POINTERS
+    // check all line refs, fill in direct pointers
     for (int i = 0; i < SK_MAX_LINE_COUNT; i++) {
         sk_Line* l = &sketch->lines[i];
         if (!l->inUse) {
@@ -261,34 +269,76 @@ sk_Error _sk_sketchValidate(sk_Sketch* sketch) {
 
         if (l->kind == SK_LK_STRAIGHT) {
             sk_LineStraight* straight = &l->variants.straight;
-            sk_PointPtrOpt p1 = sk_pointGet(sketch, straight->p1);
-            if (p1.error != SKE_OK) {
-                return p1.error;
+            {
+                sk_PointPtrOpt p1 = sk_pointGet(sketch, straight->p1);
+                if (p1.error != SKE_OK) {
+                    return p1.error;
+                }
+                straight->p1.ptr = p1.ok;
             }
-            straight->p1.ptr = p1.ok;
-            sk_PointPtrOpt p2 = sk_pointGet(sketch, straight->p2);
-            if (p2.error != SKE_OK) {
-                return p2.error;
-            }
-            straight->p2.ptr = p2.ok;
-
-            if (p1.ok == p2.ok) {
-                return SKE_DUPLICATE_REFERENCES;
+            {
+                sk_PointPtrOpt p2 = sk_pointGet(sketch, straight->p2);
+                if (p2.error != SKE_OK) {
+                    return p2.error;
+                }
+                straight->p2.ptr = p2.ok;
             }
         } else {
             assert(false);
         }
     }
 
-    // CHECK ALL CONSTRAINT REFS, FILL IN DIRECT PTRS
-    for (int i = 0; i < SK_MAX_CONSTRAINT_COUNT; i++) {
-        sk_Constraint* c = &sketch->constraints[i];
-        if (!c->inUse) {
+    // check for line duplicates and lines that go to and from the same point
+    for (int aIdx = 0; aIdx < SK_MAX_LINE_COUNT; aIdx++) {
+        sk_Line* a = &sketch->lines[aIdx];
+        if (!a->inUse) {
             continue;
         }
 
-        if (c->kind == SK_CK_DISTANCE) {
-            _sk_ConstraintDistance* dist = &c->variants.dist;
+        if (a->kind == SK_LK_STRAIGHT) {
+            // if same start and end, error
+            if (sk_pointHandleEq(a->variants.straight.p1, a->variants.straight.p2)) {
+                return SKE_DUPLICATE_REFERENCES;  // TODO: is this a good error to report?
+            }
+        } else {
+            assert(false);
+        }
+
+        // check for duplicates
+        for (int bIdx = 0; bIdx < SK_MAX_LINE_COUNT; bIdx++) {
+            sk_Line* b = &sketch->lines[bIdx];
+            if (!b->inUse) {  // skip unused
+                continue;
+            } else if (b->kind != a->kind) {  // check A and B are the same kind
+                continue;
+            } else if (bIdx == aIdx) {  // dont check against self
+                continue;
+            }
+
+            // A and B are the same kind at this point, so just check A's
+            if (a->kind == SK_LK_STRAIGHT) {
+                sk_LineStraight* as = &a->variants.straight;
+                sk_LineStraight* bs = &b->variants.straight;
+                if (sk_pointHandleEq(bs->p1, as->p1) && sk_pointHandleEq(bs->p2, as->p2)) {
+                    return SKE_DUPLICATE_REFERENCES;
+                } else if (sk_pointHandleEq(bs->p1, as->p2) && sk_pointHandleEq(bs->p2, as->p1)) {
+                    return SKE_DUPLICATE_REFERENCES;
+                }
+            } else {
+                assert(false);
+            }
+        }
+    }
+
+    // check all constraint refs - for correct kind as well, fill in direct ptrs
+    for (int aIdx = 0; aIdx < SK_MAX_CONSTRAINT_COUNT; aIdx++) {
+        sk_Constraint* a = &sketch->constraints[aIdx];
+        if (!a->inUse) {
+            continue;
+        }
+
+        if (a->kind == SK_CK_DISTANCE) {
+            _sk_ConstraintDistance* dist = &a->variants.dist;
             sk_LinePtrOpt e = sk_lineGet(sketch, dist->line);
             if (e.error != SKE_OK) {
                 return e.error;
@@ -300,14 +350,14 @@ sk_Error _sk_sketchValidate(sk_Sketch* sketch) {
                 return SKE_INVALID_CONSTRAINT_VALUE;
             }
             dist->line.ptr = e.ok;
-        } else if (c->kind == SK_CK_ANGLE_LINES) {
-            _sk_ConstraintAngleLines* ang = &c->variants.angleLines;
+        } else if (a->kind == SK_CK_ANGLE_LINES) {
+            _sk_ConstraintAngleLines* ang = &a->variants.angleLines;
             {
                 sk_LinePtrOpt l1 = sk_lineGet(sketch, ang->line1);
                 if (l1.error != SKE_OK) {
                     return l1.error;
                 }
-                if (l1.ok->kind != SK_LK_STRAIGHT) {
+                if (l1.ok->kind != SK_LK_STRAIGHT) {  // NOTE: making sure child lines are straight is important and relied on later
                     return SKE_INVALID_LINE_KIND;
                 }
                 ang->line1.ptr = l1.ok;
@@ -322,10 +372,45 @@ sk_Error _sk_sketchValidate(sk_Sketch* sketch) {
                 }
                 ang->line2.ptr = l2.ok;
             }
+
+            // TODO: this is missing an error when an angle has value of 0 and lines that share a point
+            // TODO: is that an error tho?
         } else {
             assert(false);
         }
+
+        // check for duplicates of this constraint
+        for (int bIdx = 0; bIdx < SK_MAX_CONSTRAINT_COUNT; bIdx++) {
+            sk_Constraint* b = &sketch->constraints[bIdx];
+            if (!b->inUse) {
+                continue;
+            } else if (b->kind != a->kind) {
+                continue;
+            } else if (bIdx == aIdx) {
+                continue;
+            }
+
+            // A and B at this point have the same kind, so only one needs to be checked
+            if (a->kind == SK_CK_DISTANCE) {
+                // lines have already been deduplicated, so checking for the same line is correct
+                if (sk_lineHandleEq(a->variants.dist.line, b->variants.dist.line)) {
+                    return SKE_DUPLICATE_REFERENCES;
+                }
+            } else if (a->kind == SK_CK_ANGLE_LINES) {
+                _sk_ConstraintAngleLines* al = &a->variants.angleLines;
+                _sk_ConstraintAngleLines* bl = &b->variants.angleLines;
+                // check if angle constraints have the same lines as each other
+                if (sk_lineHandleEq(al->line1, bl->line1) && sk_lineHandleEq(al->line2, bl->line2)) {
+                    return SKE_DUPLICATE_REFERENCES;
+                } else if (sk_lineHandleEq(al->line1, bl->line2) && sk_lineHandleEq(al->line2, bl->line1)) {
+                    return SKE_DUPLICATE_REFERENCES;
+                }
+            } else {
+                assert(false);
+            }
+        }
     }
+
     return SKE_OK;
 }
 
@@ -339,7 +424,18 @@ float _sk_normalizeAngle(float a) {
     return a;
 }
 
-// assumes that _sk_sketchValidate has been called (and was OK) and that no constraints or points or lines have been added/removed since (and the no kinds have changed)
+// p1 and p2 are both read from and written to
+// rotates both points around their center by the given angle
+void _sk_rotateStraightLine(HMM_Vec2* p1, HMM_Vec2* p2, float angle) {
+    HMM_Vec2 center = HMM_DivV2F(HMM_AddV2(*p1, *p2), 2.0f);
+    HMM_Vec2 rel = HMM_SubV2(*p1, center);  // p1 relative to center
+    HMM_Vec2 rotated = HMM_RotateV2(rel, angle);
+    *p1 = HMM_AddV2(center, rotated);
+    *p2 = HMM_AddV2(center, HMM_SubV2(HMM_V2(0, 0), rotated));
+}
+
+// assumes that _sk_sketchValidate has been called (and was OK) and that no constraints or points or lines have been added/removed since (and that no kinds have changed)
+// relies on the kinds of lines for each constraint being checked and correct
 float _sk_solveIteration(sk_Sketch* sketch) {
     float maxError = 0;
     for (int constraintIndex = 0; constraintIndex < SK_MAX_CONSTRAINT_COUNT; constraintIndex++) {
@@ -368,18 +464,21 @@ float _sk_solveIteration(sk_Sketch* sketch) {
             // printf("\n");
         } else if (c->kind == SK_CK_ANGLE_LINES) {
             _sk_ConstraintAngleLines* a = &c->variants.angleLines;
-            sk_Point* p1 = &sketch->points[a->point1.index];
-            sk_Point* p2 = &sketch->points[a->point2.index];
-            sk_Point* center = &sketch->points[a->centerPoint.index];
+            sk_LineStraight* l1 = &a->line1.ptr->variants.straight;
+            sk_LineStraight* l2 = &a->line2.ptr->variants.straight;
+            HMM_Vec2* l1a = &l1->p1.ptr->pt;
+            HMM_Vec2* l1b = &l1->p2.ptr->pt;
+            HMM_Vec2* l2a = &l2->p1.ptr->pt;
+            HMM_Vec2* l2b = &l2->p2.ptr->pt;
 
-            HMM_Vec2 p1Rel = HMM_SubV2(p1->pt, center->pt);
-            HMM_Vec2 p2Rel = HMM_SubV2(p2->pt, center->pt);
-            float p1Angle = HMM_AngleRad(atan2f(p1Rel.Y, p1Rel.X));
-            float p2Angle = HMM_AngleRad(atan2f(p2Rel.Y, p2Rel.X));
-            float relAngle = _sk_normalizeAngle(p2Angle - p1Angle);
-            float error = fabsf(relAngle) - a->angle;  // positive indicates points too far
+            HMM_Vec2 l1Rel = HMM_SubV2(*l1b, *l1a);  // p2 relative to p1
+            HMM_Vec2 l2Rel = HMM_SubV2(*l2b, *l2a);
+            float l1Angle = HMM_AngleRad(atan2f(l1Rel.Y, l1Rel.X));
+            float l2Angle = HMM_AngleRad(atan2f(l2Rel.Y, l2Rel.X));
+            float relAngle = _sk_normalizeAngle(l2Angle - l1Angle);  // l2 relative to l1
+            float error = fabsf(relAngle) - a->angle;                // positive indicates points too far
 
-            if (fabsf(error) > maxError) {  // see TODO above this
+            if (fabsf(error) > maxError) {  // TODO: see above todo in the distance constraint solve
                 maxError = fabsf(error);
             }
 
@@ -391,10 +490,11 @@ float _sk_solveIteration(sk_Sketch* sketch) {
             } else {
                 assert(false);
             }
-            p1->pt = HMM_RotateV2(HMM_V2(HMM_LenV2(p1Rel), 0), (p1Angle + relAngleNormalized * (error / 2)));
-            p2->pt = HMM_RotateV2(HMM_V2(HMM_LenV2(p2Rel), 0), (p2Angle - relAngleNormalized * (error / 2)));
-            p1->pt = HMM_AddV2(p1->pt, center->pt);
-            p2->pt = HMM_AddV2(p2->pt, center->pt);
+
+            // apply calculated rotations to the points
+            float rot = relAngleNormalized * (error / 2);
+            _sk_rotateStraightLine(l1a, l1b, rot);
+            _sk_rotateStraightLine(l2a, l2b, -rot);
         } else {
             assert(false);
         }
@@ -424,23 +524,31 @@ void sk_tests() {
     memset(&s, 0, sizeof(s));
 
     sk_PointHandleOpt p1 = sk_pointPush(&s, HMM_V2(-1, -1));
-    assert(p1.error == SKE_OK);
     sk_PointHandleOpt p2 = sk_pointPush(&s, HMM_V2(1, 0));
-    assert(p2.error == SKE_OK);
     sk_PointHandleOpt p3 = sk_pointPush(&s, HMM_V2(1, 1));
-    assert(p3.error == SKE_OK);
     sk_PointHandleOpt p4 = sk_pointPush(&s, HMM_V2(0, 1));
+    assert(p1.error == SKE_OK);
+    assert(p2.error == SKE_OK);
     assert(p3.error == SKE_OK);
+    assert(p4.error == SKE_OK);
 
-    sk_constraintDistancePush(&s, 1, p1.ok, p2.ok);
-    sk_constraintDistancePush(&s, 1, p2.ok, p3.ok);
-    sk_constraintDistancePush(&s, 1, p3.ok, p4.ok);
-    sk_constraintDistancePush(&s, 1, p4.ok, p1.ok);
+    sk_LineHandleOpt l12 = sk_lineStraightPush(&s, p1.ok, p2.ok);
+    sk_LineHandleOpt l23 = sk_lineStraightPush(&s, p2.ok, p3.ok);
+    sk_LineHandleOpt l34 = sk_lineStraightPush(&s, p3.ok, p4.ok);
+    sk_LineHandleOpt l41 = sk_lineStraightPush(&s, p4.ok, p1.ok);
+    assert(l12.error == SKE_OK);
+    assert(l23.error == SKE_OK);
+    assert(l34.error == SKE_OK);
+    assert(l41.error == SKE_OK);
 
-    sk_constraintAngleLinesPush(&s, 90, p3.ok, p1.ok, p2.ok);
-    sk_constraintAngleLinesPush(&s, 90, p2.ok, p4.ok, p3.ok);
-    sk_constraintAngleLinesPush(&s, 90, p1.ok, p3.ok, p4.ok);
-    sk_constraintAngleLinesPush(&s, 90, p2.ok, p4.ok, p1.ok);
+    sk_constraintDistancePush(&s, 1, l12.ok);
+    sk_constraintDistancePush(&s, 1, l23.ok);
+    sk_constraintDistancePush(&s, 1, l34.ok);
+    sk_constraintDistancePush(&s, 1, l41.ok);
+    sk_constraintAngleLinesPush(&s, 90, l12.ok, l23.ok);
+    sk_constraintAngleLinesPush(&s, 90, l23.ok, l34.ok);
+    sk_constraintAngleLinesPush(&s, 90, l34.ok, l41.ok);
+    sk_constraintAngleLinesPush(&s, 90, l41.ok, l12.ok);
 
     assert(sk_sketchSolve(&s) == SKE_OK);
 }
