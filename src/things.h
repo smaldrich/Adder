@@ -149,7 +149,9 @@ sk_Error sk_pointRemove(sk_Sketch* sketch, sk_PointHandle pointHandle) {
         return p.error;
     }
     p.ok->inUse = false;
-    p.ok->pt = HMM_V2(0, 0);  // just in cose lol
+    int32_t gen = p.ok->generation;
+    memset(p.ok, 0, sizeof(sk_Point));
+    p.ok->generation = gen;
     return SKE_OK;
 }
 
@@ -208,8 +210,9 @@ sk_Error sk_lineRemove(sk_Sketch* sketch, sk_LineHandle handle) {
     if (l.error != SKE_OK) {
         return l.error;
     }
-    l.ok->inUse = false;
+    int32_t generation = l.ok->generation;
     memset(l.ok, 0, sizeof(sk_Line));
+    l.ok->generation = generation;
     return SKE_OK;
 }
 
