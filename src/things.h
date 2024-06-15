@@ -48,6 +48,7 @@ typedef struct {
 } sk_PointHandle;
 // UI should should not change this
 // ptr is only valid after an SKE_OK result from _sk_sketchValidate, UI code should not touch
+// internally, only valid after calling sk_pointHandleValidate()
 
 typedef enum {
     SK_LK_STRAIGHT,
@@ -764,32 +765,34 @@ void sk_tests() {
 
     {
         sk_sketchClear(&s);
-        sk_PointHandleOpt pt = sk_pointPush(&s, HMM_V2(0, 0));
-        sk_pointPush(&s, HMM_V2(0, 0));
-        sk_pointRemove(&s, pt.ok);
-        pt = sk_pointPush(&s, HMM_V2(0, 0));
-        test_print((pt.ok.index == 0 && pt.ok.generation == 2), "point reallocation");
+        sk_PointHandleOpt p1 = sk_pointPush(&s, HMM_V2(0, 0));
+        sk_PointHandleOpt p2 = sk_pointPush(&s, HMM_V2(1, 0));
+        sk_LineHandleOpt l = sk_lineStraightPush(&s, p1.ok, p2.ok);
+        sk_constraintDistancePush(&s, 2, l.ok);
+
+        sk_pointRemove(&s, p1.ok);
+        p1 = sk_pointPush(&s, HMM_V2(0, 0));
+
+        test_print((p1.ok.index == 0 && p1.ok.generation == 2), "point reallocation");
+        test_print(sk_sketchSolve(&s) == SKE_RESOURCE_FREED, "reallocated point reference breaks");
     }
 
     {
         sk_sketchClear(&s);
         sk_PointHandleOpt p1 = sk_pointPush(&s, HMM_V2(0, 0));
-        sk_PointHandleOpt p2 = sk_pointPush(&s, HMM_V2(0, 0));
-        sk_lineStraightPush(&s, p1.ok, p2.ok);
-        sk_pointRemove(&s, p2.ok);
-        test_print(sk_sketchSolve(&s) == SKE_RESOURCE_FREED, "line dependant point removed");
-    }
+        sk_PointHandleOpt p2 = sk_pointPush(&s, HMM_V2(1, 0));
+        sk_PointHandleOpt p3 = sk_pointPush(&s, HMM_V2(0, 1));
 
-    {
-        sk_sketchClear(&s);
-        sk_PointHandleOpt p1 = sk_pointPush(&s, HMM_V2(0, 0));
-        sk_PointHandleOpt p2 = sk_pointPush(&s, HMM_V2(0, 0));
-        sk_PointHandleOpt p3 = sk_pointPush(&s, HMM_V2(0, 0));
-        sk_LineHandleOpt l1 = sk_lineStraightPush(&s, p1.ok, p2.ok);
-        sk_LineHandleOpt l2 = sk_lineStraightPush(&s, p2.ok, p3.ok);
-        sk_constraintAngleLinesPush(&s, 10, l1.ok, l2.ok);
-        sk_lineRemove(&s, l2.ok);
-        test_print(sk_sketchSolve(&s) == SKE_RESOURCE_FREED, "angle constraint dependant line removed");
+        sk_LineHandleOpt l12 = sk_lineStraightPush(&s, p1.ok, p2.ok);
+        sk_LineHandleOpt l23 = sk_lineStraightPush(&s, p2.ok, p3.ok);
+        sk_constraintDistancePush(&s, 1, l12.ok);
+        sk_constraintDistancePush(&s, 2, l23.ok);
+
+        sk_lineRemove(&s, l12.ok);
+        l12 = sk_lineStraightPush(&s, p1.ok, p2.ok);
+
+        test_print((l12.ok.index == 0 && l12.ok.generation == 2), "line reallocation");
+        test_print(sk_sketchSolve(&s) == SKE_RESOURCE_FREED, "reallocated line reference breaks");
     }
 
     {
