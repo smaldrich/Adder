@@ -312,7 +312,7 @@ sk_Error sk_constraintArcUniformPush(sk_Sketch* sketch, float radius, sk_LineHan
     if (c.error != SKE_OK) {
         return c.error;
     }
-    c.ok->kind = SK_CK_ANGLE_ARC;
+    c.ok->kind = SK_CK_ARC_UNIFORM;
     _sk_ConstraintArcUniform* a = &c.ok->variants.arcUniform;
     a->arc = arc;
     a->radius = radius;
@@ -745,11 +745,6 @@ void sk_tests() {
 
     {
         sk_sketchClear(&s);
-        test_print(sk_sketchSolve(&s) == SKE_OK, "rounded triangle");
-    }
-
-    {
-        sk_sketchClear(&s);
         sk_PointHandleOpt pt = sk_pointPush(&s, HMM_V2(0, 0));
         sk_lineStraightPush(&s, pt.ok, pt.ok);
 
@@ -830,5 +825,17 @@ void sk_tests() {
         sk_constraintAngleLinesPush(&s, 10, l1.ok, l2.ok);
         sk_lineRemove(&s, l2.ok);
         test_print(sk_sketchSolve(&s) == SKE_RESOURCE_FREED, "angle constraint dependant line removed");
+    }
+
+    {
+        sk_sketchClear(&s);
+        sk_PointHandleOpt p1 = sk_pointPush(&s, HMM_V2(0.1, 0));
+        sk_PointHandleOpt p2 = sk_pointPush(&s, HMM_V2(0, 0));
+        sk_PointHandleOpt p3 = sk_pointPush(&s, HMM_V2(0, -1));
+        sk_LineHandleOpt arc = sk_lineArcPush(&s, p1.ok, p3.ok, p2.ok);
+
+        sk_constraintAngleArcPush(&s, 60, arc.ok);
+        // sk_constraintArcUniformPush(&s, 1, arc.ok);
+        test_print(sk_sketchSolve(&s) == SKE_OK, "angled arc");
     }
 }
