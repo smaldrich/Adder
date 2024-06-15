@@ -620,7 +620,7 @@ float _sk_solveAngle(HMM_Vec2* p1a, HMM_Vec2* p1b, HMM_Vec2* p2a, HMM_Vec2* p2b,
 // returns initial unsigned error
 //  TODO: shouldn't it be calculated after every constraint has been solved for the iteration?
 float _sk_solveDistance(HMM_Vec2* p1, HMM_Vec2* p2, float length) {
-    HMM_Vec2 diff = HMM_SubV2(*p1, *p2);     // p2 relative to p1
+    HMM_Vec2 diff = HMM_SubV2(*p2, *p1);     // p2 relative to p1
     float error = length - HMM_LenV2(diff);  // positive error = points too close
     // printf("initial error for constraint %d: %f\n", constraintIndex, error);
     HMM_Vec2 pointDelta = HMM_MulV2F(HMM_NormV2(diff), -error / 2);
@@ -835,7 +835,7 @@ void sk_tests() {
         sk_LineHandleOpt arc = sk_lineArcPush(&s, p1.ok, p3.ok, p2.ok);
 
         sk_constraintAngleArcPush(&s, 60, arc.ok);
-        // sk_constraintArcUniformPush(&s, 1, arc.ok);
-        test_print(sk_sketchSolve(&s) == SKE_OK, "angled arc");
+        sk_constraintArcUniformPush(&s, 1, arc.ok);
+        test_print(sk_sketchSolve(&s) == SKE_OK, "uniform angled arc");
     }
 }
