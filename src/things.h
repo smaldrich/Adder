@@ -779,18 +779,6 @@ void sk_tests() {
 
     {
         sk_sketchClear(&s);
-        sk_PointHandleOpt p1 = sk_pointPush(&s, HMM_V2(1, 0));
-        sk_PointHandleOpt p2 = sk_pointPush(&s, HMM_V2(0, 0));
-        sk_PointHandleOpt p3 = sk_pointPush(&s, HMM_V2(-1, 0));
-        sk_LineHandleOpt l12 = sk_lineStraightPush(&s, p1.ok, p2.ok);
-        sk_LineHandleOpt l23 = sk_lineStraightPush(&s, p2.ok, p3.ok);
-        sk_constraintAngleLinesPush(&s, 90, l12.ok, l23.ok);
-
-        test_print(sk_sketchSolve(&s) == SKE_OK, "flat joined angle constraint");
-    }
-
-    {
-        sk_sketchClear(&s);
         sk_PointHandleOpt p1 = sk_pointPush(&s, HMM_V2(0, 0));
         sk_PointHandleOpt p2 = sk_pointPush(&s, HMM_V2(0, 0));
         sk_PointHandleOpt p3 = sk_pointPush(&s, HMM_V2(0, 0));
@@ -800,6 +788,29 @@ void sk_tests() {
         sk_constraintAngleLinesPush(&s, 90, l23.ok, l12.ok);
 
         test_print(sk_sketchSolve(&s) == SKE_DUPLICATE_REFERENCES, "duplicated angle constraint");
+    }
+
+    {
+        sk_sketchClear(&s);
+        sk_PointHandleOpt p1 = sk_pointPush(&s, HMM_V2(0, 0));
+        sk_PointHandleOpt p2 = sk_pointPush(&s, HMM_V2(0, 0));
+        sk_LineHandleOpt line = sk_lineStraightPush(&s, p1.ok, p2.ok);
+        sk_constraintAxisAlignedPush(&s, line.ok);
+        sk_constraintAxisAlignedPush(&s, line.ok);
+
+        test_print(sk_sketchSolve(&s) == SKE_DUPLICATE_REFERENCES, "duplicated axis aligned constraint");
+    }
+
+    {
+        sk_sketchClear(&s);
+        sk_PointHandleOpt p1 = sk_pointPush(&s, HMM_V2(1, 0));
+        sk_PointHandleOpt p2 = sk_pointPush(&s, HMM_V2(0, 0));
+        sk_PointHandleOpt p3 = sk_pointPush(&s, HMM_V2(-1, 0));
+        sk_LineHandleOpt l12 = sk_lineStraightPush(&s, p1.ok, p2.ok);
+        sk_LineHandleOpt l23 = sk_lineStraightPush(&s, p2.ok, p3.ok);
+        sk_constraintAngleLinesPush(&s, 90, l12.ok, l23.ok);
+
+        test_print(sk_sketchSolve(&s) == SKE_OK, "flat joined angle constraint");
     }
 
     {
