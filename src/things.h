@@ -123,11 +123,11 @@ typedef struct {
     sk_Line lines[SK_MAX_LINE_COUNT];
 } sk_Sketch;
 
-OPTION(sk_PointHandle, sk_Error);
-OPTION(sk_LineHandle, sk_Error);
-OPTION_NAME(sk_Line*, sk_Error, sk_LinePtrOpt);
-OPTION_NAME(sk_Point*, sk_Error, sk_PointPtrOpt);
-OPTION_NAME(sk_Constraint*, sk_Error, sk_ConstraintPtrOpt);
+OPTION(sk_PointHandle, sk_Error)
+OPTION(sk_LineHandle, sk_Error)
+OPTION_NAME(sk_Line*, sk_Error, sk_LinePtrOpt)
+OPTION_NAME(sk_Point*, sk_Error, sk_PointPtrOpt)
+OPTION_NAME(sk_Constraint*, sk_Error, sk_ConstraintPtrOpt)
 
 /////////////////////
 // POINTS
