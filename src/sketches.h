@@ -744,6 +744,7 @@ void sk_tests() {
         sk_constraintAngleLinesPush(&s, 90, l12.ok, l23.ok);
         sk_constraintAngleLinesPush(&s, 0, l23.ok, l41.ok);
         sk_constraintAxisAlignedPush(&s, l41.ok);
+        sk_constraintAxisAlignedPush(&s, l34.ok);
 
         test_print(sk_sketchSolve(&s) == SKE_OK, "square");
     }
