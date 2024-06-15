@@ -149,7 +149,7 @@ sk_Error sk_pointRemove(sk_Sketch* sketch, sk_PointHandle pointHandle) {
         return p.error;
     }
     p.ok->inUse = false;
-    p.ok->pt = HMM_V2(0, 0); // just in cose lol
+    p.ok->pt = HMM_V2(0, 0);  // just in cose lol
     return SKE_OK;
 }
 
@@ -636,5 +636,17 @@ void sk_tests() {
         sk_lineStraightPush(&s, p1.ok, p2.ok);
         sk_pointRemove(&s, p2.ok);
         test_print(sk_sketchSolve(&s) == SKE_RESOURCE_FREED, "line dependant point removed");
+    }
+
+    {
+        sk_sketchClear(&s);
+        sk_PointHandleOpt p1 = sk_pointPush(&s, HMM_V2(0, 0));
+        sk_PointHandleOpt p2 = sk_pointPush(&s, HMM_V2(0, 0));
+        sk_PointHandleOpt p3 = sk_pointPush(&s, HMM_V2(0, 0));
+        sk_LineHandleOpt l1 = sk_lineStraightPush(&s, p1.ok, p2.ok);
+        sk_LineHandleOpt l2 = sk_lineStraightPush(&s, p2.ok, p3.ok);
+        sk_constraintAngleLinesPush(&s, 10, l1.ok, l2.ok);
+        sk_lineRemove(&s, l2.ok);
+        test_print(sk_sketchSolve(&s) == SKE_RESOURCE_FREED, "angle constraint dependant line removed");
     }
 }
