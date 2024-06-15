@@ -41,7 +41,7 @@ typedef struct {
 
 typedef enum {
     SK_LK_STRAIGHT,
-    // SK_ARC,
+    SK_LK_ARC,
     // SK_CIRCLE,
     // SK_BEZIER,
 } sk_LineKind;
@@ -52,8 +52,17 @@ typedef struct {
 } sk_LineStraight;
 
 typedef struct {
+    sk_PointHandle p1;
+    sk_PointHandle p2;
+    sk_PointHandle center;
+} sk_LineArc;
+// TODO:/NOTE: this arrangement of an arc being purely geometry means that there are cases where the arc is not circular
+// Arcs go counterclockwise from p1 to p2
+
+typedef struct {
     union {
         sk_LineStraight straight;
+        sk_LineArc arc;
     } variants;
     sk_LineKind kind;
     int32_t generation;
@@ -70,6 +79,7 @@ typedef struct {
 typedef enum {
     SK_CK_DISTANCE,
     SK_CK_ANGLE_LINES,
+    SK_CK_ANGLE_ARC,
 } sk_ConstraintKind;
 
 typedef struct {
@@ -84,9 +94,15 @@ typedef struct {
 } _sk_ConstraintAngleLines;
 
 typedef struct {
+    sk_LineHandle arc;
+    float angle;
+} _sk_ConstraintAngleArc;
+
+typedef struct {
     union {
         _sk_ConstraintDistance dist;
         _sk_ConstraintAngleLines angleLines;
+        _sk_ConstraintAngleArc angleArc;
     } variants;
     sk_ConstraintKind kind;
     int32_t generation;
@@ -189,6 +205,19 @@ sk_LineHandleOpt sk_lineStraightPush(sk_Sketch* sketch, sk_PointHandle pt1, sk_P
     return l;
 }
 
+sk_LineHandleOpt sk_lineArcPush(sk_Sketch* sketch, sk_PointHandle pt1, sk_PointHandle pt2, sk_PointHandle center) {
+    sk_LineHandleOpt l = _sk_linePush(sketch);
+    if (l.error != SKE_OK) {
+        return (sk_LineHandleOpt){.error = l.error};
+    }
+    sk_Line* line = &sketch->lines[l.ok.index];
+    line->kind = SK_LK_ARC;
+    line->variants.arc.p1 = pt1;
+    line->variants.arc.p2 = pt2;
+    line->variants.arc.center = center;
+    return l;
+}
+
 // NOTE: only validates the handle to the line, not any points inside of the line
 sk_LinePtrOpt sk_lineGet(sk_Sketch* sketch, sk_LineHandle handle) {
     sk_Line* l = &sketch->lines[handle.index];
@@ -259,6 +288,18 @@ sk_Error sk_constraintAngleLinesPush(sk_Sketch* sketch, float angle, sk_LineHand
     return SKE_OK;
 }
 
+sk_Error sk_constraintAngleArcPush(sk_Sketch* sketch, float angle, sk_LineHandle arc) {
+    sk_ConstraintPtrOpt c = _sk_constraintPush(sketch);
+    if (c.error != SKE_OK) {
+        return c.error;
+    }
+    c.ok->kind = SK_CK_ANGLE_ARC;
+    _sk_ConstraintAngleArc* a = &c.ok->variants.angleArc;
+    a->arc = arc;
+    a->angle = angle;
+    return SKE_OK;
+}
+
 // verifies that all constraints in use have valid values and valid point handles
 // does line/constraint duplication checks - which aren't handled at push time
 // editing behaviour of this will likely change the correctness of _sk_solveIteration, because it directly relies on this
@@ -287,6 +328,29 @@ sk_Error _sk_sketchValidate(sk_Sketch* sketch) {
                 }
                 straight->p2.ptr = p2.ok;
             }
+        } else if (l->kind == SK_LK_ARC) {
+            sk_LineArc* arc = &l->variants.arc;
+            {
+                sk_PointPtrOpt p1 = sk_pointGet(sketch, arc->p1);
+                if (p1.error != SKE_OK) {
+                    return p1.error;
+                }
+                arc->p1.ptr = p1.ok;
+            }
+            {
+                sk_PointPtrOpt p2 = sk_pointGet(sketch, arc->p2);
+                if (p2.error != SKE_OK) {
+                    return p2.error;
+                }
+                arc->p2.ptr = p2.ok;
+            }
+            {
+                sk_PointPtrOpt center = sk_pointGet(sketch, arc->center);
+                if (center.error != SKE_OK) {
+                    return center.error;
+                }
+                arc->center.ptr = center.ok;
+            }
         } else {
             assert(false);
         }
@@ -303,6 +367,15 @@ sk_Error _sk_sketchValidate(sk_Sketch* sketch) {
             // if same start and end, error
             if (sk_pointHandleEq(a->variants.straight.p1, a->variants.straight.p2)) {
                 return SKE_DUPLICATE_REFERENCES;  // TODO: is this a good error to report?
+            }
+        } else if (a->kind == SK_LK_ARC) {
+            sk_LineArc* arc = &a->variants.arc;
+            if (sk_pointHandleEq(arc->p1, arc->p2)) {
+                return SKE_DUPLICATE_REFERENCES;
+            } else if (sk_pointHandleEq(arc->p1, arc->center)) {
+                return SKE_DUPLICATE_REFERENCES;
+            } else if (sk_pointHandleEq(arc->p2, arc->center)) {
+                return SKE_DUPLICATE_REFERENCES;
             }
         } else {
             assert(false);
@@ -327,6 +400,17 @@ sk_Error _sk_sketchValidate(sk_Sketch* sketch) {
                     return SKE_DUPLICATE_REFERENCES;
                 } else if (sk_pointHandleEq(bs->p1, as->p2) && sk_pointHandleEq(bs->p2, as->p1)) {
                     return SKE_DUPLICATE_REFERENCES;
+                }
+            } else if (a->kind == SK_LK_ARC) {
+                sk_LineArc* aArc = &a->variants.arc;
+                sk_LineArc* bArc = &b->variants.arc;
+                if (sk_pointHandleEq(aArc->center, bArc->center)) {  // different centers cannot be the same arc
+                    // check both directions for duplicated point refs
+                    if (sk_pointHandleEq(bArc->p1, aArc->p1) && sk_pointHandleEq(bArc->p2, aArc->p2)) {
+                        return SKE_DUPLICATE_REFERENCES;
+                    } else if (sk_pointHandleEq(bArc->p1, aArc->p2) && sk_pointHandleEq(bArc->p2, aArc->p1)) {
+                        return SKE_DUPLICATE_REFERENCES;
+                    }
                 }
             } else {
                 assert(false);
@@ -379,6 +463,19 @@ sk_Error _sk_sketchValidate(sk_Sketch* sketch) {
 
             // TODO: this is missing an error when an angle has value of 0 and lines that share a point
             // TODO: is that an error tho?
+        } else if (a->kind == SK_CK_ANGLE_ARC) {
+            _sk_ConstraintAngleArc* ang = &a->variants.angleArc;
+            sk_LinePtrOpt arc = sk_lineGet(sketch, ang->arc);
+            if (arc.error != SKE_OK) {
+                return arc.error;
+            }
+            if (arc.ok->kind != SK_LK_ARC) {
+                return SKE_INVALID_LINE_KIND;
+            }
+            if (ang->angle <= 0) {
+                return SKE_INVALID_CONSTRAINT_VALUE;
+            }
+            ang->arc.ptr = arc.ok;
         } else {
             assert(false);
         }
@@ -407,6 +504,12 @@ sk_Error _sk_sketchValidate(sk_Sketch* sketch) {
                 if (sk_lineHandleEq(al->line1, bl->line1) && sk_lineHandleEq(al->line2, bl->line2)) {
                     return SKE_DUPLICATE_REFERENCES;
                 } else if (sk_lineHandleEq(al->line1, bl->line2) && sk_lineHandleEq(al->line2, bl->line1)) {
+                    return SKE_DUPLICATE_REFERENCES;
+                }
+            } else if (a->kind == SK_CK_ANGLE_ARC) {
+                _sk_ConstraintAngleArc* aArc = &a->variants.angleArc;
+                _sk_ConstraintAngleArc* bArc = &b->variants.angleArc;
+                if (sk_lineHandleEq(aArc->arc, bArc->arc)) {
                     return SKE_DUPLICATE_REFERENCES;
                 }
             } else {
@@ -448,6 +551,49 @@ void _sk_rotateStraightLine(HMM_Vec2* p1, HMM_Vec2* p2, float angle) {
     *p2 = HMM_AddV2(center, HMM_SubV2(HMM_V2(0, 0), rotated));
 }
 
+// two of the points can be the same point and itll still limp to a solution after a couple of iterations
+// returns the initial unsigned error
+// points are read and written to
+float _sk_solveAngle(HMM_Vec2* p1a, HMM_Vec2* p1b, HMM_Vec2* p2a, HMM_Vec2* p2b, float angle) {
+    HMM_Vec2 l1Rel = HMM_SubV2(*p1b, *p1a);  // p2 relative to p1
+    HMM_Vec2 l2Rel = HMM_SubV2(*p2b, *p2a);
+    float l1Angle = _sk_normalizeLineAngle(HMM_AngleRad(atan2f(l1Rel.Y, l1Rel.X)));
+    float l2Angle = _sk_normalizeLineAngle(HMM_AngleRad(atan2f(l2Rel.Y, l2Rel.X)));
+    float relAngle = _sk_normalizeAngle(l2Angle - l1Angle);  // l2 relative to l1
+    float error = fabsf(relAngle) - angle;                   // positive indicates points too far
+
+    float relAngleNormalized = relAngle;
+    if (relAngleNormalized > 0) {
+        relAngleNormalized = 1;
+    } else if (relAngleNormalized < 0) {
+        relAngleNormalized = -1;
+    } else {
+        relAngleNormalized = 1;  // in the case of the lines being perfectly parallel, pick a direction
+    }
+
+    // apply calculated rotations to the points
+    float rot = relAngleNormalized * (error / 2);
+    _sk_rotateStraightLine(p1a, p1b, rot);
+    _sk_rotateStraightLine(p2a, p2b, -rot);
+
+    return fabsf(error);
+}
+
+// returns initial unsigned error
+//  TODO: shouldn't it be calculated after every constraint has been solved for the iteration?
+float _sk_solveDistance(HMM_Vec2* p1, HMM_Vec2* p2, float length) {
+    HMM_Vec2 diff = HMM_SubV2(*p1, *p2);     // p2 relative to p1
+    float error = length - HMM_LenV2(diff);  // positive error = points too close
+    // printf("initial error for constraint %d: %f\n", constraintIndex, error);
+    HMM_Vec2 pointDelta = HMM_MulV2F(HMM_NormV2(diff), -error / 2);
+    *p1 = HMM_AddV2(*p1, pointDelta);
+    *p2 = HMM_SubV2(*p2, pointDelta);
+    // float postDist = HMM_LenV2(HMM_SubV2(p1->pt, p2->pt));
+    // printf("post solve error for constraint %d: %f\n", constraintIndex, fabsf(postDist - c->value));
+    // printf("\n");
+    return fabsf(error);
+}
+
 // assumes that _sk_sketchValidate has been called (and was OK) and that no constraints or points or lines have been added/removed since (and that no kinds have changed)
 // relies on the kinds of lines for each constraint being checked and correct
 float _sk_solveIteration(sk_Sketch* sketch) {
@@ -462,53 +608,35 @@ float _sk_solveIteration(sk_Sketch* sketch) {
             _sk_ConstraintDistance* d = &c->variants.dist;
             sk_Point* p1 = d->line.ptr->variants.straight.p1.ptr;
             sk_Point* p2 = d->line.ptr->variants.straight.p2.ptr;
-            HMM_Vec2 diff = HMM_SubV2(p2->pt, p1->pt);  // p2 relative to p1
+            float error = _sk_solveDistance(&p1->pt, &p2->pt, d->length);
 
-            float error = d->length - HMM_LenV2(diff);  // positive error = points too close
-            // printf("initial error for constraint %d: %f\n", constraintIndex, error);
-            if (fabsf(error) > maxError) {
-                maxError = fabsf(error);  // TODO: I believe that calculating this now is wrong, and it should be done after every constraint has been solved, but it's good enough for now
+            if (error > maxError) {
+                maxError = error;
             }
-
-            HMM_Vec2 pointDelta = HMM_MulV2F(HMM_NormV2(diff), -error / 2);
-            p1->pt = HMM_AddV2(p1->pt, pointDelta);
-            p2->pt = HMM_SubV2(p2->pt, pointDelta);
-            // float postDist = HMM_LenV2(HMM_SubV2(p1->pt, p2->pt));
-            // printf("post solve error for constraint %d: %f\n", constraintIndex, fabsf(postDist - c->value));
-            // printf("\n");
         } else if (c->kind == SK_CK_ANGLE_LINES) {
             _sk_ConstraintAngleLines* a = &c->variants.angleLines;
             sk_LineStraight* l1 = &a->line1.ptr->variants.straight;
             sk_LineStraight* l2 = &a->line2.ptr->variants.straight;
-            HMM_Vec2* l1a = &l1->p1.ptr->pt;
-            HMM_Vec2* l1b = &l1->p2.ptr->pt;
-            HMM_Vec2* l2a = &l2->p1.ptr->pt;
-            HMM_Vec2* l2b = &l2->p2.ptr->pt;
-
-            HMM_Vec2 l1Rel = HMM_SubV2(*l1b, *l1a);  // p2 relative to p1
-            HMM_Vec2 l2Rel = HMM_SubV2(*l2b, *l2a);
-            float l1Angle = _sk_normalizeLineAngle(HMM_AngleRad(atan2f(l1Rel.Y, l1Rel.X)));
-            float l2Angle = _sk_normalizeLineAngle(HMM_AngleRad(atan2f(l2Rel.Y, l2Rel.X)));
-            float relAngle = _sk_normalizeAngle(l2Angle - l1Angle);  // l2 relative to l1
-            float error = fabsf(relAngle) - a->angle;                // positive indicates points too far
-
-            if (fabsf(error) > maxError) {  // TODO: see above todo in the distance constraint solve
-                maxError = fabsf(error);
+            float error = _sk_solveAngle(&l1->p1.ptr->pt,
+                                         &l1->p2.ptr->pt,
+                                         &l2->p1.ptr->pt,
+                                         &l2->p2.ptr->pt,
+                                         a->angle);
+            if (error > maxError) {
+                maxError = error;
+            }
+        } else if (c->kind == SK_CK_ANGLE_ARC) {
+            _sk_ConstraintAngleArc* ang = &c->variants.angleArc;
+            sk_LineArc* arc = &ang->arc.ptr->variants.arc;
+            float error = _sk_solveAngle(&arc->p1.ptr->pt,
+                                         &arc->center.ptr->pt,
+                                         &arc->center.ptr->pt,
+                                         &arc->p2.ptr->pt,
+                                         ang->angle);
+            if (error > maxError) {
+                maxError = error;
             }
 
-            float relAngleNormalized = relAngle;
-            if (relAngleNormalized > 0) {
-                relAngleNormalized = 1;
-            } else if (relAngleNormalized < 0) {
-                relAngleNormalized = -1;
-            } else {
-                relAngleNormalized = 1;  // in the case of the lines being perfectly parallel, pick a direction
-            }
-
-            // apply calculated rotations to the points
-            float rot = relAngleNormalized * (error / 2);
-            _sk_rotateStraightLine(l1a, l1b, rot);
-            _sk_rotateStraightLine(l2a, l2b, -rot);
         } else {
             assert(false);
         }
@@ -566,7 +694,12 @@ void sk_tests() {
         sk_constraintAngleLinesPush(&s, 0, l12.ok, l34.ok);
         sk_constraintAngleLinesPush(&s, 0, l23.ok, l41.ok);
 
-        test_print(sk_sketchSolve(&s) == SKE_OK, "square test");
+        test_print(sk_sketchSolve(&s) == SKE_OK, "square");
+    }
+
+    {
+        sk_sketchClear(&s);
+        test_print(sk_sketchSolve(&s) == SKE_OK, "rounded triangle");
     }
 
     {
