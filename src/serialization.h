@@ -165,17 +165,29 @@ void ser_tests() {
                    X float
                    Y float);
 
-    ser_specEnum(myEnum,
-                 ser_nodeKindParsableNames,
-                 sizeof(ser_nodeKindParsableNames) / sizeof(const char*));
+    ser_specStruct(vectorArray,
+                   vecs arr HMM_Vec2);
 
-    ser_specStruct(structThing,
-                   V1 HMM_Vec2
-                   V2 HMM_Vec2
-                   wowEnum myEnum);
+    // const char* lknames[] = { "straight", "arc" };
+    // ser_specEnum(sk_LineKind, lknames, sizeof(lknames) / sizeof(const char*));
+    // ser_specStruct(sk_Line,
+    //                kind   sk_LineKind
+    //                p1     ref HMM_Vec2
+    //                p2     ref HMM_Vec2
+    //                center ref HMM_Vec2);
 
-    ser_specStruct(parent,
-                   structs arr structThing);
+    // const char* cknames[] = { "distance", "angleLines", "angleArc", "arcUniform", "axisAligned" };
+    // ser_specEnum(sk_ConstraintKind, cknames, sizeof(cknames) / sizeof(const char*));
+    // ser_specStruct(sk_Constraint,
+    //                kind  sk_ConstraintKind
+    //                line1 ref sk_Line
+    //                line2 ref sk_Line
+    //                value float);
+
+    // ser_specStruct(sk_Sketch,
+    //                points      arr HMM_Vec2
+    //                lines       arr sk_Line
+    //                constraints arr sk_Constraint);
 
     // print out created nodes for debugging / testing
     printf("\nNODES!\n");
@@ -204,25 +216,4 @@ void ser_tests() {
             printf("%d\t\tother: %d\n", s->kind, link);
         }
     }
-
-    // const char* lknames[] = {"straight", "arc"};
-    // ser_newSpecEnum("sk_ser_lineKind", lknames);
-    // ser_newSpecStruct(sk_Line,
-    //                   "kind   sk_ser_LineKind "
-    //                   "p1     ref HMM_Vec2 "
-    //                   "p2     ref HMM_Vec2 "
-    //                   "center ref HMM_Vec2 ");
-
-    // const char* cknames[] = {"distance", "angleLines", "angleArc", "arcUniform", "axisAligned"};
-    // ser_newSpecEnum(sk_ConstraintKind, cknames);
-    // ser_newSpecStruct(sk_Constraint,
-    //                   "kind  sk_ser_ConstraintKind "
-    //                   "line1 ref sk_ser_Line "
-    //                   "line2 ref sk_ser_Line "
-    //                   "value float ");
-
-    // ser_newSpecStruct(sk_Sketch,
-    //                   "points      arr HMM_Vec2 "
-    //                   "lines       arr sk_ser_Line "
-    //                   "constraints arr sk_ser_Constraint ");
 }

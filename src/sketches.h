@@ -159,13 +159,13 @@ sk_PointHandleOpt sk_pointPush(sk_Sketch* sketch, HMM_Vec2 pt) {
             p->pt = pt;
             p->inUse = true;
             p->generation = gen + 1;
-            return (sk_PointHandleOpt){
+            return (sk_PointHandleOpt) {
                 .error = SKE_OK,
-                .ok = {.index = i, .generation = p->generation},
+                    .ok = { .index = i, .generation = p->generation },
             };
         }
     }
-    return (sk_PointHandleOpt){.error = SKE_OUT_OF_SPACE};
+    return (sk_PointHandleOpt) { .error = SKE_OUT_OF_SPACE };
 }
 
 // if successful, fills in the ptr prop of the handle to point directly at the point struct // otherwise sets it to null
@@ -212,19 +212,19 @@ sk_LineHandleOpt _sk_linePush(sk_Sketch* sketch) {
             memset(l, 0, sizeof(sk_Line));
             l->inUse = true;
             l->generation = gen + 1;
-            return (sk_LineHandleOpt){
+            return (sk_LineHandleOpt) {
                 .error = SKE_OK,
-                .ok = (sk_LineHandle){.generation = l->generation, .index = i},
+                    .ok = (sk_LineHandle){ .generation = l->generation, .index = i },
             };
         }
     }
-    return (sk_LineHandleOpt){.error = SKE_OUT_OF_SPACE};
+    return (sk_LineHandleOpt) { .error = SKE_OUT_OF_SPACE };
 }
 
 sk_LineHandleOpt sk_lineStraightPush(sk_Sketch* sketch, sk_PointHandle pt1, sk_PointHandle pt2) {
     sk_LineHandleOpt l = _sk_linePush(sketch);
     if (l.error != SKE_OK) {
-        return (sk_LineHandleOpt){.error = l.error};
+        return (sk_LineHandleOpt) { .error = l.error };
     }
     sk_Line* line = &sketch->lines[l.ok.index];
     line->kind = SK_LK_STRAIGHT;
@@ -237,7 +237,7 @@ sk_LineHandleOpt sk_lineStraightPush(sk_Sketch* sketch, sk_PointHandle pt1, sk_P
 sk_LineHandleOpt sk_lineArcPush(sk_Sketch* sketch, sk_PointHandle pt1, sk_PointHandle pt2, sk_PointHandle center) {
     sk_LineHandleOpt l = _sk_linePush(sketch);
     if (l.error != SKE_OK) {
-        return (sk_LineHandleOpt){.error = l.error};
+        return (sk_LineHandleOpt) { .error = l.error };
     }
     sk_Line* line = &sketch->lines[l.ok.index];
     line->kind = SK_LK_ARC;
@@ -291,10 +291,10 @@ sk_ConstraintPtrOpt _sk_constraintPush(sk_Sketch* sketch) {
             memset(c, 0, sizeof(sk_Constraint));
             c->inUse = true;
             c->generation = gen + 1;
-            return (sk_ConstraintPtrOpt){.error = SKE_OK, .ok = c};
+            return (sk_ConstraintPtrOpt) { .error = SKE_OK, .ok = c };
         }
     }
-    return (sk_ConstraintPtrOpt){.error = SKE_OUT_OF_SPACE};
+    return (sk_ConstraintPtrOpt) { .error = SKE_OUT_OF_SPACE };
 }
 
 sk_Error sk_constraintDistancePush(sk_Sketch* sketch, float length, sk_LineHandle line) {
