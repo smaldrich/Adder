@@ -1,6 +1,6 @@
 #!/bin/bash
 
-gcc -c src/main.c -o out/main.o -g -Wall -pedantic -Iexternal -Isrc
+gcc -c src/main.c -o out/main.o -g -Wall -pedantic -Wextra -Werror -Iexternal -Isrc
 echo "main built"
 
 gcc out/main.o -o out/main.exe -g -Wall

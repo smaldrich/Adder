@@ -9,14 +9,12 @@
 #include <inttypes.h>
 
 typedef enum {
-    SER_NK_NONE,
-
-    SER_NK_ARRAY,
-    SER_NK_PTR,
-
     SER_NK_FLOAT,
     SER_NK_INT,
     SER_NK_CHAR,
+
+    SER_NK_ARRAY,
+    SER_NK_PTR,
 
     SER_NK_OTHER_USER,
 
@@ -25,12 +23,12 @@ typedef enum {
 } _ser_NodeKind;
 
 const char* ser_nodeKindParsableNames[] = {
-    "",
-    "arr",
-    "ptr",
     "float",
     "int",
     "char",
+
+    "arr",
+    "ptr",
 };
 
 typedef enum {
@@ -45,12 +43,19 @@ struct _ser_Node {
     const char* tag;
     int tagLen;
     _ser_NodeKind kind;
+    bool inUse;
 
     int offsetIntoStruct;
+
+    bool arrayLengthIsInSpec;
+    int arrayLengthOffsetIntoStruct;
+    int arrayLength;
 
     _ser_Node* otherUserNode;
     const char** enumValues;
     int enumValueCount;
+
+    int structSize;
 };
 
 #define SER_MAX_NODES 10000
@@ -113,6 +118,7 @@ _ser_Node* _ser_nodePush(const char* tag, int tagLen, _ser_NodeKind kind, _ser_N
     s->tagLen = tagLen;
     s->kind = kind;
     s->depth = depth;
+    s->inUse = true;
     return s;
 }
 
@@ -131,11 +137,10 @@ _ser_Node* _ser_nodeGetByTag(const char* tag, int tagLen) {
     return NULL;
 }
 
-// ptr is read and written to
+// ptr is read and written to // should be inside of a null terminated string
 // return is success or failure
-// str expected to be null-terminated
 // out params unwritten on a failure return
-bool _ser_parseToken(const char* str, const char** ptr, const char** outTokStart, int* outTokLen) {
+bool _ser_parseToken(const char** ptr, const char** outTokStart, int* outTokLen) {
     // skip whitespace // note that this loop will end when it hits a null term
     while (isspace(**ptr)) {
         (*ptr)++;
@@ -166,12 +171,12 @@ void _ser_specStruct(const char* tag, const char* str) {
     while (true) {
         const char* name = NULL;
         int nameLen = 0;
-        if (_ser_parseToken(str, &c, &name, &nameLen)) {
+        if (_ser_parseToken(&c, &name, &nameLen)) {
             bool isFirstKind = true;
             while (true) {
                 const char* kind = NULL;
                 int kindLen = 0;
-                assert(_ser_parseToken(str, &c, &kind, &kindLen));
+                assert(_ser_parseToken(&c, &kind, &kindLen));
 
                 _ser_NodeKind k = SER_NK_OTHER_USER;
                 // start at one so that index values line up with enum values, and so that none is skipped
@@ -221,6 +226,8 @@ void _ser_specOffsets(const char* tag, int structSize, ...) {
     assert(node != NULL);
     assert(node->kind == SER_NK_STRUCT);
 
+    node->structSize = structSize;
+
     int propIdx = (int)(node - globs.nodes);
     while (true) {
         propIdx++;
@@ -236,6 +243,10 @@ void _ser_specOffsets(const char* tag, int structSize, ...) {
 
         int offset = va_arg(args, int);
         prop->offsetIntoStruct = offset;
+
+        if (prop->kind == SER_NK_ARRAY) {
+            prop->offsetOfArrayCountIntoStruct = va_arg(args, int);
+        }
     }
 
     va_end(args);
@@ -246,8 +257,41 @@ typedef enum {
     SERE_FOPEN_FAILED,
 } ser_Error;
 
+// TODO: validation of a spec
 // TODO: error checks
-ser_Error ser_writeThings() {
+
+#define _SER_LOOKUP_MEMBER(outT, obj, offset) ((outT*)(((char*)obj) + (offset)))
+
+void _ser_serialize(FILE* file, void* obj, _ser_Node* spec) {
+    if (spec->kind == SER_NK_FLOAT) {
+        fwrite(obj, 1, 4, file);
+    } else if (spec->kind == SER_NK_INT) {
+        fwrite(obj, 1, 4, file);
+    } else if (spec->kind == SER_NK_CHAR) {
+        fwrite(obj, 1, 1, file);
+    } else if (spec->kind == SER_NK_OTHER_USER) {
+        assert(false);
+    } else if (spec->kind == SER_NK_ARRAY) {
+        int32_t innerCount;
+        if (spec->arrayLengthIsInSpec) {
+            innerCount = spec->arrayLength;
+        } else {
+            // TODO: assuming the type of the length prop
+            innerCount = *_SER_LOOKUP_MEMBER(int32_t, obj, spec->arrayLengthOffsetIntoStruct);
+        }
+        fwrite(&innerCount, 4, 1, file);
+        for (int32_t i = 0; i < innerCount; i++) {
+            void* ptr = _SER_LOOKUP_MEMBER(void, obj, spec->offsetIntoStruct);
+            _ser_serialize(file, ptr, spec + 1); // TODO: works but is fucking vile
+        }
+    } else if (spec->kind == SER_NK_PTR) {
+        assert(false);
+    } else {
+        assert(false);
+    }
+}
+
+ser_Error ser_writeObjectToFile(void* obj, const char* type) {
     const char* path = "./testing/file1";
     FILE* file = fopen(path, "wb");
     if (file == NULL) {
@@ -255,10 +299,12 @@ ser_Error ser_writeThings() {
         return SERE_FOPEN_FAILED;
     }
 
+    // HEADER ===================================
     fwrite("\x00\x00\x00\x00", 4, 1, file);
     int32_t endianIndicator = 1;
     fwrite(&endianIndicator, 4, 1, file);
 
+    // SPEC + NODES ====================================================
     int32_t nodeCount = globs.nodeCount;
     fwrite(&nodeCount, 4, 1, file);
     for (int32_t nodeIdx = 0; nodeIdx < globs.nodeCount; nodeIdx++) {
@@ -282,6 +328,14 @@ ser_Error ser_writeThings() {
             }
         }
     }
+
+    // OBJECTS =============================================================
+    _ser_Node* node = _ser_nodeGetByTag(type, strlen(type));
+    assert(node->kind == SER_NK_STRUCT);
+
+    int32_t specId = (int)(node - globs.nodes);
+    fwrite(&specId, 4, 1, file);
+    _ser_serialize(file, obj, node);
 
     return SERE_OK;
 }
@@ -337,5 +391,6 @@ void ser_tests() {
 
     _ser_printState();
 
-    ser_writeThings();
+    HMM_Vec2 myVector = HMM_V2(69, 420);
+    ser_writeObjectToFile(&myVector, "HMM_Vec2");
 }
