@@ -54,8 +54,8 @@ ser_Spec* _ser_specPush(const char* tag, int tagLen, ser_SpecKind kind, bool asS
     s->isTopLevel = true;
 
     if (asSibling) {
-        assert(globs.specCount > 0);
-        ser_Spec* prev = &globs.specs[globs.specCount - 1];
+        assert(globs.specCount > 1);
+        ser_Spec* prev = &globs.specs[globs.specCount - 2];
         prev->nextSibling = s;
         s->isTopLevel = false;
     }
@@ -155,7 +155,7 @@ void ser_tests() {
     ser_newSpecStruct(new cool struct,
                       "V1 HMM_Vec2 "
                       "V2 HMM_Vec2 "
-                      "indicator char ");
+                      "wowEnum myEnum ");
 
     // print out created specs for debugging / testing
     printf("\nSPECS!\n");
