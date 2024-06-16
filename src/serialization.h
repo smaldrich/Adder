@@ -65,6 +65,10 @@ void _ser_printState() {
     for (int i = 0; i < globs.nodeCount; i++) {
         _ser_Node* n = &globs.nodes[i];
 
+        if (n->depth == SER_ND_TOP) {
+            printf("\n");
+        }
+
         printf("%-3d:", i);
         int indent = 1;
         if (n->depth == SER_ND_PROP) {
