@@ -31,6 +31,8 @@ struct ser_Spec {
     ser_SpecKind kind;
 
     ser_Spec* otherUserSpec;
+    const char** enumValues;
+    int enumCount;
 
     ser_Spec* nextSibling;
 };
@@ -134,9 +136,12 @@ void _ser_newSpecStruct(const char* tag, const char* str) {
 }
 #define ser_newSpecStruct(T, str) _ser_newSpecStruct(#T, str)
 
-void _ser_newSpecEnum(const char* tag, const char* strs[]) {
+void _ser_newSpecEnum(const char* tag, const char* strs[], int count) {
+    ser_Spec* s = _ser_specPush(tag, strlen(tag), SER_SK_ENUM, false);
+    s->enumValues = strs;
+    s->enumCount = count;
 }
-#define ser_newSpecEnum(T, str) _ser_newSpecEnum(#T, str)
+#define ser_newSpecEnum(T, strs, count) _ser_newSpecEnum(#T, strs, count)
 
 #define _ser_defer(begin, end) for (int _i_ = ((begin), 0); !_i_; _i_ += 1, (end))
 
@@ -144,6 +149,8 @@ void ser_tests() {
     ser_newSpecStruct(HMM_Vec2,
                       "X float "
                       "Y float ");
+
+    ser_newSpecEnum(myEnum, ser_specKindParsableNames, sizeof(ser_specKindParsableNames) / sizeof(const char*));
 
     ser_newSpecStruct(new cool struct,
                       "V1 HMM_Vec2 "
@@ -163,8 +170,20 @@ void ser_tests() {
         if (!s->isTopLevel) {
             indent = "  ";
         }
-        printf("%s%d: %-15.*s\t kind: %d\t topLevel: %d\tother: %d\n",
-               indent, i, s->tagLen, s->tag, s->kind, s->isTopLevel, link);
+
+        printf("%s%d: %-15.*s\tkind: ", indent, i, s->tagLen, s->tag);  // indent, index, tag
+        if (s->kind == SER_SK_ENUM) {
+            printf("enum\tvals: ");
+            for (int valIndex = 0; valIndex < s->enumCount; valIndex++) {
+                printf("\'%s\' ", s->enumValues[valIndex]);
+            }
+            printf("\n");
+        } else if (s->kind == SER_SK_STRUCT) {
+            printf("struct\n");
+        } else {
+            printf("%d\t\tother: %d\n",
+                   s->kind, link);
+        }
     }
 
     // const char* lknames[] = {"straight", "arc"};
