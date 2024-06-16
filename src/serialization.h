@@ -59,6 +59,47 @@ typedef struct {
 } ser_Globs;
 ser_Globs globs;
 
+void _ser_printState() {
+    // print out created nodes for debugging / testing
+    printf("\nNODES!\n");
+    for (int i = 0; i < globs.nodeCount; i++) {
+        _ser_Node* n = &globs.nodes[i];
+
+        printf("%-3d:", i);
+        int indent = 1;
+        if (n->depth == SER_ND_PROP) {
+            indent = 5;
+        }
+        if (n->depth == SER_ND_INNER) {
+            indent = 7;
+        }
+
+        printf("%.*s%-*.*s\tkind: ", indent, "            ", 17 - indent, n->tagLen, n->tag);  // indent, index, tag
+        if (n->kind == SER_NK_ENUM) {
+            printf("enum\t\tvals: ");
+            for (int valIndex = 0; valIndex < n->enumCount; valIndex++) {
+                printf("\'%s\' ", n->enumValues[valIndex]);
+            }
+        } else if (n->kind == SER_NK_STRUCT) {
+            printf("struct");
+        } else if (n->kind == SER_NK_PTR) {
+            printf("ptr");
+        } else if (n->kind == SER_NK_ARRAY) {
+            printf("arr");
+        } else if (n->kind == SER_NK_OTHER_USER) {
+            int link = (int)(n->otherUserNode - globs.nodes);
+            printf("other\t\tindex: %d", link);
+        } else {
+            printf("%d", n->kind);
+        }
+
+        if (n->depth == SER_ND_PROP) {
+            printf("\t\toffset in struct: %d", n->offsetIntoStruct);
+        }
+        printf("\n");
+    }
+}
+
 // asserts on failure
 _ser_Node* _ser_nodePush(const char* tag, int tagLen, _ser_NodeKind kind, _ser_NodeDepth depth) {
     assert(globs.nodeCount < SER_MAX_NODES);
@@ -75,6 +116,8 @@ _ser_Node* _ser_nodeGetByTag(const char* tag, int tagLen) {
     for (int i = 0; i < globs.nodeCount; i++) {
         _ser_Node* s = &globs.nodes[i];
         if (s->depth != SER_ND_TOP) {
+            continue;
+        } else if (s->tagLen != tagLen) {
             continue;
         } else if (strncmp(tag, s->tag, tagLen) == 0) {
             return s;
@@ -155,7 +198,7 @@ void _ser_specStruct(const char* tag, const char* str) {
 }
 
 void _ser_specEnum(const char* tag, const char* strs[], int count) {
-    _ser_Node* s = _ser_nodePush(tag, strlen(tag), SER_NK_ENUM, false);
+    _ser_Node* s = _ser_nodePush(tag, strlen(tag), SER_NK_ENUM, SER_ND_TOP);
     s->enumValues = strs;
     s->enumCount = count;
 }
@@ -166,6 +209,7 @@ void _ser_specOffsets(const char* tag, int structSize, ...) {
 
     _ser_Node* node = _ser_nodeGetByTag(tag, strlen(tag));
     assert(node != NULL);
+    assert(node->kind == SER_NK_STRUCT);
 
     int propIdx = (int)(node - globs.nodes);
     while (true) {
@@ -236,42 +280,5 @@ void ser_tests() {
                    constraints arr sk_Constraint);
     ser_offsets(sk_Sketch, points, lines, constraints);
 
-    // print out created nodes for debugging / testing
-    printf("\nNODES!\n");
-    for (int i = 0; i < globs.nodeCount; i++) {
-        _ser_Node* n = &globs.nodes[i];
-
-        printf("%-3d:", i);
-        int indent = 1;
-        if (n->depth == SER_ND_PROP) {
-            indent = 5;
-        }
-        if (n->depth == SER_ND_INNER) {
-            indent = 7;
-        }
-
-        printf("%.*s%-*.*s\tkind: ", indent, "      ", 17 - indent, n->tagLen, n->tag);  // indent, index, tag
-        if (n->kind == SER_NK_ENUM) {
-            printf("enum\t\tvals: ");
-            for (int valIndex = 0; valIndex < n->enumCount; valIndex++) {
-                printf("\'%s\' ", n->enumValues[valIndex]);
-            }
-        } else if (n->kind == SER_NK_STRUCT) {
-            printf("struct");
-        } else if (n->kind == SER_NK_PTR) {
-            printf("ptr");
-        } else if (n->kind == SER_NK_ARRAY) {
-            printf("arr");
-        } else if (n->kind == SER_NK_OTHER_USER) {
-            int link = (int)(n->otherUserNode - globs.nodes);
-            printf("other\t\tindex: %d", link);
-        } else {
-            printf("%d", n->kind);
-        }
-
-        if (n->depth == SER_ND_PROP) {
-            printf("\t\toffset in struct: %d", n->offsetIntoStruct);
-        }
-        printf("\n");
-    }
+    _ser_printState();
 }
