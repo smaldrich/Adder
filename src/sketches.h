@@ -26,12 +26,13 @@
 
 typedef enum {
     SKE_OK,
-    SKE_RESOURCE_FREED,
+    SKE_INVALID_HANDLE,
     SKE_OUT_OF_SPACE,
     SKE_SOLVE_FAILED,
     SKE_INVALID_CONSTRAINT_VALUE,
     SKE_INVALID_LINE_KIND,
     SKE_DUPLICATE_REFERENCES,
+    SKE_INVALID_UNION_USAGE,
 } sk_Error;
 
 typedef struct {
@@ -57,24 +58,14 @@ typedef enum {
     // SK_BEZIER,
 } sk_LineKind;
 
-typedef struct {
-    sk_PointHandle p1;
-    sk_PointHandle p2;
-} sk_LineStraight;
+// TODO:/NOTE: this arrangement of an arc being purely geometry means that there are cases where the arc is not circular
+// Arcs go counterclockwise from p1 to p2
 
 typedef struct {
     sk_PointHandle p1;
     sk_PointHandle p2;
     sk_PointHandle center;
-} sk_LineArc;
-// TODO:/NOTE: this arrangement of an arc being purely geometry means that there are cases where the arc is not circular
-// Arcs go counterclockwise from p1 to p2
 
-typedef struct {
-    union {
-        sk_LineStraight straight;
-        sk_LineArc arc;
-    } variants;
     sk_LineKind kind;
     int32_t generation;
     bool inUse;
@@ -96,38 +87,10 @@ typedef enum {
 } sk_ConstraintKind;
 
 typedef struct {
-    float length;
-    sk_LineHandle line;  // required to be straight
-} _sk_ConstraintDistance;
-
-typedef struct {
-    sk_LineHandle line1;  // both required to be straight
+    float value;
+    sk_LineHandle line1;
     sk_LineHandle line2;
-    float angle;
-} _sk_ConstraintAngleLines;
 
-typedef struct {
-    sk_LineHandle arc;
-    float angle;
-} _sk_ConstraintAngleArc;
-
-typedef struct {
-    sk_LineHandle arc;
-    float radius;
-} _sk_ConstraintArcUniform;
-
-typedef struct {
-    sk_LineHandle line;  // required to be straight
-} _sk_ConstraintAxisAligned;
-
-typedef struct {
-    union {
-        _sk_ConstraintDistance dist;
-        _sk_ConstraintAngleLines angleLines;
-        _sk_ConstraintAngleArc angleArc;
-        _sk_ConstraintArcUniform arcUniform;
-        _sk_ConstraintAxisAligned axisAligned;
-    } variants;
     sk_ConstraintKind kind;
     int32_t generation;
     bool inUse;
@@ -173,9 +136,9 @@ sk_Error sk_pointHandleValidate(sk_Sketch* sketch, sk_PointHandle* pointHandle) 
     sk_Point* p = &sketch->points[pointHandle->index];
     sk_Error e = SKE_OK;
     if (!p->inUse) {
-        e = SKE_RESOURCE_FREED;
+        e = SKE_INVALID_HANDLE;
     } else if (p->generation != pointHandle->generation) {
-        e = SKE_RESOURCE_FREED;
+        e = SKE_INVALID_HANDLE;
     }
 
     if (e == SKE_OK) {
@@ -228,8 +191,8 @@ sk_LineHandleOpt sk_lineStraightPush(sk_Sketch* sketch, sk_PointHandle pt1, sk_P
     }
     sk_Line* line = &sketch->lines[l.ok.index];
     line->kind = SK_LK_STRAIGHT;
-    line->variants.straight.p1 = pt1;
-    line->variants.straight.p2 = pt2;
+    line->p1 = pt1;
+    line->p2 = pt2;
 
     return l;
 }
@@ -241,9 +204,9 @@ sk_LineHandleOpt sk_lineArcPush(sk_Sketch* sketch, sk_PointHandle pt1, sk_PointH
     }
     sk_Line* line = &sketch->lines[l.ok.index];
     line->kind = SK_LK_ARC;
-    line->variants.arc.p1 = pt1;
-    line->variants.arc.p2 = pt2;
-    line->variants.arc.center = center;
+    line->p1 = pt1;
+    line->p2 = pt2;
+    line->center = center;
     return l;
 }
 
@@ -253,9 +216,9 @@ sk_Error sk_lineHandleValidate(sk_Sketch* sketch, sk_LineHandle* handle) {
     sk_Line* l = &sketch->lines[handle->index];
     sk_Error e = SKE_OK;
     if (!l->inUse) {
-        e = SKE_RESOURCE_FREED;
+        e = SKE_INVALID_HANDLE;
     } else if (l->generation != handle->generation) {
-        e = SKE_RESOURCE_FREED;
+        e = SKE_INVALID_HANDLE;
     }
 
     if (e == SKE_OK) {
@@ -297,15 +260,16 @@ sk_ConstraintPtrOpt _sk_constraintPush(sk_Sketch* sketch) {
     return (sk_ConstraintPtrOpt) { .error = SKE_OUT_OF_SPACE };
 }
 
+// TODO: SOOO many constructor functions
+
 sk_Error sk_constraintDistancePush(sk_Sketch* sketch, float length, sk_LineHandle line) {
     sk_ConstraintPtrOpt c = _sk_constraintPush(sketch);
     if (c.error != SKE_OK) {
         return c.error;
     }
     c.ok->kind = SK_CK_DISTANCE;
-    _sk_ConstraintDistance* d = &c.ok->variants.dist;
-    d->line = line;
-    d->length = length;
+    c.ok->line1 = line;
+    c.ok->value = length;
     return SKE_OK;
 }
 
@@ -315,10 +279,9 @@ sk_Error sk_constraintAngleLinesPush(sk_Sketch* sketch, float angle, sk_LineHand
         return c.error;
     }
     c.ok->kind = SK_CK_ANGLE_LINES;
-    _sk_ConstraintAngleLines* a = &c.ok->variants.angleLines;
-    a->line1 = line1;
-    a->line2 = line2;
-    a->angle = angle;
+    c.ok->line1 = line1;
+    c.ok->line2 = line2;
+    c.ok->value = angle;
     return SKE_OK;
 }
 
@@ -328,9 +291,8 @@ sk_Error sk_constraintAngleArcPush(sk_Sketch* sketch, float angle, sk_LineHandle
         return c.error;
     }
     c.ok->kind = SK_CK_ANGLE_ARC;
-    _sk_ConstraintAngleArc* a = &c.ok->variants.angleArc;
-    a->arc = arc;
-    a->angle = angle;
+    c.ok->line1 = arc;
+    c.ok->value = angle;
     return SKE_OK;
 }
 
@@ -340,9 +302,8 @@ sk_Error sk_constraintArcUniformPush(sk_Sketch* sketch, float radius, sk_LineHan
         return c.error;
     }
     c.ok->kind = SK_CK_ARC_UNIFORM;
-    _sk_ConstraintArcUniform* a = &c.ok->variants.arcUniform;
-    a->arc = arc;
-    a->radius = radius;
+    c.ok->line1 = arc;
+    c.ok->value = radius;
     return SKE_OK;
 }
 
@@ -352,8 +313,7 @@ sk_Error sk_constraintAxisAlignedPush(sk_Sketch* sketch, sk_LineHandle straight)
         return c.error;
     }
     c.ok->kind = SK_CK_AXIS_ALIGNED;
-    _sk_ConstraintAxisAligned* a = &c.ok->variants.axisAligned;
-    a->line = straight;
+    c.ok->line1 = straight;
     return SKE_OK;
 }
 
@@ -370,14 +330,15 @@ sk_Error _sk_sketchValidate(sk_Sketch* sketch) {
         }
 
         if (l->kind == SK_LK_STRAIGHT) {
-            sk_LineStraight* straight = &l->variants.straight;
-            _SK_VALID_OR_RETURN(sk_pointHandleValidate(sketch, &straight->p1));
-            _SK_VALID_OR_RETURN(sk_pointHandleValidate(sketch, &straight->p2));
+            _SK_VALID_OR_RETURN(sk_pointHandleValidate(sketch, &l->p1));
+            _SK_VALID_OR_RETURN(sk_pointHandleValidate(sketch, &l->p2));
+            if (l->center.generation != 0 || l->center.index != 0) {
+                return SKE_INVALID_UNION_USAGE; // TODO: is this the best error?
+            }
         } else if (l->kind == SK_LK_ARC) {
-            sk_LineArc* arc = &l->variants.arc;
-            _SK_VALID_OR_RETURN(sk_pointHandleValidate(sketch, &arc->p1));
-            _SK_VALID_OR_RETURN(sk_pointHandleValidate(sketch, &arc->p2));
-            _SK_VALID_OR_RETURN(sk_pointHandleValidate(sketch, &arc->center));
+            _SK_VALID_OR_RETURN(sk_pointHandleValidate(sketch, &l->p1));
+            _SK_VALID_OR_RETURN(sk_pointHandleValidate(sketch, &l->p2));
+            _SK_VALID_OR_RETURN(sk_pointHandleValidate(sketch, &l->center));
         } else {
             assert(false);
         }
@@ -392,16 +353,15 @@ sk_Error _sk_sketchValidate(sk_Sketch* sketch) {
 
         if (a->kind == SK_LK_STRAIGHT) {
             // if same start and end, error
-            if (sk_pointHandleEq(a->variants.straight.p1, a->variants.straight.p2)) {
+            if (sk_pointHandleEq(a->p1, a->p2)) {
                 return SKE_DUPLICATE_REFERENCES;  // TODO: is this a good error to report?
             }
         } else if (a->kind == SK_LK_ARC) {
-            sk_LineArc* arc = &a->variants.arc;
-            if (sk_pointHandleEq(arc->p1, arc->p2)) {
+            if (sk_pointHandleEq(a->p1, a->p2)) {
                 return SKE_DUPLICATE_REFERENCES;
-            } else if (sk_pointHandleEq(arc->p1, arc->center)) {
+            } else if (sk_pointHandleEq(a->p1, a->center)) {
                 return SKE_DUPLICATE_REFERENCES;
-            } else if (sk_pointHandleEq(arc->p2, arc->center)) {
+            } else if (sk_pointHandleEq(a->p2, a->center)) {
                 return SKE_DUPLICATE_REFERENCES;
             }
         } else {
@@ -421,21 +381,17 @@ sk_Error _sk_sketchValidate(sk_Sketch* sketch) {
 
             // A and B are the same kind at this point, so just check A's
             if (a->kind == SK_LK_STRAIGHT) {
-                sk_LineStraight* as = &a->variants.straight;
-                sk_LineStraight* bs = &b->variants.straight;
-                if (sk_pointHandleEq(bs->p1, as->p1) && sk_pointHandleEq(bs->p2, as->p2)) {
+                if (sk_pointHandleEq(b->p1, a->p1) && sk_pointHandleEq(b->p2, a->p2)) {
                     return SKE_DUPLICATE_REFERENCES;
-                } else if (sk_pointHandleEq(bs->p1, as->p2) && sk_pointHandleEq(bs->p2, as->p1)) {
+                } else if (sk_pointHandleEq(b->p1, a->p2) && sk_pointHandleEq(b->p2, a->p1)) {
                     return SKE_DUPLICATE_REFERENCES;
                 }
             } else if (a->kind == SK_LK_ARC) {
-                sk_LineArc* aArc = &a->variants.arc;
-                sk_LineArc* bArc = &b->variants.arc;
-                if (sk_pointHandleEq(aArc->center, bArc->center)) {  // different centers cannot be the same arc
+                if (sk_pointHandleEq(a->center, b->center)) {  // different centers cannot be the same arc
                     // check both directions for duplicated point refs
-                    if (sk_pointHandleEq(bArc->p1, aArc->p1) && sk_pointHandleEq(bArc->p2, aArc->p2)) {
+                    if (sk_pointHandleEq(b->p1, a->p1) && sk_pointHandleEq(b->p2, a->p2)) {
                         return SKE_DUPLICATE_REFERENCES;
-                    } else if (sk_pointHandleEq(bArc->p1, aArc->p2) && sk_pointHandleEq(bArc->p2, aArc->p1)) {
+                    } else if (sk_pointHandleEq(b->p1, a->p2) && sk_pointHandleEq(b->p2, a->p1)) {
                         return SKE_DUPLICATE_REFERENCES;
                     }
                 }
@@ -452,49 +408,45 @@ sk_Error _sk_sketchValidate(sk_Sketch* sketch) {
             continue;
         }
 
+        // TODO: check that unused union members are zeroed (?)
         if (a->kind == SK_CK_DISTANCE) {
-            _sk_ConstraintDistance* dist = &a->variants.dist;
-            _SK_VALID_OR_RETURN(sk_lineHandleValidate(sketch, &dist->line));
-            if (dist->line.ptr->kind != SK_LK_STRAIGHT) {
+            _SK_VALID_OR_RETURN(sk_lineHandleValidate(sketch, &a->line1));
+            if (a->line1.ptr->kind != SK_LK_STRAIGHT) {
                 return SKE_INVALID_LINE_KIND;
             }
-            if (dist->length <= 0) {
+            if (a->value <= 0) {
                 return SKE_INVALID_CONSTRAINT_VALUE;
             }
         } else if (a->kind == SK_CK_ANGLE_LINES) {
-            _sk_ConstraintAngleLines* ang = &a->variants.angleLines;
-            _SK_VALID_OR_RETURN(sk_lineHandleValidate(sketch, &ang->line1));
-            if (ang->line1.ptr->kind != SK_LK_STRAIGHT) {
+            _SK_VALID_OR_RETURN(sk_lineHandleValidate(sketch, &a->line1));
+            if (a->line1.ptr->kind != SK_LK_STRAIGHT) {
                 return SKE_INVALID_LINE_KIND;
             }
-            _SK_VALID_OR_RETURN(sk_lineHandleValidate(sketch, &ang->line2));
-            if (ang->line2.ptr->kind != SK_LK_STRAIGHT) {
+            _SK_VALID_OR_RETURN(sk_lineHandleValidate(sketch, &a->line2));
+            if (a->line2.ptr->kind != SK_LK_STRAIGHT) {
                 return SKE_INVALID_LINE_KIND;
             }
             // TODO: this is missing an error when an angle has value of 0 and lines that share a point
             // TODO: is that an error tho?
         } else if (a->kind == SK_CK_ANGLE_ARC) {
-            _sk_ConstraintAngleArc* ang = &a->variants.angleArc;
-            _SK_VALID_OR_RETURN(sk_lineHandleValidate(sketch, &ang->arc));
-            if (ang->arc.ptr->kind != SK_LK_ARC) {
+            _SK_VALID_OR_RETURN(sk_lineHandleValidate(sketch, &a->line1));
+            if (a->line1.ptr->kind != SK_LK_ARC) {
                 return SKE_INVALID_LINE_KIND;
             }
-            if (ang->angle <= 0) {
+            if (a->value <= 0) {
                 return SKE_INVALID_CONSTRAINT_VALUE;
             }
         } else if (a->kind == SK_CK_ARC_UNIFORM) {
-            _sk_ConstraintArcUniform* uni = &a->variants.arcUniform;
-            _SK_VALID_OR_RETURN(sk_lineHandleValidate(sketch, &uni->arc));
-            if (uni->arc.ptr->kind != SK_LK_ARC) {
+            _SK_VALID_OR_RETURN(sk_lineHandleValidate(sketch, &a->line1));
+            if (a->line1.ptr->kind != SK_LK_ARC) {
                 return SKE_INVALID_LINE_KIND;
             }
-            if (uni->radius <= 0) {
+            if (a->value <= 0) {
                 return SKE_INVALID_CONSTRAINT_VALUE;
             }
         } else if (a->kind == SK_CK_AXIS_ALIGNED) {
-            _sk_ConstraintAxisAligned* aa = &a->variants.axisAligned;
-            _SK_VALID_OR_RETURN(sk_lineHandleValidate(sketch, &aa->line));
-            if (aa->line.ptr->kind != SK_LK_STRAIGHT) {
+            _SK_VALID_OR_RETURN(sk_lineHandleValidate(sketch, &a->line1));
+            if (a->line1.ptr->kind != SK_LK_STRAIGHT) {
                 return SKE_INVALID_LINE_KIND;
             }
         } else {
@@ -515,34 +467,26 @@ sk_Error _sk_sketchValidate(sk_Sketch* sketch) {
             // A and B at this point have the same kind, so only one needs to be checked
             if (a->kind == SK_CK_DISTANCE) {
                 // lines have already been deduplicated, so checking for the same line is correct
-                if (sk_lineHandleEq(a->variants.dist.line, b->variants.dist.line)) {
+                if (sk_lineHandleEq(a->line1, b->line1)) {
                     return SKE_DUPLICATE_REFERENCES;
                 }
             } else if (a->kind == SK_CK_ANGLE_LINES) {
-                _sk_ConstraintAngleLines* al = &a->variants.angleLines;
-                _sk_ConstraintAngleLines* bl = &b->variants.angleLines;
                 // check if angle constraints have the same lines as each other
-                if (sk_lineHandleEq(al->line1, bl->line1) && sk_lineHandleEq(al->line2, bl->line2)) {
+                if (sk_lineHandleEq(a->line1, b->line1) && sk_lineHandleEq(a->line2, b->line2)) {
                     return SKE_DUPLICATE_REFERENCES;
-                } else if (sk_lineHandleEq(al->line1, bl->line2) && sk_lineHandleEq(al->line2, bl->line1)) {
+                } else if (sk_lineHandleEq(a->line1, b->line2) && sk_lineHandleEq(a->line2, b->line1)) {
                     return SKE_DUPLICATE_REFERENCES;
                 }
             } else if (a->kind == SK_CK_ANGLE_ARC) {
-                _sk_ConstraintAngleArc* aArc = &a->variants.angleArc;
-                _sk_ConstraintAngleArc* bArc = &b->variants.angleArc;
-                if (sk_lineHandleEq(aArc->arc, bArc->arc)) {
+                if (sk_lineHandleEq(a->line1, b->line1)) {
                     return SKE_DUPLICATE_REFERENCES;
                 }
             } else if (a->kind == SK_CK_ARC_UNIFORM) {
-                _sk_ConstraintArcUniform* aArc = &a->variants.arcUniform;
-                _sk_ConstraintArcUniform* bArc = &b->variants.arcUniform;
-                if (sk_lineHandleEq(aArc->arc, bArc->arc)) {
+                if (sk_lineHandleEq(a->line1, b->line1)) {
                     return SKE_DUPLICATE_REFERENCES;
                 }
             } else if (a->kind == SK_CK_AXIS_ALIGNED) {
-                _sk_ConstraintAxisAligned* aAx = &a->variants.axisAligned;
-                _sk_ConstraintAxisAligned* bAx = &b->variants.axisAligned;
-                if (sk_lineHandleEq(aAx->line, bAx->line)) {
+                if (sk_lineHandleEq(a->line1, b->line1)) {
                     return SKE_DUPLICATE_REFERENCES;
                 }
             } else {
@@ -638,50 +582,45 @@ float _sk_solveIteration(sk_Sketch* sketch) {
         }
 
         if (c->kind == SK_CK_DISTANCE) {
-            _sk_ConstraintDistance* d = &c->variants.dist;
-            sk_Point* p1 = d->line.ptr->variants.straight.p1.ptr;
-            sk_Point* p2 = d->line.ptr->variants.straight.p2.ptr;
-            float error = _sk_solveDistance(&p1->pt, &p2->pt, d->length);
+            sk_Point* p1 = c->line1.ptr->p1.ptr;
+            sk_Point* p2 = c->line1.ptr->p2.ptr;
+            float error = _sk_solveDistance(&p1->pt, &p2->pt, c->value);
 
             if (error > maxError) {
                 maxError = error;
             }
         } else if (c->kind == SK_CK_ANGLE_LINES) {
-            _sk_ConstraintAngleLines* a = &c->variants.angleLines;
-            sk_LineStraight* l1 = &a->line1.ptr->variants.straight;
-            sk_LineStraight* l2 = &a->line2.ptr->variants.straight;
+            sk_Line* l1 = c->line1.ptr;
+            sk_Line* l2 = c->line2.ptr;
             float error = _sk_solveAngle(&l1->p1.ptr->pt,
                                          &l1->p2.ptr->pt,
                                          &l2->p1.ptr->pt,
                                          &l2->p2.ptr->pt,
-                                         a->angle);
+                                         c->value);
             if (error > maxError) {
                 maxError = error;
             }
         } else if (c->kind == SK_CK_ANGLE_ARC) {
-            _sk_ConstraintAngleArc* ang = &c->variants.angleArc;
-            sk_LineArc* arc = &ang->arc.ptr->variants.arc;
+            sk_Line* arc = c->line1.ptr;
             float error = _sk_solveAngle(&arc->p1.ptr->pt,
                                          &arc->center.ptr->pt,
                                          &arc->center.ptr->pt,
                                          &arc->p2.ptr->pt,
-                                         ang->angle);
+                                         c->value);
             if (error > maxError) {
                 maxError = error;
             }
         } else if (c->kind == SK_CK_ARC_UNIFORM) {
-            _sk_ConstraintArcUniform* uni = &c->variants.arcUniform;
-            sk_LineArc* arc = &uni->arc.ptr->variants.arc;
-            float error1 = _sk_solveDistance(&arc->p1.ptr->pt, &arc->center.ptr->pt, uni->radius);
-            float error2 = _sk_solveDistance(&arc->p2.ptr->pt, &arc->center.ptr->pt, uni->radius);
+            sk_Line* arc = c->line1.ptr;
+            float error1 = _sk_solveDistance(&arc->p1.ptr->pt, &arc->center.ptr->pt, c->value);
+            float error2 = _sk_solveDistance(&arc->p2.ptr->pt, &arc->center.ptr->pt, c->value);
             float error = fmaxf(error1, error2);
             if (error > maxError) {
                 maxError = error;
             }
         } else if (c->kind == SK_CK_AXIS_ALIGNED) {
-            _sk_ConstraintAxisAligned* ax = &c->variants.axisAligned;
-            HMM_Vec2* p1 = &ax->line.ptr->variants.straight.p1.ptr->pt;
-            HMM_Vec2* p2 = &ax->line.ptr->variants.straight.p2.ptr->pt;
+            HMM_Vec2* p1 = &c->line1.ptr->p1.ptr->pt;
+            HMM_Vec2* p2 = &c->line1.ptr->p2.ptr->pt;
             HMM_Vec2 rel = HMM_SubV2(*p1, *p2);  // P1 RELATIVE TO P2
             float angle = HMM_AngleRad(atan2f(rel.Y, rel.X));
 
@@ -825,7 +764,7 @@ void sk_tests() {
         p1 = sk_pointPush(&s, HMM_V2(0, 0));
 
         test_print((p1.ok.index == 0 && p1.ok.generation == 2), "point reallocation");
-        test_print(sk_sketchSolve(&s) == SKE_RESOURCE_FREED, "reallocated point reference breaks");
+        test_print(sk_sketchSolve(&s) == SKE_INVALID_HANDLE, "reallocated point reference breaks");
     }
 
     {
@@ -843,7 +782,7 @@ void sk_tests() {
         l12 = sk_lineStraightPush(&s, p1.ok, p2.ok);
 
         test_print((l12.ok.index == 0 && l12.ok.generation == 2), "line reallocation");
-        test_print(sk_sketchSolve(&s) == SKE_RESOURCE_FREED, "reallocated line reference breaks");
+        test_print(sk_sketchSolve(&s) == SKE_INVALID_HANDLE, "reallocated line reference breaks");
     }
 
     {
