@@ -235,6 +235,25 @@ void _ser_specOffsets(const char* tag, int structSize, ...) {
     va_end(args);
 }
 
+typedef enum {
+    SERE_OK,
+    SERE_FOPEN_FAILED
+} ser_Error;
+
+ser_Error ser_writeThings() {
+    const char* path = "./testing/file1";
+    FILE* fptr = fopen(path, "w");
+    if (fptr == NULL) {
+        printf("file open failed\n");
+        return SERE_FOPEN_FAILED;
+    }
+
+    fprintf(fptr, "%s", "Hello to my wonderful new file!\n");
+    fclose(fptr);
+
+    return SERE_OK;
+}
+
 #define _SER_STRINGIZE(x) #x
 #define ser_specStruct(T, str) _ser_specStruct(#T, _SER_STRINGIZE(str))
 #define ser_specEnum(T, strs, count) _ser_specEnum(#T, strs, count)
@@ -285,4 +304,6 @@ void ser_tests() {
     ser_offsets(sk_Sketch, points, lines, constraints);
 
     _ser_printState();
+
+    ser_writeThings();
 }
