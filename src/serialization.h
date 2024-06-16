@@ -208,13 +208,6 @@ void ser_tests() {
                    Y float);
     ser_offsets(HMM_Vec2, X, Y);
 
-    ser_specStruct(vectorArray,
-                   vecs arr HMM_Vec2);
-
-    // _ser_specOffsets(_SER_OFFSETS(HMM_Vec2, X, Y));
-    // _ser_specOffsets(SER_OFFSETS(HMM_Vec2, X, Y));
-
-
     // const char* lknames[] = { "straight", "arc" };
     // ser_specEnum(sk_LineKind, lknames, sizeof(lknames) / sizeof(const char*));
     // ser_specStruct(sk_Line,
