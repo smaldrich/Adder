@@ -1,5 +1,6 @@
 
 #include <assert.h>
+#include <stdarg.h>
 #include <stdbool.h>
 #include <stddef.h>
 
@@ -7,86 +8,66 @@ typedef enum {
     SER_SK_FLOAT,
     SER_SK_INT,
     SER_SK_CHAR,
-    SER_SK_STRUCT,
+    SER_SK_ENUM,
+    SER_SK_COMPOSITE,
 } ser_SpecKind;
 
 typedef struct ser_Spec ser_Spec;
 struct ser_Spec {
+    bool isTopLevel;
     const char* name;
     ser_SpecKind kind;
-    ser_Spec* nextSibling;
-    ser_Spec* parent;
 
-    ser_Spec* firstChild;
+    ser_Spec* nextSibling;
 };
 
 #define SER_MAX_SPECS 10000
-
 typedef struct {
     ser_Spec specs[SER_MAX_SPECS];
     int specCount;
-    ser_Spec* firstSpec;
-
-    ser_Spec* currentSpec;
-    bool addNextSpecAsChild;  // TODO: this is kinda messy
 } ser_Globs;
-
 ser_Globs globs;
 
-ser_Spec* _ser_specPush(const char* name) {
+ser_Spec* _ser_specPush(const char* name, bool asSibling) {
     assert(globs.specCount < SER_MAX_SPECS);
     ser_Spec* s = &globs.specs[globs.specCount++];
     s->name = name;
-
-    if (globs.addNextSpecAsChild) {
-        assert(globs.currentSpec != NULL);
-        assert(globs.currentSpec->firstChild == NULL);
-        globs.currentSpec->firstChild = s;
-        s->parent = globs.currentSpec;
-        globs.addNextSpecAsChild = false;
-    } else {
-        if (globs.currentSpec) {
-            globs.currentSpec->nextSibling = s;
-            s->parent = globs.currentSpec->parent;
-        } else {
-            globs.firstSpec = s;
-        }
-    }
-    globs.currentSpec = s;
-
     return s;
 }
 
-void ser_spec(const char* name, ser_SpecKind kind) {
-    ser_Spec* s = _ser_specPush(name);
-    s->kind = kind;
-    assert(kind != SER_SK_STRUCT);
+void _ser_newSpecStruct(const char* tag, const char* str) {
 }
+#define ser_newSpecStruct(T, str) _ser_newSpecStruct(#T, str)
 
-void _ser_specStructBegin(const char* name) {
-    ser_Spec* s = _ser_specPush(name);
-    s->kind = SER_SK_STRUCT;
-    globs.addNextSpecAsChild = true;
+void _ser_newSpecEnum(const char* tag, const char* strs[]) {
 }
-void _ser_specStructEnd() {
-    globs.currentSpec = globs.currentSpec->parent;
-}
+#define ser_newSpecEnum(T, str) _ser_newSpecEnum(#T, str)
+
 #define _ser_defer(begin, end) for (int _i_ = ((begin), 0); !_i_; _i_ += 1, (end))
-#define ser_specStruct(name) _ser_defer(_ser_specStructBegin(name), _ser_specStructEnd())
-
-void ser_serializeBegin() {}
-void ser_feedFloat() {}
-void ser_feedInt() {}
-void ser_feedChar() {}
-void ser_beginComposite() {}
-void ser_endComposite() {}
-void ser_serializeEnd() {}
 
 void ser_tests() {
-    ser_specStruct("my struct of things") {
-        ser_spec("1st inner", SER_SK_INT);
-        ser_spec("2nd inner", SER_SK_INT);
-    }
+    ser_newSpecStruct(HMM_Vec2,
+                      "X float "
+                      "Y float ");
 
-    ser_spec("outer", SER_SK_CHAR);
+    const char* lknames[] = {"straight", "arc"};
+    ser_newSpecEnum("sk_ser_lineKind", lknames);
+    ser_newSpecStruct(sk_Line,
+                      "kind   sk_ser_LineKind "
+                      "p1     ref HMM_Vec2 "
+                      "p2     ref HMM_Vec2 "
+                      "center ref HMM_Vec2 ");
+
+    const char* cknames[] = {"distance", "angleLines", "angleArc", "arcUniform", "axisAligned"};
+    ser_newSpecEnum(sk_ConstraintKind, cknames);
+    ser_newSpecStruct(sk_Constraint,
+                      "kind  sk_ser_ConstraintKind "
+                      "line1 ref sk_ser_Line "
+                      "line2 ref sk_ser_Line "
+                      "value float ");
+
+    ser_newSpecStruct(sk_Sketch,
+                      "points      arr HMM_Vec2 "
+                      "lines       arr sk_ser_Line "
+                      "constraints arr sk_ser_Constraint ");
 }
