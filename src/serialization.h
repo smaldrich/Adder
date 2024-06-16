@@ -8,17 +8,17 @@
 #include <string.h>
 
 typedef enum {
-    SER_SK_NONE,
+    SER_NK_NONE,
 
-    SER_SK_ARRAY,
-    SER_SK_FLOAT,
-    SER_SK_INT,
-    SER_SK_CHAR,
+    SER_NK_ARRAY,
+    SER_NK_FLOAT,
+    SER_NK_INT,
+    SER_NK_CHAR,
 
-    SER_SK_OTHER_USER,
+    SER_NK_OTHER_USER,
 
-    SER_SK_STRUCT,
-    SER_SK_ENUM,
+    SER_NK_STRUCT,
+    SER_NK_ENUM,
 } _ser_NodeKind;
 
 const char* ser_nodeKindParsableNames[] = {
@@ -29,9 +29,15 @@ const char* ser_nodeKindParsableNames[] = {
     "char",
 };
 
+typedef enum {
+    SER_ND_TOP, // top level, accessable by search, names can't conflict
+    SER_ND_PROP, // beginning of a struct prop
+    SER_ND_INNER, // node inside of a prop - where the first one is an arr or ref
+} _ser_NodeDepth;
+
 typedef struct _ser_Node _ser_Node;
 struct _ser_Node {
-    bool isTopLevel;
+    _ser_NodeDepth depth;
     const char* tag;
     int tagLen;
     _ser_NodeKind kind;
@@ -39,8 +45,6 @@ struct _ser_Node {
     _ser_Node* otherUserNode;
     const char** enumValues;
     int enumCount;
-
-    _ser_Node* nextSibling;
 };
 
 #define SER_MAX_NODES 10000
@@ -51,20 +55,13 @@ typedef struct {
 ser_Globs globs;
 
 // asserts on failure
-_ser_Node* _ser_nodePush(const char* tag, int tagLen, _ser_NodeKind kind, bool asSibling) {
+_ser_Node* _ser_nodePush(const char* tag, int tagLen, _ser_NodeKind kind, _ser_NodeDepth depth) {
     assert(globs.nodeCount < SER_MAX_NODES);
     _ser_Node* s = &globs.nodes[globs.nodeCount++];
     s->tag = tag;
     s->tagLen = tagLen;
     s->kind = kind;
-    s->isTopLevel = true;
-
-    if (asSibling) {
-        assert(globs.nodeCount > 1);
-        _ser_Node* prev = &globs.nodes[globs.nodeCount - 2];
-        prev->nextSibling = s;
-        s->isTopLevel = false;
-    }
+    s->depth = depth;
     return s;
 }
 
@@ -72,7 +69,7 @@ _ser_Node* _ser_nodePush(const char* tag, int tagLen, _ser_NodeKind kind, bool a
 _ser_Node* _ser_nodeGetByTag(const char* tag, int tagLen) {
     for (int i = 0; i < globs.nodeCount; i++) {
         _ser_Node* s = &globs.nodes[i];
-        if (!s->isTopLevel) {
+        if (s->depth != SER_ND_TOP) {
             continue;
         } else if (strncmp(tag, s->tag, tagLen) == 0) {
             return s;
@@ -110,19 +107,20 @@ bool _ser_parseToken(const char* str, const char** ptr, const char** outTokStart
 }
 
 void _ser_specStruct(const char* tag, const char* str) {
-    _ser_nodePush(tag, strlen(tag), SER_SK_STRUCT, false);
+    _ser_nodePush(tag, strlen(tag), SER_NK_STRUCT, SER_ND_TOP);
 
     const char* c = str;
     while (true) {
         const char* name = NULL;
         int nameLen = 0;
         if (_ser_parseToken(str, &c, &name, &nameLen)) {
+            bool isFirstKind = true;
             while (true) {
                 const char* kind = NULL;
                 int kindLen = 0;
                 assert(_ser_parseToken(str, &c, &kind, &kindLen));
 
-                _ser_NodeKind k = SER_SK_OTHER_USER;
+                _ser_NodeKind k = SER_NK_OTHER_USER;
                 // start at one so that index values line up with enum values, and so that none is skipped
                 for (int i = 1; i < sizeof(ser_nodeKindParsableNames) / sizeof(const char*); i++) {
                     if (strncmp(ser_nodeKindParsableNames[i], kind, kindLen) == 0) {
@@ -131,17 +129,18 @@ void _ser_specStruct(const char* tag, const char* str) {
                     }
                 }
 
-                // NOTE: every spec node inside of one prop (the inner inside an array/ref) will also have a name
-                _ser_Node* spec = _ser_nodePush(name, nameLen, k, true);
-                if (spec->kind == SER_SK_OTHER_USER) {
+                // NOTE: every node inside of one prop (the inner inside an array/ref) will also have a name
+                _ser_Node* node = _ser_nodePush(name, nameLen, k, isFirstKind ? SER_ND_PROP : SER_ND_INNER);
+                if (node->kind == SER_NK_OTHER_USER) {
                     _ser_Node* other = _ser_nodeGetByTag(kind, kindLen);
                     assert(other != NULL);
-                    spec->otherUserNode = other;
+                    node->otherUserNode = other;
                 }
 
-                if (spec->kind != SER_SK_ARRAY) {
+                if (node->kind != SER_NK_ARRAY) {
                     break;  // end consuming kinds for this prop when reaching a terminal
                 }
+                isFirstKind = false;
             }  // loop to consume a number of kinds in case of compound things like arr and ref
         }  // end check for name
         else {
@@ -151,14 +150,32 @@ void _ser_specStruct(const char* tag, const char* str) {
 }
 
 void _ser_specEnum(const char* tag, const char* strs[], int count) {
-    _ser_Node* s = _ser_nodePush(tag, strlen(tag), SER_SK_ENUM, false);
+    _ser_Node* s = _ser_nodePush(tag, strlen(tag), SER_NK_ENUM, false);
     s->enumValues = strs;
     s->enumCount = count;
+}
+
+void _ser_specOffsets(const char* tag, int structSize, ...) {
+    va_list args;
+    va_start(args, structSize);
+
+    _ser_Node* node = _ser_nodeGetByTag(tag, strlen(tag));
+    assert(node != NULL);
+    // while (true) {
+    //     if () {
+
+    //     }
+    // }
+    va_end(args);
 }
 
 #define _SER_STRINGIZE(x) #x
 #define ser_specStruct(T, str) _ser_specStruct(#T, _SER_STRINGIZE(str))
 #define ser_specEnum(T, strs, count) _ser_specEnum(#T, strs, count)
+
+#define _SER_SELECT_BY_PARAM_COUNT(_1,_2,_3,NAME,...) NAME
+#define FOO(...) GET_MACRO(__VA_ARGS__, FOO3, FOO2)(__VA_ARGS__)
+
 
 void ser_tests() {
     ser_specStruct(HMM_Vec2,
@@ -195,22 +212,25 @@ void ser_tests() {
         _ser_Node* s = &globs.nodes[i];
 
         int link = (int)(s->otherUserNode - globs.nodes);
-        if (s->kind != SER_SK_OTHER_USER) {
+        if (s->kind != SER_NK_OTHER_USER) {
             link = -1;
         }
         const char* indent = "";
-        if (!s->isTopLevel) {
+        if (s->depth == SER_ND_PROP) {
             indent = "  ";
+        }
+        if (s->depth == SER_ND_INNER) {
+            indent = "    ";
         }
 
         printf("%s%d: %-15.*s\tkind: ", indent, i, s->tagLen, s->tag);  // indent, index, tag
-        if (s->kind == SER_SK_ENUM) {
+        if (s->kind == SER_NK_ENUM) {
             printf("enum\tvals: ");
             for (int valIndex = 0; valIndex < s->enumCount; valIndex++) {
                 printf("\'%s\' ", s->enumValues[valIndex]);
             }
             printf("\n");
-        } else if (s->kind == SER_SK_STRUCT) {
+        } else if (s->kind == SER_NK_STRUCT) {
             printf("struct\n");
         } else {
             printf("%d\t\tother: %d\n", s->kind, link);
