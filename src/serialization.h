@@ -6,6 +6,7 @@
 #include <stddef.h>
 #include <stdio.h>
 #include <string.h>
+#include <inttypes.h>
 
 typedef enum {
     SER_NK_NONE,
@@ -183,6 +184,11 @@ void _ser_specStruct(const char* tag, const char* str) {
 
                 // NOTE: every node inside of one prop (the inner inside an array/ref) will also have a name
                 _ser_Node* node = _ser_nodePush(name, nameLen, k, isFirstKind ? SER_ND_PROP : SER_ND_INNER);
+                if (!isFirstKind) {
+                    node->tag = NULL;
+                    node->tagLen = 0;
+                }
+
                 if (node->kind == SER_NK_OTHER_USER) {
                     _ser_Node* other = _ser_nodeGetByTag(kind, kindLen);
                     assert(other != NULL);
@@ -237,19 +243,39 @@ void _ser_specOffsets(const char* tag, int structSize, ...) {
 
 typedef enum {
     SERE_OK,
-    SERE_FOPEN_FAILED
+    SERE_FOPEN_FAILED,
 } ser_Error;
 
+// TODO: error checks
 ser_Error ser_writeThings() {
     const char* path = "./testing/file1";
-    FILE* fptr = fopen(path, "w");
-    if (fptr == NULL) {
+    FILE* file = fopen(path, "wb");
+    if (file == NULL) {
         printf("file open failed\n");
         return SERE_FOPEN_FAILED;
     }
 
-    fprintf(fptr, "%s", "Hello to my wonderful new file!\n");
-    fclose(fptr);
+    fwrite("\x00\x00\x00\x00", 4, 1, file);
+    int32_t endianIndicator = 1;
+    fwrite(&endianIndicator, 4, 1, file);
+
+    int32_t nodeCount = globs.nodeCount;
+    fwrite(&nodeCount, 4, 1, file);
+    for (int32_t i = 0; i < globs.nodeCount; i++) {
+        _ser_Node* n = &globs.nodes[i];
+
+        char depth = (int)n->depth;
+        fwrite(&depth, 1, 1, file);
+        char kind = (int)n->kind;
+        fwrite(&kind, 1, 1, file);
+
+        if (n->tagLen > 0) {
+            fwrite(n->tag, 1, n->tagLen, file);
+        }
+        fwrite("\0", 1, 1, file);
+    }
+
+
 
     return SERE_OK;
 }
