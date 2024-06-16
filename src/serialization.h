@@ -167,7 +167,9 @@ void _ser_specOffsets(const char* tag, int structSize, ...) {
     int propIdx = (int)(node - globs.nodes);
     while (true) {
         propIdx++;
-        assert(propIdx < globs.nodeCount);
+        if (propIdx >= globs.nodeCount) {
+            break;
+        }
         _ser_Node* prop = &globs.nodes[propIdx];
         if (prop->depth == SER_ND_TOP) {
             break;
@@ -200,7 +202,7 @@ void ser_tests() {
     ser_specStruct(HMM_Vec2,
                    X float
                    Y float);
-    ser_offsets(HMM_Vec3, X, Y, Z);
+    ser_offsets(HMM_Vec2, X, Y);
 
     ser_specStruct(vectorArray,
                    vecs arr HMM_Vec2);
