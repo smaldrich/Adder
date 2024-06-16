@@ -239,31 +239,39 @@ void ser_tests() {
     // print out created nodes for debugging / testing
     printf("\nNODES!\n");
     for (int i = 0; i < globs.nodeCount; i++) {
-        _ser_Node* s = &globs.nodes[i];
+        _ser_Node* n = &globs.nodes[i];
 
-        int link = (int)(s->otherUserNode - globs.nodes);
-        if (s->kind != SER_NK_OTHER_USER) {
-            link = -1;
+        printf("%-3d:", i);
+        int indent = 1;
+        if (n->depth == SER_ND_PROP) {
+            indent = 5;
         }
-        const char* indent = "";
-        if (s->depth == SER_ND_PROP) {
-            indent = "  ";
-        }
-        if (s->depth == SER_ND_INNER) {
-            indent = "    ";
+        if (n->depth == SER_ND_INNER) {
+            indent = 7;
         }
 
-        printf("%s%d: %-15.*s\tkind: ", indent, i, s->tagLen, s->tag);  // indent, index, tag
-        if (s->kind == SER_NK_ENUM) {
-            printf("enum\tvals: ");
-            for (int valIndex = 0; valIndex < s->enumCount; valIndex++) {
-                printf("\'%s\' ", s->enumValues[valIndex]);
+        printf("%.*s%-*.*s\tkind: ", indent, "      ", 17 - indent, n->tagLen, n->tag);  // indent, index, tag
+        if (n->kind == SER_NK_ENUM) {
+            printf("enum\t\tvals: ");
+            for (int valIndex = 0; valIndex < n->enumCount; valIndex++) {
+                printf("\'%s\' ", n->enumValues[valIndex]);
             }
-            printf("\n");
-        } else if (s->kind == SER_NK_STRUCT) {
-            printf("struct\n");
+        } else if (n->kind == SER_NK_STRUCT) {
+            printf("struct");
+        } else if (n->kind == SER_NK_PTR) {
+            printf("ptr");
+        } else if (n->kind == SER_NK_ARRAY) {
+            printf("arr");
+        } else if (n->kind == SER_NK_OTHER_USER) {
+            int link = (int)(n->otherUserNode - globs.nodes);
+            printf("other\t\tindex: %d", link);
         } else {
-            printf("%d\t\tother: %d\n", s->kind, link);
+            printf("%d", n->kind);
         }
+
+        if (n->depth == SER_ND_PROP) {
+            printf("\t\toffset in struct: %d", n->offsetIntoStruct);
+        }
+        printf("\n");
     }
 }
