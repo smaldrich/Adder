@@ -191,9 +191,13 @@ void _ser_specOffsets(const char* tag, int structSize, ...) {
 #define _SER_OFFSETS2(T, a) offsetof(T, a)
 #define _SER_OFFSETS3(T, a, b) offsetof(T, a), offsetof(T, b)
 #define _SER_OFFSETS4(T, a, b, c) offsetof(T, a), offsetof(T, b), offsetof(T, c)
+#define _SER_OFFSETS5(T, a, b, c, d) offsetof(T, a), offsetof(T, b), offsetof(T, c), offsetof(T, d)
+#define _SER_OFFSETS6(T, a, b, c, d, e) offsetof(T, a), offsetof(T, b), offsetof(T, c), offsetof(T, d), offsetof(T, e)
+#define _SER_OFFSETS7(T, a, b, c, d, e, f) offsetof(T, a), offsetof(T, b), offsetof(T, c), offsetof(T, d), offsetof(T, e), offsetof(T, f)
+#define _SER_OFFSETS8(T, a, b, c, d, e, f, g) offsetof(T, a), offsetof(T, b), offsetof(T, c), offsetof(T, d), offsetof(T, e), offsetof(T, f), offsetof(T, g)
 
-#define _SER_SELECT_BY_PARAM_COUNT(_1,_2,_3,_4,NAME,...) NAME
-#define _SER_OFFSET_SWITCH(...) _SER_SELECT_BY_PARAM_COUNT(__VA_ARGS__, _SER_OFFSETS4, _SER_OFFSETS3, _SER_OFFSETS2)(__VA_ARGS__)
+#define _SER_SELECT_BY_PARAM_COUNT(_1,_2,_3,_4,_5,_6,_7,_8,NAME,...) NAME
+#define _SER_OFFSET_SWITCH(...) _SER_SELECT_BY_PARAM_COUNT(__VA_ARGS__, _SER_OFFSET8, _SER_OFFSET7, _SER_OFFSET6, _SER_OFFSET5, _SER_OFFSETS4, _SER_OFFSETS3, _SER_OFFSETS2)(__VA_ARGS__)
 #define ser_offsets(T, ...) _ser_specOffsets(_SER_STRINGIZE(T), sizeof(T), _SER_OFFSET_SWITCH(T, __VA_ARGS__))
 
 #include "HMM/HandmadeMath.h"
