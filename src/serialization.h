@@ -9,15 +9,21 @@
 
 typedef enum {
     SER_SK_NONE,
+
+    SER_SK_ARRAY,
     SER_SK_FLOAT,
     SER_SK_INT,
     SER_SK_CHAR,
+
     SER_SK_OTHER_USER,
+
     SER_SK_STRUCT,
     SER_SK_ENUM,
 } ser_SpecKind;
 
 const char* ser_specKindParsableNames[] = {
+    "",
+    "arr",
     "float",
     "int",
     "char",
@@ -111,58 +117,70 @@ void _ser_newSpecStruct(const char* tag, const char* str) {
         const char* name = NULL;
         int nameLen = 0;
         if (_ser_parseToken(str, &c, &name, &nameLen)) {
-            const char* kind = NULL;
-            int kindLen = 0;
-            assert(_ser_parseToken(str, &c, &kind, &kindLen));
+            while (true) {
+                const char* kind = NULL;
+                int kindLen = 0;
+                assert(_ser_parseToken(str, &c, &kind, &kindLen));
 
-            ser_SpecKind k = SER_SK_OTHER_USER;
-            for (int i = 0; i < sizeof(ser_specKindParsableNames) / sizeof(const char*); i++) {
-                if (strncmp(ser_specKindParsableNames[i], kind, kindLen) == 0) {
-                    k = i;
-                    break;
+                ser_SpecKind k = SER_SK_OTHER_USER;
+                // start at one so that index values line up with enum values, and so that none is skipped
+                for (int i = 1; i < sizeof(ser_specKindParsableNames) / sizeof(const char*); i++) {
+                    if (strncmp(ser_specKindParsableNames[i], kind, kindLen) == 0) {
+                        k = i;
+                        break;
+                    }
                 }
-            }
 
-            ser_Spec* spec = _ser_specPush(name, nameLen, k, true);
-            if (spec->kind == SER_SK_OTHER_USER) {
-                ser_Spec* other = _ser_specGetByTag(kind, kindLen);
-                assert(other != NULL);
-                spec->otherUserSpec = other;
-            }
-        } else {
+                // NOTE: every spec node inside of one prop (the inner inside an array/ref) will also have a name
+                ser_Spec* spec = _ser_specPush(name, nameLen, k, true);
+                if (spec->kind == SER_SK_OTHER_USER) {
+                    ser_Spec* other = _ser_specGetByTag(kind, kindLen);
+                    assert(other != NULL);
+                    spec->otherUserSpec = other;
+                }
+
+                if (spec->kind != SER_SK_ARRAY) {
+                    break;  // end consuming kinds for this prop when reaching a terminal
+                }
+            }  // loop to consume a number of kinds in case of compound things like arr and ref
+        }  // end check for name
+        else {
             break;
         }
-    }
+    }  // end prop while
 }
-#define ser_newSpecStruct(T, str) _ser_newSpecStruct(#T, str)
 
 void _ser_newSpecEnum(const char* tag, const char* strs[], int count) {
     ser_Spec* s = _ser_specPush(tag, strlen(tag), SER_SK_ENUM, false);
     s->enumValues = strs;
     s->enumCount = count;
 }
-#define ser_newSpecEnum(T, strs, count) _ser_newSpecEnum(#T, strs, count)
 
-#define _ser_defer(begin, end) for (int _i_ = ((begin), 0); !_i_; _i_ += 1, (end))
+#define _SER_STRINGIZE(x) #x
+#define ser_newSpecStruct(T, str) _ser_newSpecStruct(#T, _SER_STRINGIZE(str))
+#define ser_newSpecEnum(T, strs, count) _ser_newSpecEnum(#T, strs, count)
 
 void ser_tests() {
     ser_newSpecStruct(HMM_Vec2,
-                      "X float "
-                      "Y float ");
+                      X float
+                      Y float);
 
     ser_newSpecEnum(myEnum, ser_specKindParsableNames, sizeof(ser_specKindParsableNames) / sizeof(const char*));
 
-    ser_newSpecStruct(new cool struct,
-                      "V1 HMM_Vec2 "
-                      "V2 HMM_Vec2 "
-                      "wowEnum myEnum ");
+    ser_newSpecStruct(structThing,
+                      V1 HMM_Vec2
+                      V2 HMM_Vec2
+                      wowEnum myEnum);
+
+    ser_newSpecStruct(parent,
+                      "structs arr structThing");
 
     // print out created specs for debugging / testing
     printf("\nSPECS!\n");
     for (int i = 0; i < globs.specCount; i++) {
         ser_Spec* s = &globs.specs[i];
 
-        int link = (int)((s->otherUserSpec - globs.specs) / sizeof(ser_Spec));
+        int link = (int)(s->otherUserSpec - globs.specs);
         if (s->kind != SER_SK_OTHER_USER) {
             link = -1;
         }
@@ -181,8 +199,7 @@ void ser_tests() {
         } else if (s->kind == SER_SK_STRUCT) {
             printf("struct\n");
         } else {
-            printf("%d\t\tother: %d\n",
-                   s->kind, link);
+            printf("%d\t\tother: %d\n", s->kind, link);
         }
     }
 
