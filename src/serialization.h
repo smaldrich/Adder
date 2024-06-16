@@ -19,9 +19,9 @@ typedef enum {
 
     SER_SK_STRUCT,
     SER_SK_ENUM,
-} ser_SpecKind;
+} _ser_NodeKind;
 
-const char* ser_specKindParsableNames[] = {
+const char* ser_nodeKindParsableNames[] = {
     "",
     "arr",
     "float",
@@ -29,39 +29,39 @@ const char* ser_specKindParsableNames[] = {
     "char",
 };
 
-typedef struct ser_Spec ser_Spec;
-struct ser_Spec {
+typedef struct _ser_Node _ser_Node;
+struct _ser_Node {
     bool isTopLevel;
     const char* tag;
     int tagLen;
-    ser_SpecKind kind;
+    _ser_NodeKind kind;
 
-    ser_Spec* otherUserSpec;
+    _ser_Node* otherUserNode;
     const char** enumValues;
     int enumCount;
 
-    ser_Spec* nextSibling;
+    _ser_Node* nextSibling;
 };
 
-#define SER_MAX_SPECS 10000
+#define SER_MAX_NODES 10000
 typedef struct {
-    ser_Spec specs[SER_MAX_SPECS];
-    int specCount;
+    _ser_Node nodes[SER_MAX_NODES];
+    int nodeCount;
 } ser_Globs;
 ser_Globs globs;
 
 // asserts on failure
-ser_Spec* _ser_specPush(const char* tag, int tagLen, ser_SpecKind kind, bool asSibling) {
-    assert(globs.specCount < SER_MAX_SPECS);
-    ser_Spec* s = &globs.specs[globs.specCount++];
+_ser_Node* _ser_nodePush(const char* tag, int tagLen, _ser_NodeKind kind, bool asSibling) {
+    assert(globs.nodeCount < SER_MAX_NODES);
+    _ser_Node* s = &globs.nodes[globs.nodeCount++];
     s->tag = tag;
     s->tagLen = tagLen;
     s->kind = kind;
     s->isTopLevel = true;
 
     if (asSibling) {
-        assert(globs.specCount > 1);
-        ser_Spec* prev = &globs.specs[globs.specCount - 2];
+        assert(globs.nodeCount > 1);
+        _ser_Node* prev = &globs.nodes[globs.nodeCount - 2];
         prev->nextSibling = s;
         s->isTopLevel = false;
     }
@@ -69,9 +69,9 @@ ser_Spec* _ser_specPush(const char* tag, int tagLen, ser_SpecKind kind, bool asS
 }
 
 // null on failure
-ser_Spec* _ser_specGetByTag(const char* tag, int tagLen) {
-    for (int i = 0; i < globs.specCount; i++) {
-        ser_Spec* s = &globs.specs[i];
+_ser_Node* _ser_nodeGetByTag(const char* tag, int tagLen) {
+    for (int i = 0; i < globs.nodeCount; i++) {
+        _ser_Node* s = &globs.nodes[i];
         if (!s->isTopLevel) {
             continue;
         } else if (strncmp(tag, s->tag, tagLen) == 0) {
@@ -109,8 +109,8 @@ bool _ser_parseToken(const char* str, const char** ptr, const char** outTokStart
     return tokStart != NULL;
 }
 
-void _ser_newSpecStruct(const char* tag, const char* str) {
-    _ser_specPush(tag, strlen(tag), SER_SK_STRUCT, false);
+void _ser_specStruct(const char* tag, const char* str) {
+    _ser_nodePush(tag, strlen(tag), SER_SK_STRUCT, false);
 
     const char* c = str;
     while (true) {
@@ -122,21 +122,21 @@ void _ser_newSpecStruct(const char* tag, const char* str) {
                 int kindLen = 0;
                 assert(_ser_parseToken(str, &c, &kind, &kindLen));
 
-                ser_SpecKind k = SER_SK_OTHER_USER;
+                _ser_NodeKind k = SER_SK_OTHER_USER;
                 // start at one so that index values line up with enum values, and so that none is skipped
-                for (int i = 1; i < sizeof(ser_specKindParsableNames) / sizeof(const char*); i++) {
-                    if (strncmp(ser_specKindParsableNames[i], kind, kindLen) == 0) {
+                for (int i = 1; i < sizeof(ser_nodeKindParsableNames) / sizeof(const char*); i++) {
+                    if (strncmp(ser_nodeKindParsableNames[i], kind, kindLen) == 0) {
                         k = i;
                         break;
                     }
                 }
 
                 // NOTE: every spec node inside of one prop (the inner inside an array/ref) will also have a name
-                ser_Spec* spec = _ser_specPush(name, nameLen, k, true);
+                _ser_Node* spec = _ser_nodePush(name, nameLen, k, true);
                 if (spec->kind == SER_SK_OTHER_USER) {
-                    ser_Spec* other = _ser_specGetByTag(kind, kindLen);
+                    _ser_Node* other = _ser_nodeGetByTag(kind, kindLen);
                     assert(other != NULL);
-                    spec->otherUserSpec = other;
+                    spec->otherUserNode = other;
                 }
 
                 if (spec->kind != SER_SK_ARRAY) {
@@ -150,37 +150,39 @@ void _ser_newSpecStruct(const char* tag, const char* str) {
     }  // end prop while
 }
 
-void _ser_newSpecEnum(const char* tag, const char* strs[], int count) {
-    ser_Spec* s = _ser_specPush(tag, strlen(tag), SER_SK_ENUM, false);
+void _ser_specEnum(const char* tag, const char* strs[], int count) {
+    _ser_Node* s = _ser_nodePush(tag, strlen(tag), SER_SK_ENUM, false);
     s->enumValues = strs;
     s->enumCount = count;
 }
 
 #define _SER_STRINGIZE(x) #x
-#define ser_newSpecStruct(T, str) _ser_newSpecStruct(#T, _SER_STRINGIZE(str))
-#define ser_newSpecEnum(T, strs, count) _ser_newSpecEnum(#T, strs, count)
+#define ser_specStruct(T, str) _ser_specStruct(#T, _SER_STRINGIZE(str))
+#define ser_specEnum(T, strs, count) _ser_specEnum(#T, strs, count)
 
 void ser_tests() {
-    ser_newSpecStruct(HMM_Vec2,
-                      X float
-                      Y float);
+    ser_specStruct(HMM_Vec2,
+                   X float
+                   Y float);
 
-    ser_newSpecEnum(myEnum, ser_specKindParsableNames, sizeof(ser_specKindParsableNames) / sizeof(const char*));
+    ser_specEnum(myEnum,
+                 ser_nodeKindParsableNames,
+                 sizeof(ser_nodeKindParsableNames) / sizeof(const char*));
 
-    ser_newSpecStruct(structThing,
-                      V1 HMM_Vec2
-                      V2 HMM_Vec2
-                      wowEnum myEnum);
+    ser_specStruct(structThing,
+                   V1 HMM_Vec2
+                   V2 HMM_Vec2
+                   wowEnum myEnum);
 
-    ser_newSpecStruct(parent,
-                      "structs arr structThing");
+    ser_specStruct(parent,
+                   structs arr structThing);
 
-    // print out created specs for debugging / testing
-    printf("\nSPECS!\n");
-    for (int i = 0; i < globs.specCount; i++) {
-        ser_Spec* s = &globs.specs[i];
+    // print out created nodes for debugging / testing
+    printf("\nNODES!\n");
+    for (int i = 0; i < globs.nodeCount; i++) {
+        _ser_Node* s = &globs.nodes[i];
 
-        int link = (int)(s->otherUserSpec - globs.specs);
+        int link = (int)(s->otherUserNode - globs.nodes);
         if (s->kind != SER_SK_OTHER_USER) {
             link = -1;
         }
