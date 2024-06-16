@@ -1,4 +1,4 @@
-
+#pragma once
 #include <assert.h>
 #include <ctype.h>
 #include <stdarg.h>
@@ -41,6 +41,8 @@ struct _ser_Node {
     const char* tag;
     int tagLen;
     _ser_NodeKind kind;
+
+    int offsetIntoStruct;
 
     _ser_Node* otherUserNode;
     const char** enumValues;
@@ -161,11 +163,22 @@ void _ser_specOffsets(const char* tag, int structSize, ...) {
 
     _ser_Node* node = _ser_nodeGetByTag(tag, strlen(tag));
     assert(node != NULL);
-    // while (true) {
-    //     if () {
 
-    //     }
-    // }
+    int propIdx = (int)(node - globs.nodes);
+    while (true) {
+        propIdx++;
+        assert(propIdx < globs.nodeCount);
+        _ser_Node* prop = &globs.nodes[propIdx];
+        if (prop->depth == SER_ND_TOP) {
+            break;
+        } else if (prop->depth == SER_ND_INNER) {
+            continue;
+        }
+
+        int offset = va_arg(args, int);
+        prop->offsetIntoStruct = offset;
+    }
+
     va_end(args);
 }
 
@@ -173,17 +186,28 @@ void _ser_specOffsets(const char* tag, int structSize, ...) {
 #define ser_specStruct(T, str) _ser_specStruct(#T, _SER_STRINGIZE(str))
 #define ser_specEnum(T, strs, count) _ser_specEnum(#T, strs, count)
 
-#define _SER_SELECT_BY_PARAM_COUNT(_1,_2,_3,NAME,...) NAME
-#define FOO(...) GET_MACRO(__VA_ARGS__, FOO3, FOO2)(__VA_ARGS__)
+#define _SER_OFFSETS2(T, a) offsetof(T, a)
+#define _SER_OFFSETS3(T, a, b) offsetof(T, a), offsetof(T, b)
+#define _SER_OFFSETS4(T, a, b, c) offsetof(T, a), offsetof(T, b), offsetof(T, c)
 
+#define _SER_SELECT_BY_PARAM_COUNT(_1,_2,_3,_4,NAME,...) NAME
+#define _SER_OFFSET_SWITCH(...) _SER_SELECT_BY_PARAM_COUNT(__VA_ARGS__, _SER_OFFSETS4, _SER_OFFSETS3, _SER_OFFSETS2)(__VA_ARGS__)
+#define ser_offsets(T, ...) _ser_specOffsets(_SER_STRINGIZE(T), sizeof(T), _SER_OFFSET_SWITCH(T, __VA_ARGS__))
+
+#include "HMM/HandmadeMath.h"
 
 void ser_tests() {
     ser_specStruct(HMM_Vec2,
                    X float
                    Y float);
+    ser_offsets(HMM_Vec3, X, Y, Z);
 
     ser_specStruct(vectorArray,
                    vecs arr HMM_Vec2);
+
+    // _ser_specOffsets(_SER_OFFSETS(HMM_Vec2, X, Y));
+    // _ser_specOffsets(SER_OFFSETS(HMM_Vec2, X, Y));
+
 
     // const char* lknames[] = { "straight", "arc" };
     // ser_specEnum(sk_LineKind, lknames, sizeof(lknames) / sizeof(const char*));
