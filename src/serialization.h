@@ -78,7 +78,7 @@ void _ser_printState() {
             indent = 7;
         }
 
-        printf("%.*s%-*.*s\tkind: ", indent, "            ", 17 - indent, n->tagLen, n->tag);  // indent, index, tag
+        printf("%*s%-*.*s\tkind: ", indent, " ", 17 - indent, n->tagLen, n->tag);  // indent, index, tag
         if (n->kind == SER_NK_ENUM) {
             printf("enum\t\tvals: ");
             for (int valIndex = 0; valIndex < n->enumCount; valIndex++) {
