@@ -50,7 +50,7 @@ struct _ser_Node {
 
     _ser_Node* otherUserNode;
     const char** enumValues;
-    int enumCount;
+    int enumValueCount;
 };
 
 #define SER_MAX_NODES 10000
@@ -82,7 +82,7 @@ void _ser_printState() {
         printf("%*s%-*.*s\tkind: ", indent, " ", 17 - indent, n->tagLen, n->tag);  // indent, index, tag
         if (n->kind == SER_NK_ENUM) {
             printf("enum\t\tvals: ");
-            for (int valIndex = 0; valIndex < n->enumCount; valIndex++) {
+            for (int valIndex = 0; valIndex < n->enumValueCount; valIndex++) {
                 printf("\'%s\' ", n->enumValues[valIndex]);
             }
         } else if (n->kind == SER_NK_STRUCT) {
@@ -210,7 +210,7 @@ void _ser_specStruct(const char* tag, const char* str) {
 void _ser_specEnum(const char* tag, const char* strs[], int count) {
     _ser_Node* s = _ser_nodePush(tag, strlen(tag), SER_NK_ENUM, SER_ND_TOP);
     s->enumValues = strs;
-    s->enumCount = count;
+    s->enumValueCount = count;
 }
 
 void _ser_specOffsets(const char* tag, int structSize, ...) {
@@ -261,21 +261,27 @@ ser_Error ser_writeThings() {
 
     int32_t nodeCount = globs.nodeCount;
     fwrite(&nodeCount, 4, 1, file);
-    for (int32_t i = 0; i < globs.nodeCount; i++) {
-        _ser_Node* n = &globs.nodes[i];
+    for (int32_t nodeIdx = 0; nodeIdx < globs.nodeCount; nodeIdx++) {
+        _ser_Node* n = &globs.nodes[nodeIdx];
 
         char depth = (int)n->depth;
         fwrite(&depth, 1, 1, file);
         char kind = (int)n->kind;
         fwrite(&kind, 1, 1, file);
 
-        if (n->tagLen > 0) {
-            fwrite(n->tag, 1, n->tagLen, file);
-        }
+        fwrite(n->tag, n->tagLen, 1, file); // nothing written when length is 0
         fwrite("\0", 1, 1, file);
+
+        if (n->kind == SER_NK_ENUM) {
+            int32_t valCount = n->enumValueCount;
+            fwrite(&valCount, 4, 1, file);
+
+            for (int32_t enumValIdx = 0; enumValIdx < valCount; enumValIdx++) {
+                fwrite(n->enumValues[enumValIdx], strlen(n->enumValues[enumValIdx]), 1, file);
+                fwrite("\0", 1, 1, file);
+            }
+        }
     }
-
-
 
     return SERE_OK;
 }
