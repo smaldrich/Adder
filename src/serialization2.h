@@ -319,6 +319,35 @@ typedef enum {
 
 // TODO: be able to have more than one spec going instead of always using the global one
 
+/*
+The File Format:
+uint64_t endian indicator
+uint64_t version no
+uint64_t specCount
+    uint8_t kind // direct from the enum // annoying that it's that big, but ok
+    [tag string]
+    [null terminator] // TODO: probably bad for a file format
+    if enum:
+        uint64_t valCount
+            [value string]
+            [null term]
+    if struct:
+        uint64_t propCount
+            [tag string]
+            [null term]
+            prop
+                    // prop
+                        uint8_t kind
+                        if user:
+                            uint64_t id
+                        if non-terminal:
+                            // <- inner prop goes here
+
+uint64_t origin spec ID (index)
+    parse by prop order dictated in the spec :)
+    where arrays are a uint64_t for count and then repeated inner elements
+*/
+
 ser_Error _ser_tryPatchPropUserRef(ser_SpecProp* p) {
     if (p->kind != SER_SP_USER) {
         if (p->kind == SER_SP_ARRAY || p->kind == SER_SP_PTR) {
@@ -337,12 +366,13 @@ ser_Error _ser_tryPatchPropUserRef(ser_SpecProp* p) {
 }
 
 void _ser_serializeProp(FILE* file, ser_SpecProp* prop, bool isTopLevel) {
-    char kind = prop->kind;
+    uint8_t kind = prop->kind;
+    assert(prop->kind < 255 && prop->kind >= 0);
     fwrite(&kind, sizeof(kind), 1, file);
 
-    if (isTopLevel) {
-        fwrite(prop->tag, strlen(prop->tag), 1, file);
-        fwrite("\0", 1, 1, file);
+    if (prop->kind == SER_SP_USER) {
+        uint64_t id = prop->userSpec->id;
+        fwrite(&id, sizeof(id), 1, file);
     }
 
     if (prop->kind == SER_SP_ARRAY || prop->kind == SER_SP_PTR) {
@@ -359,13 +389,13 @@ ser_Error ser_writeObjectToFile(void* obj, const char* type) {
     }
 
     // HEADER ===================================
-    int64_t endianIndicator = 1;
+    uint64_t endianIndicator = 1;
     fwrite(&endianIndicator, sizeof(endianIndicator), 1, file);
-    int64_t versionNo = 0;
+    uint64_t versionNo = 0;
     fwrite(&versionNo, sizeof(versionNo), 1, file);
 
     // TREE PREPROCESSING ==============================================
-    int64_t userSpecCount = 0;
+    uint64_t userSpecCount = 0;
     {
         // fill in IDs of each user spec, collect the count of userspecs in the list
         for (ser_SpecUser* userSpec = globs.firstUserSpec; userSpec; userSpec = userSpec->nextUserSpec) {
@@ -398,11 +428,14 @@ ser_Error ser_writeObjectToFile(void* obj, const char* type) {
     fwrite(&userSpecCount, sizeof(userSpecCount), 1, file);
 
     for (ser_SpecUser* userSpec = globs.firstUserSpec; userSpec; userSpec = userSpec->nextUserSpec) {
+        uint8_t specKind = (uint8_t)(userSpec->kind);
+        assert(userSpec->kind < 255 && userSpec->kind >= 0);
+        fwrite(&specKind, sizeof(specKind), 1, file);
         fwrite(userSpec->tag, strlen(userSpec->tag), 1, file); // nothing written when length is 0
         fwrite("\0", 1, 1, file);
 
         if (userSpec->kind == SER_SU_ENUM) {
-            int64_t valCount = userSpec->enumValCount;
+            uint64_t valCount = userSpec->enumValCount;
             fwrite(&valCount, sizeof(valCount), 1, file);
             for (int64_t enumValIdx = 0; enumValIdx < valCount; enumValIdx++) {
                 const char* val = userSpec->enumVals[enumValIdx];
@@ -413,6 +446,8 @@ ser_Error ser_writeObjectToFile(void* obj, const char* type) {
             uint64_t propCount = userSpec->structPropCount;
             fwrite(&propCount, sizeof(propCount), 1, file);
             for (ser_SpecProp* prop = userSpec->structFirstChild; prop; prop = prop->nextProp) {
+                fwrite(prop->tag, strlen(prop->tag), 1, file);
+                fwrite("\0", 1, 1, file);
                 _ser_serializeProp(file, prop, true);
             }
         } else {
