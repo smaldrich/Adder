@@ -353,6 +353,7 @@ uint64_t specCount
 uint64_t origin spec ID (index)
     parse by prop order dictated in the spec :)
     where arrays are a uint64_t for count and then repeated inner elements
+
 */
 
 ser_Error _ser_tryPatchPropUserRef(ser_SpecProp* p) {
