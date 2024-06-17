@@ -296,11 +296,11 @@ void _ser_specStructOffsets(const char* tag, int structSize, ...) {
 #define _SER_LOOKUP_MEMBER(outT, obj, offset) ((outT*)(((char*)obj) + (offset)))
 
 // VAR WILL BE DOUBLE EVALED
-#define _SER_WRITE_VAR_OR_FAIL(var, file) _SER_WRITE_OR_FAIL(var, sizeof(var), file)
+#define _SER_WRITE_VAR_OR_FAIL(var, file) _SER_WRITE_OR_FAIL(&var, sizeof(var), file)
 
-#define _SER_WRITE_OR_FAIL(var, size, file)    \
+#define _SER_WRITE_OR_FAIL(ptr, size, file)    \
     do {                                       \
-        if(fwrite(&var, size, 1, file) != 1) { \
+        if(fwrite(ptr, size, 1, file) != 1) { \
             return SERE_FWRITE_FAILED;         \
         }                                      \
     } while(0)
@@ -443,14 +443,14 @@ ser_Error _ser_writeObjectToFileInner(const char* type, void* obj, uint64_t user
         uint8_t specKind = (uint8_t)(userSpec->kind);
         _SER_WRITE_VAR_OR_FAIL(specKind, file);
 
-        _SER_WRITE_OR_FAIL(userSpec->tag, strlen(userSpec->tag + 1), file); // will include the null term, always writes something fingers crossed
+        _SER_WRITE_OR_FAIL(userSpec->tag, strlen(userSpec->tag) + 1, file); // will include the null term, always writes something fingers crossed
 
         if (userSpec->kind == SER_SU_ENUM) {
             uint64_t valCount = userSpec->enumValCount;
             _SER_WRITE_VAR_OR_FAIL(valCount, file);
             for (uint64_t enumValIdx = 0; enumValIdx < valCount; enumValIdx++) {
                 const char* val = userSpec->enumVals[enumValIdx];
-                _SER_WRITE_OR_FAIL(val, strlen(val + 1), file); // will include the null term, always writes something fingers crossed
+                _SER_WRITE_OR_FAIL(val, strlen(val) + 1, file); // will include the null term, always writes something fingers crossed
             }
         } else if (userSpec->kind == SER_SU_STRUCT) {
             uint64_t propCount = userSpec->structPropCount;
@@ -470,7 +470,8 @@ ser_Error _ser_writeObjectToFileInner(const char* type, void* obj, uint64_t user
     // OBJECTS =============================================================
     ser_SpecUser* spec = _ser_specUserGet(type, strlen(type));
     assert(spec->kind == SER_SU_STRUCT);
-    _SER_WRITE_VAR_OR_FAIL(spec->id, file);
+    uint64_t id = spec->id;
+    _SER_WRITE_VAR_OR_FAIL(id, file);
     _ser_serializeStructByUserSpec(file, obj, spec);
     return SERE_OK;
 }
@@ -541,14 +542,16 @@ ser_Error _ser_test_serializeVec2() {
                    X float
                    Y float);
     ser_specStructOffsets(HMM_Vec2, X, Y);
+
     HMM_Vec2 v = HMM_V2(69, 420);
-    ser_writeObjectToFile("./testing/file1", "HMM_Vec2", &v);
+    _SER_VALID_OR_RETURN(ser_writeObjectToFile("./testing/file1", "HMM_Vec2", &v));
 
-    FILE* f = fopen("./testing/file1", "rb");
-    if (!f) {
-        return SERE_FOPEN_FAILED;
-    }
+    // FILE* f = fopen("./testing/file1", "rb");
+    // if (!f) {
+    //     return SERE_FOPEN_FAILED;
+    // }
 
+    // fclose(f);
     return SERE_OK;
 }
 
