@@ -8,7 +8,10 @@
 #include <string.h>
 #include <inttypes.h>
 
+// TODO: usage docs
+
 typedef enum {
+    // TODO: full suite of int types, doubles, bools, etc
     SER_NK_FLOAT,
     SER_NK_INT,
     SER_NK_CHAR,
@@ -20,6 +23,8 @@ typedef enum {
 
     SER_NK_STRUCT,
     SER_NK_ENUM,
+
+    SER_NK_COUNT, // indicator for how many diff NKs there are
 } _ser_NodeKind;
 
 const char* ser_nodeKindParsableNames[] = {
@@ -47,15 +52,17 @@ struct _ser_Node {
 
     int offsetIntoStruct;
 
-    bool arrayLengthIsInSpec;
+    // TODO: length of arrays in the spec
+    // bool arrayLengthIsInSpec;
     int arrayLengthOffsetIntoStruct;
-    int arrayLength;
+    // int arrayLength;
 
     _ser_Node* otherUserNode;
     const char** enumValues;
     int enumValueCount;
 
     int structSize;
+    int structPropCount;
 };
 
 #define SER_MAX_NODES 10000
@@ -105,6 +112,10 @@ void _ser_printState() {
 
         if (n->depth == SER_ND_PROP) {
             printf("\t\toffset in struct: %d", n->offsetIntoStruct);
+        }
+
+        if (n->kind == SER_NK_ARRAY) {
+            printf("\t\tlength offset in struct: %d", n->arrayLengthOffsetIntoStruct);
         }
         printf("\n");
     }
@@ -180,7 +191,7 @@ void _ser_specStruct(const char* tag, const char* str) {
 
                 _ser_NodeKind k = SER_NK_OTHER_USER;
                 // start at one so that index values line up with enum values, and so that none is skipped
-                for (int i = 1; i < sizeof(ser_nodeKindParsableNames) / sizeof(const char*); i++) {
+                for (uint64_t i = 0; i < sizeof(ser_nodeKindParsableNames) / sizeof(const char*); i++) {
                     if (strncmp(ser_nodeKindParsableNames[i], kind, kindLen) == 0) {
                         k = i;
                         break;
@@ -195,7 +206,7 @@ void _ser_specStruct(const char* tag, const char* str) {
                 }
 
                 if (node->kind == SER_NK_OTHER_USER) {
-                    _ser_Node* other = _ser_nodeGetByTag(kind, kindLen);
+                    _ser_Node* other = _ser_nodeGetByTag(kind, kindLen); // TODO: delay evaluating this and crashing until validate()
                     assert(other != NULL);
                     node->otherUserNode = other;
                 }
@@ -245,7 +256,7 @@ void _ser_specOffsets(const char* tag, int structSize, ...) {
         prop->offsetIntoStruct = offset;
 
         if (prop->kind == SER_NK_ARRAY) {
-            prop->offsetOfArrayCountIntoStruct = va_arg(args, int);
+            prop->arrayLengthOffsetIntoStruct = va_arg(args, int);
         }
     }
 
@@ -255,9 +266,120 @@ void _ser_specOffsets(const char* tag, int structSize, ...) {
 typedef enum {
     SERE_OK,
     SERE_FOPEN_FAILED,
+    SERE_UNINITIALIZED_NODE,
+    SERE_INVALID_NODE_CONTENTS,
+    SERE_INVALID_NODE_DEPTH,
+    SERE_EMPTY_NODE
 } ser_Error;
 
-// TODO: validation of a spec
+// returns the node at the current value of index, then increments it
+// NULL when out of bounds
+// index cannot be NULL
+_ser_Node* _ser_grabNextNode(int* index) {
+    if (*index < 0 || *index >= globs.nodeCount) {
+        return NULL;
+    }
+    return &globs.nodes[(*index)++];
+}
+
+ser_Error _ser_finalizeSpec() {
+    // TODO: duplicate top lvl name checks
+    // TODO: checks for if offsets have been registered -- but does this work for deserializing??
+    // TODO: realism checks on offsets? like no two 0s?
+    // TODO: cyclic struct checks
+
+    // CHECKS OVER EVERY NODE
+    for (int i = 0; i < globs.nodeCount; i++) {
+        _ser_Node* n = &globs.nodes[i];
+
+        if (!n->inUse) {
+            return SERE_UNINITIALIZED_NODE;
+        }
+
+        if (n->kind >= SER_NK_COUNT || n->kind < 0) {
+            return SERE_INVALID_NODE_CONTENTS;
+        }
+
+        if (n->kind == SER_NK_STRUCT || n->kind == SER_NK_ENUM) {
+            if (n->depth != SER_ND_TOP) {
+                return SERE_INVALID_NODE_DEPTH;
+            }
+        } else {
+            if (n->depth == SER_ND_TOP) {
+                return SERE_INVALID_NODE_DEPTH;
+            }
+        }
+
+        // SPECIFICS PER KIND
+        if (n->kind == SER_NK_OTHER_USER) {
+            if (n->otherUserNode < globs.nodes || n->otherUserNode >= &globs.nodes[globs.nodeCount - 1]) {
+                return SERE_INVALID_NODE_CONTENTS;
+            } else if (n->otherUserNode->kind != SER_NK_ENUM &&
+                       n->otherUserNode->kind != SER_NK_STRUCT) {
+                return SERE_INVALID_NODE_CONTENTS;
+            }
+        } else if (n->kind == SER_NK_ENUM) {
+            if (n->enumValueCount <= 0) {
+                return SERE_INVALID_NODE_CONTENTS;
+            } else if (!n->enumValues) {
+                return SERE_INVALID_NODE_CONTENTS;
+            }
+        } else if (n->kind == SER_NK_STRUCT) {
+            if (n->structSize <= 0) {
+                return SERE_INVALID_NODE_CONTENTS;
+            }
+        }
+    } // END CONTEXT FREE CHECKS
+
+    // enfore ordering/depth -- structs need members, array and ptr nodes need inner vals
+    int i = 0;
+    while (true) {
+        _ser_Node* n = _ser_grabNextNode(&i);
+        if (n == NULL) {
+            break;
+        } else if (n->kind == SER_NK_STRUCT) {
+            _ser_Node* innerNode = _ser_grabNextNode(&i);
+            // mandate >= 1 inner node
+            if (!innerNode) {
+                return SERE_EMPTY_NODE;
+            } else if (innerNode->depth == SER_ND_TOP) {
+                return SERE_EMPTY_NODE;
+            }
+
+            int propCount = 1;
+
+            while (true) {
+                innerNode = _ser_grabNextNode(&i);
+                if (!innerNode) {
+                    break;
+                } else if (innerNode->depth == SER_ND_TOP) {
+                    break;
+                } else if (innerNode->depth == SER_ND_INNER) {
+                    return SERE_INVALID_NODE_DEPTH;
+                }
+
+                if (innerNode->kind == SER_NK_STRUCT ||
+                    innerNode->kind == SER_NK_ENUM) {
+                    return SERE_INVALID_NODE_DEPTH;
+                } else if (innerNode->kind == SER_NK_ARRAY || innerNode->kind == SER_NK_PTR) {
+
+                } else if (innerNode->kind == SER_NK_OTHER_USER) {
+
+                } else {
+
+                }
+                innerNode = _ser_grabNextNode(&i);
+            }
+            n->structPropCount = propCount;
+        } else if (n->kind == SER_NK_ENUM) {
+            // skip these
+        } else {
+            return SERE_INVALID_NODE_DEPTH;
+        }
+    }
+    return SERE_OK;
+}
+
 // TODO: error checks
 
 #define _SER_LOOKUP_MEMBER(outT, obj, offset) ((outT*)(((char*)obj) + (offset)))
@@ -270,17 +392,22 @@ void _ser_serialize(FILE* file, void* obj, _ser_Node* spec) {
     } else if (spec->kind == SER_NK_CHAR) {
         fwrite(obj, 1, 1, file);
     } else if (spec->kind == SER_NK_OTHER_USER) {
-        assert(false);
-    } else if (spec->kind == SER_NK_ARRAY) {
-        int32_t innerCount;
-        if (spec->arrayLengthIsInSpec) {
-            innerCount = spec->arrayLength;
-        } else {
-            // TODO: assuming the type of the length prop
-            innerCount = *_SER_LOOKUP_MEMBER(int32_t, obj, spec->arrayLengthOffsetIntoStruct);
+        _ser_Node* innerProp = spec + 1; // TODO: works but is fucking vile
+        for (int i = 0; i < spec->structPropCount; i++) {
+            void* innerPropLoc = _SER_LOOKUP_MEMBER(void, obj, innerProp->offsetIntoStruct);
+            _ser_serialize(file, innerPropLoc, innerProp);
         }
-        fwrite(&innerCount, 4, 1, file);
-        for (int32_t i = 0; i < innerCount; i++) {
+    } else if (spec->kind == SER_NK_ARRAY) {
+        // TODO: assuming type, will fuck w you later
+        int64_t innerCount = *_SER_LOOKUP_MEMBER(int64_t, obj, spec->arrayLengthOffsetIntoStruct);
+        // if (spec->arrayLengthIsInSpec) {
+        //     innerCount = spec->arrayLength;
+        // } else {
+        //     // TODO: assuming the type of the length prop
+        //     innerCount = *_SER_LOOKUP_MEMBER(int32_t, obj, spec->arrayLengthOffsetIntoStruct);
+        // }
+        fwrite(&innerCount, 8, 1, file);
+        for (int64_t i = 0; i < innerCount; i++) {
             void* ptr = _SER_LOOKUP_MEMBER(void, obj, spec->offsetIntoStruct);
             _ser_serialize(file, ptr, spec + 1); // TODO: works but is fucking vile
         }
@@ -387,7 +514,10 @@ void ser_tests() {
                    points      arr HMM_Vec2
                    lines       arr sk_Line
                    constraints arr sk_Constraint);
-    ser_offsets(sk_Sketch, points, lines, constraints);
+    ser_offsets(sk_Sketch,
+                   points, pointCount,
+                   lines, lineCount,
+                   constraints, constraintCount);
 
     _ser_printState();
 

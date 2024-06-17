@@ -99,6 +99,11 @@ typedef struct {
 // Kind should be considered immutable after construction
 
 typedef struct {
+    // TODO: these don't work
+    int64_t pointCount;
+    int64_t constraintCount;
+    int64_t lineCount;
+
     sk_Point points[SK_MAX_PT_COUNT];
     sk_Constraint constraints[SK_MAX_CONSTRAINT_COUNT];
     sk_Line lines[SK_MAX_LINE_COUNT];
