@@ -667,7 +667,7 @@ void sk_sketchClear(sk_Sketch* sketch) {
 
 void sk_tests() {
     sk_Sketch s;
-    printf("\nRunning sketch tests:\n");
+    test_printSectionHeader("Sketch");
 
     {
         sk_sketchClear(&s);
@@ -691,7 +691,7 @@ void sk_tests() {
         sk_constraintAxisAlignedPush(&s, l41.ok);
         sk_constraintAxisAlignedPush(&s, l34.ok);
 
-        test_print(sk_sketchSolve(&s) == SKE_OK, "square");
+        test_printResult(sk_sketchSolve(&s) == SKE_OK, "square");
     }
 
     {
@@ -699,7 +699,7 @@ void sk_tests() {
         sk_PointHandleOpt pt = sk_pointPush(&s, HMM_V2(0, 0));
         sk_lineStraightPush(&s, pt.ok, pt.ok);
 
-        test_print(sk_sketchSolve(&s) == SKE_DUPLICATE_REFERENCES, "line with only one point");
+        test_printResult(sk_sketchSolve(&s) == SKE_DUPLICATE_REFERENCES, "line with only one point");
     }
 
     {
@@ -709,7 +709,7 @@ void sk_tests() {
         sk_lineStraightPush(&s, p1.ok, p2.ok);
         sk_lineStraightPush(&s, p2.ok, p1.ok);
 
-        test_print(sk_sketchSolve(&s) == SKE_DUPLICATE_REFERENCES, "two lines across same points");
+        test_printResult(sk_sketchSolve(&s) == SKE_DUPLICATE_REFERENCES, "two lines across same points");
     }
 
     {
@@ -720,7 +720,7 @@ void sk_tests() {
         sk_constraintDistancePush(&s, 1, line.ok);
         sk_constraintDistancePush(&s, 2, line.ok);
 
-        test_print(sk_sketchSolve(&s) == SKE_DUPLICATE_REFERENCES, "duplicated distance constraint");
+        test_printResult(sk_sketchSolve(&s) == SKE_DUPLICATE_REFERENCES, "duplicated distance constraint");
     }
 
     {
@@ -733,7 +733,7 @@ void sk_tests() {
         sk_constraintAngleLinesPush(&s, 90, l12.ok, l23.ok);
         sk_constraintAngleLinesPush(&s, 90, l23.ok, l12.ok);
 
-        test_print(sk_sketchSolve(&s) == SKE_DUPLICATE_REFERENCES, "duplicated angle constraint");
+        test_printResult(sk_sketchSolve(&s) == SKE_DUPLICATE_REFERENCES, "duplicated angle constraint");
     }
 
     {
@@ -744,7 +744,7 @@ void sk_tests() {
         sk_constraintAxisAlignedPush(&s, line.ok);
         sk_constraintAxisAlignedPush(&s, line.ok);
 
-        test_print(sk_sketchSolve(&s) == SKE_DUPLICATE_REFERENCES, "duplicated axis aligned constraint");
+        test_printResult(sk_sketchSolve(&s) == SKE_DUPLICATE_REFERENCES, "duplicated axis aligned constraint");
     }
 
     {
@@ -756,7 +756,7 @@ void sk_tests() {
         sk_LineHandleOpt l23 = sk_lineStraightPush(&s, p2.ok, p3.ok);
         sk_constraintAngleLinesPush(&s, 90, l12.ok, l23.ok);
 
-        test_print(sk_sketchSolve(&s) == SKE_OK, "flat joined angle constraint");
+        test_printResult(sk_sketchSolve(&s) == SKE_OK, "flat joined angle constraint");
     }
 
     {
@@ -769,8 +769,8 @@ void sk_tests() {
         sk_pointRemove(&s, p1.ok);
         p1 = sk_pointPush(&s, HMM_V2(0, 0));
 
-        test_print((p1.ok.index == 0 && p1.ok.generation == 2), "point reallocation");
-        test_print(sk_sketchSolve(&s) == SKE_INVALID_HANDLE, "reallocated point reference breaks");
+        test_printResult((p1.ok.index == 0 && p1.ok.generation == 2), "point reallocation");
+        test_printResult(sk_sketchSolve(&s) == SKE_INVALID_HANDLE, "reallocated point reference breaks");
     }
 
     {
@@ -787,8 +787,8 @@ void sk_tests() {
         sk_lineRemove(&s, l12.ok);
         l12 = sk_lineStraightPush(&s, p1.ok, p2.ok);
 
-        test_print((l12.ok.index == 0 && l12.ok.generation == 2), "line reallocation");
-        test_print(sk_sketchSolve(&s) == SKE_INVALID_HANDLE, "reallocated line reference breaks");
+        test_printResult((l12.ok.index == 0 && l12.ok.generation == 2), "line reallocation");
+        test_printResult(sk_sketchSolve(&s) == SKE_INVALID_HANDLE, "reallocated line reference breaks");
     }
 
     {
@@ -800,6 +800,6 @@ void sk_tests() {
 
         sk_constraintAngleArcPush(&s, 60, arc.ok);
         sk_constraintArcUniformPush(&s, 1, arc.ok);
-        test_print(sk_sketchSolve(&s) == SKE_OK, "uniform angled arc");
+        test_printResult(sk_sketchSolve(&s) == SKE_OK, "uniform angled arc");
     }
 }

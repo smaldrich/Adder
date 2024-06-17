@@ -9,6 +9,33 @@
 #include <ctype.h>
 
 typedef enum {
+    SERE_OK,
+    SERE_FOPEN_FAILED,
+    SERE_FWRITE_FAILED,
+    SERE_FREAD_FAILED,
+    SERE_BAD_POINTER,
+    SERE_UNRESOLVED_USER_SPEC_TAG,
+    SERE_TEST_EXPECT_FAILED,
+} ser_Error;
+
+#define _SER_EXPECT(expr, error) \
+    do { \
+        if (!(expr)) { \
+            return error; \
+        } \
+    } while (0)
+
+// does not double eval expr :)
+// returns the result of expr if expr evaluates to something other than SERE_OK
+#define _SER_VALID_OR_RETURN(expr)  \
+    do {                            \
+        ser_Error _e = expr;        \
+        if (_e != SERE_OK) {        \
+            return _e;              \
+        }                           \
+    } while (0)
+
+typedef enum {
     SER_SU_STRUCT,
     SER_SU_ENUM,
 } ser_SpecUserKind;
@@ -92,6 +119,10 @@ typedef struct {
     ser_SpecUser* lastUserSpec;
 } ser_Globs;
 ser_Globs globs;
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// SPEC CONSTRUCTION
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 ser_SpecUnion* _ser_specPush() {
     assert(globs.allocatedSpecCount < SER_MAX_SPECS);
@@ -258,70 +289,21 @@ void _ser_specStructOffsets(const char* tag, int structSize, ...) {
     va_end(args);
 }
 
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// SERIALIZATION
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
 #define _SER_LOOKUP_MEMBER(outT, obj, offset) ((outT*)(((char*)obj) + (offset)))
 
-void _ser_serializeStructByPropSpec(FILE* file, void* obj, ser_SpecProp* spec);
-void _ser_serializeStructByUserSpec(FILE* file, void* obj, ser_SpecUser* spec);
+// VAR WILL BE DOUBLE EVALED
+#define _SER_WRITE_VAR_OR_FAIL(var, file) _SER_WRITE_OR_FAIL(var, sizeof(var), file)
 
-int64_t _ser_sizeOfPropStruct(ser_SpecProp* p) {
-    if (p->kind == SER_SP_CHAR) {
-        return sizeof(char);
-    } else if (p->kind == SER_SP_INT) {
-        return sizeof(int);
-    } else if (p->kind == SER_SP_FLOAT) {
-        return sizeof(float);
-    } else if (p->kind == SER_SP_ARRAY) {
-        assert(false);
-    } else if (p->kind == SER_SP_PTR) {
-        assert(false); // TODO: the pointer thing
-    } else if (p->kind == SER_SP_USER) {
-        assert(p->userSpec->kind == SER_SU_STRUCT); // TODO: this is covered elsewhere, right?
-        return p->userSpec->structSize;
-    } else {
-        assert(false);
-    }
-}
-
-void _ser_serializeStructByPropSpec(FILE* file, void* obj, ser_SpecProp* spec) {
-    if (spec->kind == SER_SP_FLOAT) {
-        fwrite(obj, 1, 4, file);
-    } else if (spec->kind == SER_SP_INT) {
-        fwrite(obj, 1, 4, file);
-    } else if (spec->kind == SER_SP_CHAR) {
-        fwrite(obj, 1, 1, file);
-    } else if (spec->kind == SER_SP_USER) {
-        _ser_serializeStructByUserSpec(file, obj, spec->userSpec);
-    } else if (spec->kind == SER_SP_ARRAY) {
-        // TODO: assuming type, will fuck w you later
-        int64_t arrCount = *_SER_LOOKUP_MEMBER(int64_t, obj, spec->arrayLengthParentStructOffset);
-        fwrite(&arrCount, 8, 1, file);
-
-        int64_t innerSize = _ser_sizeOfPropStruct(spec->innerSpec); // TODO: array of arrays now cannot happen. document or fix
-        for (int64_t i = 0; i < arrCount; i++) {
-            int64_t offset = spec->parentStructOffset + (i * innerSize);
-            void* ptr = _SER_LOOKUP_MEMBER(void, obj, offset);
-            _ser_serializeStructByPropSpec(file, ptr, spec->innerSpec);
-        }
-    } else if (spec->kind == SER_SP_PTR) {
-        assert(false);
-    } else {
-        assert(false);
-    }
-}
-
-void _ser_serializeStructByUserSpec(FILE* file, void* obj, ser_SpecUser* spec) {
-    for (ser_SpecProp* prop = spec->structFirstChild; prop; prop = prop->nextProp) {
-        void* propLoc = _SER_LOOKUP_MEMBER(void, obj, prop->parentStructOffset);
-        _ser_serializeStructByPropSpec(file, propLoc, prop);
-    }
-}
-
-typedef enum {
-    SERE_OK,
-    SERE_FOPEN_FAILED,
-    SERE_BAD_POINTER,
-    SERE_UNRESOLVED_USER_SPEC_TAG,
-} ser_Error;
+#define _SER_WRITE_OR_FAIL(var, size, file)    \
+    do {                                       \
+        if(fwrite(&var, size, 1, file) != 1) { \
+            return SERE_FWRITE_FAILED;         \
+        }                                      \
+    } while(0)
 
 // TODO: be able to have more than one spec going instead of always using the global one
 // TODO: rename prop spec to something not bad
@@ -353,8 +335,82 @@ uint64_t specCount
 uint64_t origin spec ID (index)
     parse by prop order dictated in the spec :)
     where arrays are a uint64_t for count and then repeated inner elements
-
 */
+
+int64_t _ser_sizeOfPropStruct(ser_SpecProp* p) {
+    if (p->kind == SER_SP_CHAR) {
+        return sizeof(char);
+    } else if (p->kind == SER_SP_INT) {
+        return sizeof(int);
+    } else if (p->kind == SER_SP_FLOAT) {
+        return sizeof(float);
+    } else if (p->kind == SER_SP_ARRAY) {
+        assert(false);
+    } else if (p->kind == SER_SP_PTR) {
+        assert(false); // TODO: the pointer thing
+    } else if (p->kind == SER_SP_USER) {
+        assert(p->userSpec->kind == SER_SU_STRUCT); // TODO: this is covered elsewhere, right?
+        return p->userSpec->structSize;
+    } else {
+        assert(false);
+    }
+}
+
+ser_Error _ser_serializeStructByPropSpec(FILE* file, void* obj, ser_SpecProp* spec);
+ser_Error _ser_serializeStructByUserSpec(FILE* file, void* obj, ser_SpecUser* spec);
+
+ser_Error _ser_serializeStructByPropSpec(FILE* file, void* obj, ser_SpecProp* spec) {
+    if (spec->kind == SER_SP_FLOAT) {
+        _SER_WRITE_OR_FAIL(obj, sizeof(float), file);
+    } else if (spec->kind == SER_SP_INT) {
+        _SER_WRITE_OR_FAIL(obj, sizeof(int), file);
+    } else if (spec->kind == SER_SP_CHAR) {
+        _SER_WRITE_OR_FAIL(obj, sizeof(char), file);
+    } else if (spec->kind == SER_SP_USER) {
+        return _ser_serializeStructByUserSpec(file, obj, spec->userSpec);
+    } else if (spec->kind == SER_SP_ARRAY) {
+        // TODO: assuming type, will fuck w you later
+        int64_t arrCount = *_SER_LOOKUP_MEMBER(int64_t, obj, spec->arrayLengthParentStructOffset);
+        _SER_WRITE_VAR_OR_FAIL(arrCount, file);
+
+        int64_t innerSize = _ser_sizeOfPropStruct(spec->innerSpec); // TODO: array of arrays now cannot happen. document or fix
+        for (int64_t i = 0; i < arrCount; i++) {
+            int64_t offset = spec->parentStructOffset + (i * innerSize);
+            void* ptr = _SER_LOOKUP_MEMBER(void, obj, offset);
+            ser_Error e = _ser_serializeStructByPropSpec(file, ptr, spec->innerSpec);
+            _SER_VALID_OR_RETURN(e);
+        }
+    } else if (spec->kind == SER_SP_PTR) {
+        assert(false);
+    } else {
+        assert(false);
+    }
+    return SERE_OK;
+}
+
+ser_Error _ser_serializeStructByUserSpec(FILE* file, void* obj, ser_SpecUser* spec) {
+    for (ser_SpecProp* prop = spec->structFirstChild; prop; prop = prop->nextProp) {
+        void* propLoc = _SER_LOOKUP_MEMBER(void, obj, prop->parentStructOffset);
+        _ser_serializeStructByPropSpec(file, propLoc, prop);
+    }
+    return SERE_OK;
+}
+
+ser_Error _ser_serializeProp(FILE* file, ser_SpecProp* prop) {
+    uint8_t kind = prop->kind;
+    assert(prop->kind < 255 && prop->kind >= 0);
+    _SER_WRITE_VAR_OR_FAIL(kind, file);
+
+    if (prop->kind == SER_SP_USER) {
+        uint64_t id = prop->userSpec->id;
+        _SER_WRITE_VAR_OR_FAIL(id, file);
+    }
+
+    if (prop->kind == SER_SP_ARRAY || prop->kind == SER_SP_PTR) {
+        _ser_serializeProp(file, prop->innerSpec);
+    }
+    return SERE_OK;
+}
 
 ser_Error _ser_tryPatchPropUserRef(ser_SpecProp* p) {
     if (p->kind != SER_SP_USER) {
@@ -373,35 +429,55 @@ ser_Error _ser_tryPatchPropUserRef(ser_SpecProp* p) {
     return SERE_OK;
 }
 
-void _ser_serializeProp(FILE* file, ser_SpecProp* prop) {
-    uint8_t kind = prop->kind;
-    assert(prop->kind < 255 && prop->kind >= 0);
-    fwrite(&kind, sizeof(kind), 1, file);
+// TODO: remove as many asserts as possible
 
-    if (prop->kind == SER_SP_USER) {
-        uint64_t id = prop->userSpec->id;
-        fwrite(&id, sizeof(id), 1, file);
+ser_Error _ser_writeObjectToFileInner(const char* type, void* obj, uint64_t userSpecCount, FILE* file) {
+    uint64_t endianIndicator = 1;
+    _SER_WRITE_VAR_OR_FAIL(endianIndicator, file);
+    uint64_t versionNo = 0;
+    _SER_WRITE_VAR_OR_FAIL(versionNo, file);
+    _SER_WRITE_VAR_OR_FAIL(userSpecCount, file);
+
+    for (ser_SpecUser* userSpec = globs.firstUserSpec; userSpec; userSpec = userSpec->nextUserSpec) {
+        assert(userSpec->kind < 255 && userSpec->kind >= 0);
+        uint8_t specKind = (uint8_t)(userSpec->kind);
+        _SER_WRITE_VAR_OR_FAIL(specKind, file);
+
+        _SER_WRITE_OR_FAIL(userSpec->tag, strlen(userSpec->tag + 1), file); // will include the null term, always writes something fingers crossed
+
+        if (userSpec->kind == SER_SU_ENUM) {
+            uint64_t valCount = userSpec->enumValCount;
+            _SER_WRITE_VAR_OR_FAIL(valCount, file);
+            for (uint64_t enumValIdx = 0; enumValIdx < valCount; enumValIdx++) {
+                const char* val = userSpec->enumVals[enumValIdx];
+                _SER_WRITE_OR_FAIL(val, strlen(val + 1), file); // will include the null term, always writes something fingers crossed
+            }
+        } else if (userSpec->kind == SER_SU_STRUCT) {
+            uint64_t propCount = userSpec->structPropCount;
+            _SER_WRITE_VAR_OR_FAIL(propCount, file);
+            for (ser_SpecProp* prop = userSpec->structFirstChild; prop; prop = prop->nextProp) {
+                assert(prop->tagLen != 0);
+                _SER_WRITE_OR_FAIL(prop->tag, prop->tagLen, file);
+                uint8_t nullTerm = '\0';
+                _SER_WRITE_VAR_OR_FAIL(nullTerm, file);
+                _ser_serializeProp(file, prop);
+            }
+        } else {
+            assert(false);
+        }
     }
 
-    if (prop->kind == SER_SP_ARRAY || prop->kind == SER_SP_PTR) {
-        _ser_serializeProp(file, prop->innerSpec);
-    }
+    // OBJECTS =============================================================
+    ser_SpecUser* spec = _ser_specUserGet(type, strlen(type));
+    assert(spec->kind == SER_SU_STRUCT);
+    _SER_WRITE_VAR_OR_FAIL(spec->id, file);
+    _ser_serializeStructByUserSpec(file, obj, spec);
+    return SERE_OK;
 }
 
-ser_Error ser_writeObjectToFile(void* obj, const char* type) {
-    const char* path = "./testing/file1";
-    FILE* file = fopen(path, "wb");
-    if (file == NULL) {
-        printf("file open failed\n");
-        return SERE_FOPEN_FAILED;
-    }
-
-    // HEADER ===================================
-    uint64_t endianIndicator = 1;
-    fwrite(&endianIndicator, sizeof(endianIndicator), 1, file);
-    uint64_t versionNo = 0;
-    fwrite(&versionNo, sizeof(versionNo), 1, file);
-
+// this function got split so that early error returns from the inner still close the file properly
+// wish I could have inlined the function but c sucks
+ser_Error ser_writeObjectToFile(const char* path, const char* type, void* obj) {
     // TREE PREPROCESSING ==============================================
     uint64_t userSpecCount = 0;
     {
@@ -432,43 +508,13 @@ ser_Error ser_writeObjectToFile(void* obj, const char* type) {
         assert(userSpecCount != 0); // can't hurt
     }
 
-    // SPEC + NODES ====================================================
-    fwrite(&userSpecCount, sizeof(userSpecCount), 1, file);
-
-    for (ser_SpecUser* userSpec = globs.firstUserSpec; userSpec; userSpec = userSpec->nextUserSpec) {
-        uint8_t specKind = (uint8_t)(userSpec->kind);
-        assert(userSpec->kind < 255 && userSpec->kind >= 0);
-        fwrite(&specKind, sizeof(specKind), 1, file);
-        fwrite(userSpec->tag, strlen(userSpec->tag), 1, file); // nothing written when length is 0
-        fwrite("\0", 1, 1, file);
-
-        if (userSpec->kind == SER_SU_ENUM) {
-            uint64_t valCount = userSpec->enumValCount;
-            fwrite(&valCount, sizeof(valCount), 1, file);
-            for (uint64_t enumValIdx = 0; enumValIdx < valCount; enumValIdx++) {
-                const char* val = userSpec->enumVals[enumValIdx];
-                fwrite(val, strlen(val), 1, file);
-                fwrite("\0", 1, 1, file);
-            }
-        } else if (userSpec->kind == SER_SU_STRUCT) {
-            uint64_t propCount = userSpec->structPropCount;
-            fwrite(&propCount, sizeof(propCount), 1, file);
-            for (ser_SpecProp* prop = userSpec->structFirstChild; prop; prop = prop->nextProp) {
-                fwrite(prop->tag, prop->tagLen, 1, file);
-                fwrite("\0", 1, 1, file);
-                _ser_serializeProp(file, prop);
-            }
-        } else {
-            assert(false);
-        }
+    FILE* file = fopen(path, "wb");
+    if (file == NULL) {
+        return SERE_FOPEN_FAILED;
     }
-
-    // OBJECTS =============================================================
-    ser_SpecUser* spec = _ser_specUserGet(type, strlen(type));
-    assert(spec->kind == SER_SU_STRUCT);
-    fwrite(&spec->id, sizeof(spec->id), 1, file);
-    _ser_serializeStructByUserSpec(file, obj, spec);
-    return SERE_OK;
+    ser_Error e = _ser_writeObjectToFileInner(type, obj, userSpecCount, file);
+    assert(fclose(file) == 0);
+    return e;
 }
 
 #define _SER_STRINGIZE(x) #x
@@ -490,20 +536,34 @@ ser_Error ser_writeObjectToFile(void* obj, const char* type) {
 #include "HMM/HandmadeMath.h"
 #include "sketches.h"
 
-void ser_tests() {
+ser_Error _ser_test_serializeVec2() {
     ser_specStruct(HMM_Vec2,
                    X float
                    Y float);
     ser_specStructOffsets(HMM_Vec2, X, Y);
+    HMM_Vec2 v = HMM_V2(69, 420);
+    ser_writeObjectToFile("./testing/file1", "HMM_Vec2", &v);
 
-    const char* lknames[] = { "straight", "arc" };
-    ser_specEnum(sk_LineKind, lknames, sizeof(lknames) / sizeof(const char*));
-    ser_specStruct(sk_Line,
-                   kind   sk_LineKind
-                   p1     ptr HMM_Vec2
-                   p2     ptr HMM_Vec2
-                   center ptr HMM_Vec2);
-    ser_specStructOffsets(sk_Line, kind, p1, p2, center);
+    FILE* f = fopen("./testing/file1", "rb");
+    if (!f) {
+        return SERE_FOPEN_FAILED;
+    }
+
+    return SERE_OK;
+}
+
+void ser_tests() {
+    test_printSectionHeader("Serialization");
+    test_printResult(_ser_test_serializeVec2() == SERE_OK, "serialize vector");
+
+    // const char* lknames[] = { "straight", "arc" };
+    // ser_specEnum(sk_LineKind, lknames, sizeof(lknames) / sizeof(const char*));
+    // ser_specStruct(sk_Line,
+    //                kind   sk_LineKind
+    //                p1     ptr HMM_Vec2
+    //                p2     ptr HMM_Vec2
+    //                center ptr HMM_Vec2);
+    // ser_specStructOffsets(sk_Line, kind, p1, p2, center);
 
     // const char* cknames[] = { "distance", "angleLines", "angleArc", "arcUniform", "axisAligned" };
     // ser_specEnum(sk_ConstraintKind, cknames, sizeof(cknames) / sizeof(const char*));
@@ -524,7 +584,4 @@ void ser_tests() {
     //                       constraints, constraintCount);
 
     // _ser_printState();
-
-    HMM_Vec2 myVector = HMM_V2(69, 420);
-    ser_writeObjectToFile(&myVector, "HMM_Vec2");
 }
