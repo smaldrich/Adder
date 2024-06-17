@@ -89,6 +89,7 @@ typedef struct {
     int allocatedSpecCount;
 
     ser_SpecUser* firstUserSpec;
+    ser_SpecUser* lastUserSpec;
 } ser_Globs;
 ser_Globs globs;
 
@@ -103,8 +104,13 @@ ser_SpecUser* _ser_specUserPush(const char* tag, ser_SpecUserKind kind) {
     s->kind = kind;
 
     // push to the list of user specs
-    s->nextUserSpec = globs.firstUserSpec;
-    globs.firstUserSpec = s;
+    if (!globs.firstUserSpec) {
+        globs.firstUserSpec = s;
+        globs.lastUserSpec = s;
+    } else {
+        globs.lastUserSpec->nextUserSpec = s;
+        globs.lastUserSpec = s;
+    }
     return s;
 }
 
@@ -489,14 +495,14 @@ void ser_tests() {
                    Y float);
     ser_specStructOffsets(HMM_Vec2, X, Y);
 
-    // const char* lknames[] = { "straight", "arc" };
-    // ser_specEnum(sk_LineKind, lknames, sizeof(lknames) / sizeof(const char*));
-    // ser_specStruct(sk_Line,
-    //                kind   sk_LineKind
-    //                p1     ptr HMM_Vec2
-    //                p2     ptr HMM_Vec2
-    //                center ptr HMM_Vec2);
-    // ser_specStructOffsets(sk_Line, kind, p1, p2, center);
+    const char* lknames[] = { "straight", "arc" };
+    ser_specEnum(sk_LineKind, lknames, sizeof(lknames) / sizeof(const char*));
+    ser_specStruct(sk_Line,
+                   kind   sk_LineKind
+                   p1     ptr HMM_Vec2
+                   p2     ptr HMM_Vec2
+                   center ptr HMM_Vec2);
+    ser_specStructOffsets(sk_Line, kind, p1, p2, center);
 
     // const char* cknames[] = { "distance", "angleLines", "angleArc", "arcUniform", "axisAligned" };
     // ser_specEnum(sk_ConstraintKind, cknames, sizeof(cknames) / sizeof(const char*));
