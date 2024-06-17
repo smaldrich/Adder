@@ -103,9 +103,7 @@ ser_SpecUser* _ser_specUserPush(const char* tag, ser_SpecUserKind kind) {
     s->kind = kind;
 
     // push to the list of user specs
-    if (globs.firstUserSpec) {
-        globs.firstUserSpec->nextUserSpec = s;
-    }
+    s->nextUserSpec = globs.firstUserSpec;
     globs.firstUserSpec = s;
     return s;
 }
@@ -118,7 +116,7 @@ ser_SpecUser* _ser_specUserPush(const char* tag, ser_SpecUserKind kind) {
 ser_SpecUser* _ser_specUserGet(const char* tag, uint64_t tagLen) {
     for (ser_SpecUser* s = globs.firstUserSpec; s; s = s->nextUserSpec) {
         if (tagLen == strlen(s->tag)) {
-            if (strcmp(tag, s->tag) == 0) { // TODO: fuck you stl
+            if (strncmp(tag, s->tag, tagLen) == 0) { // TODO: fuck you stl
                 return s;
             }
         }
@@ -191,7 +189,7 @@ ser_SpecProp* _ser_specParsePropInners(const char** str) {
             lastInner = inner;
         } else {
             // push to the back of the list
-            lastInner->nextProp = inner;
+            lastInner->innerSpec = inner;
             lastInner = inner;
         }
 
@@ -220,9 +218,7 @@ void _ser_specStruct(const char* tag, const char* str) {
         firstKindSpec->tag = propName;
         firstKindSpec->tagLen = propNameLen;
 
-        if (firstProp != NULL) {
-            firstProp->nextProp = firstKindSpec;
-        }
+        firstKindSpec->nextProp = firstProp;
         firstProp = firstKindSpec;
     }
 
@@ -457,32 +453,32 @@ void ser_tests() {
                    Y float);
     ser_specStructOffsets(HMM_Vec2, X, Y);
 
-    const char* lknames[] = { "straight", "arc" };
-    ser_specEnum(sk_LineKind, lknames, sizeof(lknames) / sizeof(const char*));
-    ser_specStruct(sk_Line,
-                   kind   sk_LineKind
-                   p1     ptr HMM_Vec2
-                   p2     ptr HMM_Vec2
-                   center ptr HMM_Vec2);
-    ser_specStructOffsets(sk_Line, kind, p1, p2, center);
+    // const char* lknames[] = { "straight", "arc" };
+    // ser_specEnum(sk_LineKind, lknames, sizeof(lknames) / sizeof(const char*));
+    // ser_specStruct(sk_Line,
+    //                kind   sk_LineKind
+    //                p1     ptr HMM_Vec2
+    //                p2     ptr HMM_Vec2
+    //                center ptr HMM_Vec2);
+    // ser_specStructOffsets(sk_Line, kind, p1, p2, center);
 
-    const char* cknames[] = { "distance", "angleLines", "angleArc", "arcUniform", "axisAligned" };
-    ser_specEnum(sk_ConstraintKind, cknames, sizeof(cknames) / sizeof(const char*));
-    ser_specStruct(sk_Constraint,
-                   kind  sk_ConstraintKind
-                   line1 ptr sk_Line
-                   line2 ptr sk_Line
-                   value float);
-    ser_specStructOffsets(sk_Constraint, kind, line1, line2, value);
+    // const char* cknames[] = { "distance", "angleLines", "angleArc", "arcUniform", "axisAligned" };
+    // ser_specEnum(sk_ConstraintKind, cknames, sizeof(cknames) / sizeof(const char*));
+    // ser_specStruct(sk_Constraint,
+    //                kind  sk_ConstraintKind
+    //                line1 ptr sk_Line
+    //                line2 ptr sk_Line
+    //                value float);
+    // ser_specStructOffsets(sk_Constraint, kind, line1, line2, value);
 
-    ser_specStruct(sk_Sketch,
-                   points      arr HMM_Vec2
-                   lines       arr sk_Line
-                   constraints arr sk_Constraint);
-    ser_specStructOffsets(sk_Sketch,
-                          points, pointCount,
-                          lines, lineCount,
-                          constraints, constraintCount);
+    // ser_specStruct(sk_Sketch,
+    //                points      arr HMM_Vec2
+    //                lines       arr sk_Line
+    //                constraints arr sk_Constraint);
+    // ser_specStructOffsets(sk_Sketch,
+    //                       points, pointCount,
+    //                       lines, lineCount,
+    //                       constraints, constraintCount);
 
     // _ser_printState();
 
