@@ -212,7 +212,6 @@ ser_SpecProp* _ser_specParsePropInners(const char** str) {
             }
         } // end matching keywords for prop kinds
 
-
         ser_SpecProp* inner = &_ser_specPush()->prop;
         inner->kind = k;
 
@@ -241,6 +240,7 @@ void _ser_specStruct(const char* tag, const char* str) {
     ser_SpecUser* userSpec = _ser_specUserPush(tag, SER_SU_STRUCT);
 
     ser_SpecProp* firstProp = NULL;
+    ser_SpecProp* lastProp = NULL;
 
     const char* c = str;
     while (true) {
@@ -255,8 +255,13 @@ void _ser_specStruct(const char* tag, const char* str) {
         firstKindSpec->tag = propName;
         firstKindSpec->tagLen = propNameLen;
 
-        firstKindSpec->nextProp = firstProp;
-        firstProp = firstKindSpec;
+        if (firstProp == NULL) {
+            firstProp = firstKindSpec;
+            lastProp = firstKindSpec;
+        } else {
+            lastProp->nextProp = firstKindSpec;
+            lastProp = firstKindSpec;
+        }
     }
 
     assert(firstProp);
@@ -269,6 +274,7 @@ void _ser_specEnum(const char* tag, const char* strs[], int count) {
     s->enumValCount = count;
 }
 
+// TODO: some type of gaurd for wrong number of passed or recieved args
 void _ser_specStructOffsets(const char* tag, int structSize, ...) {
     va_list args;
     va_start(args, structSize);
@@ -537,7 +543,32 @@ ser_Error ser_writeObjectToFile(const char* path, const char* type, void* obj) {
 #include "HMM/HandmadeMath.h"
 #include "sketches.h"
 
+#define _SER_TEST_READ(T, expected, file)                                      \
+    do {                                                                       \
+        T _got;                                                                \
+        _SER_EXPECT(fread(&_got, sizeof(T), 1, file) == 1, SERE_FREAD_FAILED); \
+        _SER_EXPECT(_got == expected, SERE_TEST_EXPECT_FAILED);                \
+    } while(0)
+
+// doesn't check for a null terminator in the file, though expected should be null terminated
+ser_Error _ser_test_expectString(const char* expected, FILE* file) {
+    uint64_t len = strlen(expected);
+    assert(len != 0);
+    char* got = malloc(len);
+    assert(got);
+    _SER_EXPECT(fread(got, len, 1, file) == 1, SERE_FREAD_FAILED);
+    _SER_EXPECT(memcmp(got, expected, len) == 0, SERE_TEST_EXPECT_FAILED);
+    free(got);
+    return SERE_OK;
+}
+
+void _ser_test_clearGlobals() {
+    memset(&globs, 0, sizeof(globs));
+}
+
 ser_Error _ser_test_serializeVec2() {
+    _ser_test_clearGlobals();
+
     ser_specStruct(HMM_Vec2,
                    X float
                    Y float);
@@ -546,17 +577,42 @@ ser_Error _ser_test_serializeVec2() {
     HMM_Vec2 v = HMM_V2(69, 420);
     _SER_VALID_OR_RETURN(ser_writeObjectToFile("./testing/file1", "HMM_Vec2", &v));
 
-    // FILE* f = fopen("./testing/file1", "rb");
-    // if (!f) {
-    //     return SERE_FOPEN_FAILED;
-    // }
+    FILE* f = fopen("./testing/file1", "rb");
+    if (!f) {
+        return SERE_FOPEN_FAILED;
+    }
 
-    // fclose(f);
+    _SER_TEST_READ(uint64_t, 1, f); // endian
+    _SER_TEST_READ(uint64_t, 0, f); // version
+    _SER_TEST_READ(uint64_t, 1, f); // spec count
+
+    _SER_TEST_READ(uint8_t, SER_SU_STRUCT, f); // first spec is a struct
+    _SER_VALID_OR_RETURN(_ser_test_expectString("HMM_Vec2", f)); // name
+    _SER_TEST_READ(uint8_t, 0, f); // null terminator
+    _SER_TEST_READ(uint64_t, 2, f); // prop count
+
+    _SER_VALID_OR_RETURN(_ser_test_expectString("X", f));
+    _SER_TEST_READ(uint8_t, 0, f); // null term
+    _SER_TEST_READ(uint8_t, SER_SP_FLOAT, f); // kind should be a float
+
+    _SER_VALID_OR_RETURN(_ser_test_expectString("Y", f));
+    _SER_TEST_READ(uint8_t, 0, f); // null term
+    _SER_TEST_READ(uint8_t, SER_SP_FLOAT, f); // kind should be a float
+
+    _SER_TEST_READ(uint64_t, 0, f); // origin spec should be index 0, the vector
+    _SER_TEST_READ(float, 69, f);
+    _SER_TEST_READ(float, 420, f);
+
+    uint8_t eofProbe = 0;
+    _SER_EXPECT(fread(&eofProbe, sizeof(uint8_t), 1, f) == 0, SERE_TEST_EXPECT_FAILED);
+
+    fclose(f);
     return SERE_OK;
 }
 
 void ser_tests() {
-    test_printSectionHeader("Serialization");
+    test_printSectionHeader("Ser");
+
     test_printResult(_ser_test_serializeVec2() == SERE_OK, "serialize vector");
 
     // const char* lknames[] = { "straight", "arc" };
