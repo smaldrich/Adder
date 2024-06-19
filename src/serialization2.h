@@ -435,7 +435,8 @@ void _ser_specStructOffsets(const char* tag, int structSize, int argCount, ...) 
 /*
 The File Format:
 uint64_t endian indicator
-uint64_t version no
+uint64_t ser version no
+uint64_t app version no
 uint64_t specCount
     uint8_t kind // direct from the enum // annoying that it's that big, but ok
     [tag string]
@@ -539,7 +540,8 @@ ser_Error _ser_serializeProp(FILE* file, ser_SpecProp* prop) {
 
 ser_Error _ser_writeObjectToFileInner(const char* type, void* obj, uint64_t userSpecCount, FILE* file) {
     _SER_WRITE_VAR_OR_FAIL(uint64_t, 1, file); // endian indicator
-    _SER_WRITE_VAR_OR_FAIL(uint64_t, 0, file); // version indicator
+    _SER_WRITE_VAR_OR_FAIL(uint64_t, 0, file); // ser version indicator
+    _SER_WRITE_VAR_OR_FAIL(uint64_t, 0, file); // app version indicator
     _SER_WRITE_VAR_OR_FAIL(uint64_t, userSpecCount, file);
 
     for (ser_SpecUser* userSpec = _globalSpecSet.firstUserSpec; userSpec; userSpec = userSpec->nextUserSpec) {
@@ -655,7 +657,8 @@ ser_Error _ser_test_serializeVec2() {
     }
 
     _SER_TEST_READ(uint64_t, 1, f); // endian
-    _SER_TEST_READ(uint64_t, 0, f); // version
+    _SER_TEST_READ(uint64_t, 0, f); // ser version
+    _SER_TEST_READ(uint64_t, 0, f); // app version
     _SER_TEST_READ(uint64_t, 1, f); // spec count
 
     _SER_TEST_READ(uint8_t, SER_SU_STRUCT, f); // first spec is a struct
