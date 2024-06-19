@@ -7,7 +7,8 @@ void test_printResult(bool result, const char* name) {
     printf("\x1B[0m%s\"%s\" %s\x1B[0m\n", colorCode, name, resultStr);
 }
 
-
 void test_printSectionHeader(const char* name) {
     printf("\n    -- %s Tests -- \n", name);
 }
+
+// TODO: some type of way to see cause of failure

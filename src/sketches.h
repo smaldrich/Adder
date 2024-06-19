@@ -111,9 +111,9 @@ typedef struct {
 
 OPTION(sk_PointHandle, sk_Error)
 OPTION(sk_LineHandle, sk_Error)
-OPTION_NAME(sk_Line*, sk_Error, sk_LinePtrOpt)
-OPTION_NAME(sk_Point*, sk_Error, sk_PointPtrOpt)
-OPTION_NAME(sk_Constraint*, sk_Error, sk_ConstraintPtrOpt)
+OPTION_NAMED(sk_Line*, sk_Error, sk_LinePtrOpt)
+OPTION_NAMED(sk_Point*, sk_Error, sk_PointPtrOpt)
+OPTION_NAMED(sk_Constraint*, sk_Error, sk_ConstraintPtrOpt)
 
 /////////////////////
 // POINTS
