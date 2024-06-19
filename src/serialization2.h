@@ -383,11 +383,11 @@ void _ser_specEnum(const char* tag, const char* strs[], int count) {
     s->enumValCount = count;
 }
 
-// TODO: some type of gaurd for wrong number of passed or recieved args
-void _ser_specStructOffsets(const char* tag, int structSize, ...) {
+void _ser_specStructOffsets(const char* tag, int structSize, int argCount, ...) {
     assert(!_globalSpecSet.isValidAndLocked);
     va_list args;
-    va_start(args, structSize);
+    va_start(args, argCount);
+    int takenCount = 0;
 
     ser_SpecUser* structSpec = _ser_specUserGetByTag(&_globalSpecSet, tag, strlen(tag));
     assert(structSpec != NULL);
@@ -396,13 +396,19 @@ void _ser_specStructOffsets(const char* tag, int structSize, ...) {
 
     for (ser_SpecProp* prop = structSpec->structFirstChild; prop; prop = prop->nextProp) {
         int64_t offset = va_arg(args, uint64_t);
+        takenCount++;
+        assert(takenCount <= argCount);
         prop->parentStructOffset = offset;
 
         if (prop->kind == SER_SP_ARRAY) {
             prop->arrayLengthParentStructOffset = va_arg(args, uint64_t);
+            takenCount++;
+            assert(takenCount <= argCount);
         }
     }
+
     va_end(args);
+    assert(takenCount == argCount);
 }
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -411,8 +417,11 @@ void _ser_specStructOffsets(const char* tag, int structSize, ...) {
 
 #define _SER_LOOKUP_MEMBER(outT, obj, offset) ((outT*)(((char*)obj) + (offset)))
 
-// VAR WILL BE DOUBLE EVALED // TODO: DON'T
-#define _SER_WRITE_VAR_OR_FAIL(var, file) _SER_WRITE_OR_FAIL(&var, sizeof(var), file)
+#define _SER_WRITE_VAR_OR_FAIL(T, var, file)           \
+    do {                                               \
+        T _var = (T)var;                               \
+        _SER_WRITE_OR_FAIL(&_var, sizeof(_var), file); \
+    } while(0)
 
 #define _SER_WRITE_OR_FAIL(ptr, size, file)    \
     do {                                       \
@@ -421,7 +430,6 @@ void _ser_specStructOffsets(const char* tag, int structSize, ...) {
         }                                      \
     } while(0)
 
-// TODO: be able to have more than one spec going instead of always using the global one
 // TODO: rename prop spec to something not bad
 
 /*
@@ -466,7 +474,7 @@ int64_t _ser_sizeOfPropStruct(ser_SpecProp* p) {
     } else if (p->kind == SER_SP_PTR) {
         assert(false); // TODO: the pointer thing
     } else if (p->kind == SER_SP_USER) {
-        assert(p->userSpec->kind == SER_SU_STRUCT); // TODO: this is covered elsewhere, right?
+        assert(p->userSpec->kind == SER_SU_STRUCT);
         return p->userSpec->structSize;
     } else {
         assert(false);
@@ -488,7 +496,7 @@ ser_Error _ser_serializeStructByPropSpec(FILE* file, void* obj, ser_SpecProp* sp
     } else if (spec->kind == SER_SP_ARRAY) {
         // TODO: assuming type, will fuck w you later
         int64_t arrCount = *_SER_LOOKUP_MEMBER(int64_t, obj, spec->arrayLengthParentStructOffset);
-        _SER_WRITE_VAR_OR_FAIL(arrCount, file);
+        _SER_WRITE_VAR_OR_FAIL(uint64_t, arrCount, file); // TODO: cast here could also be dangerous
 
         int64_t innerSize = _ser_sizeOfPropStruct(spec->innerSpec); // TODO: array of arrays now cannot happen. document or fix
         for (int64_t i = 0; i < arrCount; i++) {
@@ -514,13 +522,11 @@ ser_Error _ser_serializeStructByUserSpec(FILE* file, void* obj, ser_SpecUser* sp
 }
 
 ser_Error _ser_serializeProp(FILE* file, ser_SpecProp* prop) {
-    uint8_t kind = prop->kind;
     assert(prop->kind < 255 && prop->kind >= 0);
-    _SER_WRITE_VAR_OR_FAIL(kind, file);
+    _SER_WRITE_VAR_OR_FAIL(uint8_t, prop->kind, file);
 
     if (prop->kind == SER_SP_USER) {
-        uint64_t id = prop->userSpec->id;
-        _SER_WRITE_VAR_OR_FAIL(id, file);
+        _SER_WRITE_VAR_OR_FAIL(uint64_t, prop->userSpec->id, file);
     }
 
     if (prop->kind == SER_SP_ARRAY || prop->kind == SER_SP_PTR) {
@@ -532,34 +538,28 @@ ser_Error _ser_serializeProp(FILE* file, ser_SpecProp* prop) {
 // TODO: remove as many asserts as possible
 
 ser_Error _ser_writeObjectToFileInner(const char* type, void* obj, uint64_t userSpecCount, FILE* file) {
-    uint64_t endianIndicator = 1;
-    _SER_WRITE_VAR_OR_FAIL(endianIndicator, file);
-    uint64_t versionNo = 0;
-    _SER_WRITE_VAR_OR_FAIL(versionNo, file);
-    _SER_WRITE_VAR_OR_FAIL(userSpecCount, file);
+    _SER_WRITE_VAR_OR_FAIL(uint64_t, 1, file); // endian indicator
+    _SER_WRITE_VAR_OR_FAIL(uint64_t, 0, file); // version indicator
+    _SER_WRITE_VAR_OR_FAIL(uint64_t, userSpecCount, file);
 
     for (ser_SpecUser* userSpec = _globalSpecSet.firstUserSpec; userSpec; userSpec = userSpec->nextUserSpec) {
         assert(userSpec->kind < 255 && userSpec->kind >= 0);
-        uint8_t specKind = (uint8_t)(userSpec->kind);
-        _SER_WRITE_VAR_OR_FAIL(specKind, file);
+        _SER_WRITE_VAR_OR_FAIL(uint8_t, userSpec->kind, file);
 
-        _SER_WRITE_OR_FAIL(userSpec->tag, strlen(userSpec->tag) + 1, file); // will include the null term, always writes something fingers crossed
+        _SER_WRITE_OR_FAIL(userSpec->tag, strlen(userSpec->tag) + 1, file); // TODO: will include the null term, always writes something fingers crossed
 
         if (userSpec->kind == SER_SU_ENUM) {
-            uint64_t valCount = userSpec->enumValCount;
-            _SER_WRITE_VAR_OR_FAIL(valCount, file);
-            for (uint64_t enumValIdx = 0; enumValIdx < valCount; enumValIdx++) {
+            _SER_WRITE_VAR_OR_FAIL(uint64_t, userSpec->enumValCount, file);
+            for (uint64_t enumValIdx = 0; enumValIdx < userSpec->enumValCount; enumValIdx++) {
                 const char* val = userSpec->enumVals[enumValIdx];
                 _SER_WRITE_OR_FAIL(val, strlen(val) + 1, file); // will include the null term, always writes something fingers crossed
             }
         } else if (userSpec->kind == SER_SU_STRUCT) {
-            uint64_t propCount = userSpec->structPropCount;
-            _SER_WRITE_VAR_OR_FAIL(propCount, file);
+            _SER_WRITE_VAR_OR_FAIL(uint64_t, userSpec->structPropCount, file);
             for (ser_SpecProp* prop = userSpec->structFirstChild; prop; prop = prop->nextProp) {
                 assert(prop->tagLen != 0);
                 _SER_WRITE_OR_FAIL(prop->tag, prop->tagLen, file);
-                uint8_t nullTerm = '\0';
-                _SER_WRITE_VAR_OR_FAIL(nullTerm, file);
+                _SER_WRITE_VAR_OR_FAIL(uint8_t, '\0', file);
                 _ser_serializeProp(file, prop);
             }
         } else {
@@ -570,8 +570,7 @@ ser_Error _ser_writeObjectToFileInner(const char* type, void* obj, uint64_t user
     // OBJECTS =============================================================
     ser_SpecUser* spec = _ser_specUserGetByTag(&_globalSpecSet, type, strlen(type));
     assert(spec->kind == SER_SU_STRUCT);
-    uint64_t id = spec->id;
-    _SER_WRITE_VAR_OR_FAIL(id, file);
+    _SER_WRITE_VAR_OR_FAIL(uint64_t, spec->id, file);
     _ser_serializeStructByUserSpec(file, obj, spec);
     return SERE_OK;
 }
@@ -603,7 +602,8 @@ ser_Error ser_writeObjectToFile(const char* path, const char* type, void* obj) {
 
 #define _SER_SELECT_BY_PARAM_COUNT(_1,_2,_3,_4,_5,_6,_7,_8,NAME,...) NAME
 #define _SER_OFFSET_SWITCH(...) _SER_SELECT_BY_PARAM_COUNT(__VA_ARGS__, _SER_OFFSET8, _SER_OFFSET7, _SER_OFFSET6, _SER_OFFSET5, _SER_OFFSET4, _SER_OFFSET3, _SER_OFFSET2)(__VA_ARGS__)
-#define ser_specStructOffsets(T, ...) _ser_specStructOffsets(_SER_STRINGIZE(T), sizeof(T), _SER_OFFSET_SWITCH(T, __VA_ARGS__))
+#define _SER_ARG_COUNT_SWITCH(...) _SER_SELECT_BY_PARAM_COUNT(__VA_ARGS__, 8, 7, 6, 5, 4, 3, 2)
+#define ser_specStructOffsets(T, ...) _ser_specStructOffsets(_SER_STRINGIZE(T), sizeof(T), _SER_ARG_COUNT_SWITCH(T, __VA_ARGS__) - 1, _SER_OFFSET_SWITCH(T, __VA_ARGS__))
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // TESTING
