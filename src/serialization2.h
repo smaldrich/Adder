@@ -20,6 +20,7 @@ typedef enum {
     SERE_SPECSET_UNLOCKED,
     SERE_DUPLICATE_USER_SPEC_NAMES,
     SERE_DUPLICATE_PROP_NAMES,
+    SERE_EMPTY_ENUM,
 } ser_Error;
 
 #define _SER_EXPECT(expr, error) \
@@ -75,10 +76,11 @@ struct ser_SpecProp {
     ser_SpecProp* innerSpec; // valid for arr and ptr kinds, because they need more information
 
     // these two are filled in as soon as the spec is parsed from the user. The pointer needs to wait until
-    // every spec is done and ser_specValidate() is called
+    // the whole set is validated
     const char* userSpecTag;
     int64_t userSpecTagLen;
-    ser_SpecUser* userSpec; // filled in during ser_specValidate() // TODO: this function does not exist anymore
+
+    ser_SpecUser* userSpec; // filled in during specset validation
 
     // location of this member inside of the parent struct, from the start, in bytes, used for reading and
     // writing to structs in the program
@@ -202,6 +204,9 @@ ser_Error _ser_validateAndLockSpecSet(ser_SpecSet* set) {
     }
     _SER_EXPECT(set->specCount != 0, SERE_SPECSET_EMPTY);
 
+    // TODO: fail when offsets haven't been set
+    // TODO: fail on circular struct composition
+
     // once IDs are filled in, go back and patch any userSpec prop refs
     // TODO: pointers to every ref could be found at spec construction time and this search wouldn't have to happen
     // TODO: inner prop strs shouldn't be null
@@ -225,6 +230,11 @@ ser_Error _ser_validateAndLockSpecSet(ser_SpecSet* set) {
                 }
             }
             userSpec->structPropCount = propCount;
+        } else if (userSpec->kind == SER_SU_ENUM) {
+            _SER_EXPECT(userSpec->enumVals != NULL, SERE_EMPTY_ENUM);
+            _SER_EXPECT(userSpec->enumValCount != 0, SERE_EMPTY_ENUM);
+        } else {
+            assert(false);
         }
     }
 
@@ -696,12 +706,32 @@ void ser_tests() {
         test_printResult(e == SERE_DUPLICATE_USER_SPEC_NAMES, "duplicate user specs");
     }
 
-    // {
-    //     _ser_test_clearGlobalSpecSet();
-    //     ser_specStruct(myStruct, x arr);
-    //     ser_Error e = _ser_validateAndLockSpecSet(&_globalSpecSet);
-    //     test_printResult(e == something goes here probably, "duplicate props");
-    // }
+    {
+        _ser_test_clearGlobalSpecSet();
+        const char* vals[] = { "hello" };
+        ser_specEnum(enum, vals, 0);
+        ser_Error e = _ser_validateAndLockSpecSet(&_globalSpecSet);
+        test_printResult(e == SERE_EMPTY_ENUM, "empty enum");
+    }
+
+    {
+        _ser_test_clearGlobalSpecSet();
+        ser_specEnum(enum, NULL, 10);
+        ser_Error e = _ser_validateAndLockSpecSet(&_globalSpecSet);
+        test_printResult(e == SERE_EMPTY_ENUM, "empty enum 2");
+    }
+
+    {
+        _ser_test_clearGlobalSpecSet();
+        ser_specStruct(struct1,
+                       next struct2
+                       prev struct2);
+
+        ser_Error e = _ser_validateAndLockSpecSet(&_globalSpecSet);
+        test_printResult(e == SERE_UNRESOLVED_USER_SPEC_TAG, "unresolved user spec ref");
+    }
+
+    // TODO: solution for testing failure cases where asserts are
 
     // const char* lknames[] = { "straight", "arc" };
     // ser_specEnum(sk_LineKind, lknames, sizeof(lknames) / sizeof(const char*));
