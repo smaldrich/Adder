@@ -60,9 +60,9 @@ typedef enum {
     SER_PK_INT,
     SER_PK_FLOAT,
 
-    SER_PK_INTERNAL_ARRAY, // an array that fits completely within a struct
-    // SER_SP_EXTERNAL_ARRAY, // an array allocated outside of the struct
-    // SER_SP_PTR,
+    // SER_PK_ARRAY_INTERNAL, // an array that fits completely within a struct
+    SER_PK_ARRAY_EXTERNAL, // an array allocated outside of the struct
+    // SER_PK_PTR,
     _SER_PK_PARSABLE_COUNT,
 
     SER_PK_DECL_REF, // indicates that the type for this is another declaration (struct or enum)
@@ -73,8 +73,8 @@ const char* ser_propKindParseNames[] = {
     "char",
     "int",
     "float",
-    "arrIn",
-    // "arrEx",
+    // "arrIn",
+    "arrEx",
     // "ptr"
 };
 
@@ -184,7 +184,7 @@ ser_Decl* _ser_declGetByTag(ser_SpecSet* set, const char* tag, uint64_t tagLen) 
 }
 
 bool _ser_isPropKindNonTerminal(ser_PropKind k) {
-    if (k == SER_PK_INTERNAL_ARRAY) {
+    if (k == SER_PK_ARRAY_EXTERNAL) {
         return true;
     }
     return false;
@@ -413,6 +413,7 @@ ser_Error _ser_specEnum(const char* tag, const char* strs[], int count) {
     return SERE_OK;
 }
 
+// TODO: document how this function works
 ser_Error _ser_specStructOffsets(const char* tag, int structSize, int argCount, ...) {
     _SER_EXPECT(!_globalSpecSet.isValidAndLocked, SERE_SPECSET_LOCKED);
 
@@ -433,7 +434,7 @@ ser_Error _ser_specStructOffsets(const char* tag, int structSize, int argCount, 
         _SER_EXPECT(takenCount <= argCount, SERE_VA_ARG_MISUSE);
         prop->parentStructOffset = offset;
 
-        if (prop->kind == SER_PK_INTERNAL_ARRAY) {
+        if (prop->kind == SER_PK_ARRAY_EXTERNAL) {
             prop->arrayLengthParentStructOffset = va_arg(args, uint64_t);
             takenCount++;
             _SER_EXPECT(takenCount <= argCount, SERE_VA_ARG_MISUSE);
@@ -502,7 +503,7 @@ int64_t _ser_sizeOfProp(ser_Prop* p) {
         return sizeof(int);
     } else if (p->kind == SER_PK_FLOAT) {
         return sizeof(float);
-    } else if (p->kind == SER_PK_INTERNAL_ARRAY) {
+    } else if (p->kind == SER_PK_ARRAY_EXTERNAL) {
         SER_ASSERT(false);
     } else if (p->kind == SER_PK_DECL_REF) {
         // TODO: ENUMS BRO
@@ -525,15 +526,16 @@ ser_Error _ser_serializeStructByPropSpec(FILE* file, void* obj, ser_Prop* spec) 
         _SER_WRITE_OR_FAIL(obj, sizeof(char), file);
     } else if (spec->kind == SER_PK_DECL_REF) {
         return _ser_serializeStructByDeclSpec(file, obj, spec->declRef);
-    } else if (spec->kind == SER_PK_INTERNAL_ARRAY) {
+    } else if (spec->kind == SER_PK_ARRAY_EXTERNAL) {
         // TODO: assuming type, will fuck w you later
-        int64_t arrCount = *_SER_LOOKUP_MEMBER(int64_t, obj, spec->arrayLengthParentStructOffset);
-        _SER_WRITE_VAR_OR_FAIL(uint64_t, arrCount, file); // TODO: cast here could also be dangerous
+        uint64_t arrCount = *_SER_LOOKUP_MEMBER(uint64_t, obj, spec->arrayLengthParentStructOffset);
+        _SER_WRITE_VAR_OR_FAIL(uint64_t, arrCount, file);
 
-        int64_t innerSize = _ser_sizeOfProp(spec->innerProp); // TODO: array of arrays now cannot happen. document or fix
-        for (int64_t i = 0; i < arrCount; i++) {
-            int64_t offset = spec->parentStructOffset + (i * innerSize);
-            void* ptr = _SER_LOOKUP_MEMBER(void, obj, offset);
+        int64_t innerSize = _ser_sizeOfProp(spec->innerProp); // array of arrays fails here // TODO: is that a bad thing?
+        void* arrayPtr = _SER_LOOKUP_MEMBER(void, obj, spec->parentStructOffset);
+        for (uint64_t i = 0; i < arrCount; i++) {
+            uint64_t offset = (uint64_t)((char*)arrayPtr + (i * innerSize));
+            void* ptr = _SER_LOOKUP_MEMBER(void, arrayPtr, offset);
             ser_Error e = _ser_serializeStructByPropSpec(file, ptr, spec->innerProp);
             _SER_VALID_OR_RETURN(e);
         }
@@ -728,7 +730,7 @@ ser_Error _ser_test_shortStructSpec() {
         ser_specStruct(myStruct,
                        X float
                        Y int
-                       Z arrIn) == SERE_PARSE_FAILED,
+                       Z arrEx) == SERE_PARSE_FAILED,
         SERE_TEST_EXPECT_FAILED);
     return SERE_OK;
 }
