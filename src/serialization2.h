@@ -698,7 +698,8 @@ void ser_dserEnd(ser_ReadInstance* inst) {
 #define ser_specStruct(T, str) SER_ASSERT_OK(_ser_specStruct(_SER_STRINGIZE(T), _SER_STRINGIZE(str)))
 #define ser_specEnum(T, strs, count) SER_ASSERT_OK(_ser_specEnum(_SER_STRINGIZE(T), strs, count))
 
-#define _SER_OFFSETOF(T, prop) ((uint64_t)(uint8_t*)(&(((T*)(NULL))->prop)))
+// built becuase the linter was throwing a fit
+#define _SER_OFFSETOF(Toffsetof, prop) ((uint64_t)(uint8_t*)(&(((T*)(NULL))->prop)))
 #define _SER_OFFSET2(T, a) _SER_OFFSETOF(T, a)
 #define _SER_OFFSET3(T, a, b) _SER_OFFSETOF(T, a), _SER_OFFSETOF(T, b)
 #define _SER_OFFSET4(T, a, b, c) _SER_OFFSETOF(T, a), _SER_OFFSETOF(T, b), _SER_OFFSETOF(T, c)
