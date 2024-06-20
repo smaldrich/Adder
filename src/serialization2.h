@@ -476,7 +476,7 @@ all things stored as little endian
 uint64_t ser version no
 uint64_t app version no
 uint64_t declCount
-    uint8_t kind // direct from the enum // annoying that it's that big, but ok
+    uint8_t kind // direct from the enum
     uint64_t tagLen
     [tag string]
     if enum:
@@ -741,14 +741,12 @@ void ser_dserEnd(ser_ReadInstance* inst) {
         _SER_EXPECT(_got == expected, SERE_TEST_EXPECT_FAILED);                \
     } while(0)
 
-// doesn't check for a null terminator in the file, though expected should be null terminated
-ser_Error _ser_test_expectString(const char* expected, FILE* file) {
-    uint64_t len = strlen(expected);
-    SER_ASSERT(len != 0);
-    char* got = malloc(len);
+ser_Error _ser_test_expectString(const char* expected, uint64_t expectedLen, FILE* file) {
+    SER_ASSERT(expectedLen != 0);
+    char* got = malloc(expectedLen);
     SER_ASSERT(got);
-    _SER_EXPECT(fread(got, len, 1, file) == 1, SERE_FREAD_FAILED);
-    _SER_EXPECT(memcmp(got, expected, len) == 0, SERE_TEST_EXPECT_FAILED);
+    _SER_EXPECT(fread(got, expectedLen, 1, file) == 1, SERE_FREAD_FAILED);
+    _SER_EXPECT(memcmp(got, expected, expectedLen) == 0, SERE_TEST_EXPECT_FAILED);
     free(got);
     return SERE_OK;
 }
@@ -780,16 +778,16 @@ ser_Error _ser_test_serializeVec2() {
     _SER_TEST_READ(uint64_t, 1, f); // spec count
 
     _SER_TEST_READ(uint8_t, SER_DK_STRUCT, f); // first spec is a struct
-    _SER_VALID_OR_RETURN(_ser_test_expectString("HMM_Vec2", f)); // name
-    _SER_TEST_READ(uint8_t, 0, f); // null terminator
+    _SER_TEST_READ(uint64_t, 8, f); // length of name str
+    _SER_VALID_OR_RETURN(_ser_test_expectString("HMM_Vec2", 8, f)); // name
     _SER_TEST_READ(uint64_t, 2, f); // prop count
 
-    _SER_VALID_OR_RETURN(_ser_test_expectString("X", f));
-    _SER_TEST_READ(uint8_t, 0, f); // null term
+    _SER_TEST_READ(uint64_t, 1, f); // tag len
+    _SER_VALID_OR_RETURN(_ser_test_expectString("X", 1, f));
     _SER_TEST_READ(uint8_t, SER_PK_FLOAT, f); // kind should be a float
 
-    _SER_VALID_OR_RETURN(_ser_test_expectString("Y", f));
-    _SER_TEST_READ(uint8_t, 0, f); // null term
+    _SER_TEST_READ(uint64_t, 1, f); // tag len
+    _SER_VALID_OR_RETURN(_ser_test_expectString("Y", 1, f));
     _SER_TEST_READ(uint8_t, SER_PK_FLOAT, f); // kind should be a float
 
     _SER_TEST_READ(uint64_t, 0, f); // origin spec should be index 0, the vector
