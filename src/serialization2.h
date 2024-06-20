@@ -24,6 +24,7 @@ typedef enum {
     SERE_DUPLICATE_DECL_TAGS,
     SERE_DUPLICATE_PROP_NAMES,
     SERE_EMPTY_ENUM,
+    SERE_EMPTY_TAG,
     SERE_EMPTY_STRUCT_DECL,
     SERE_NO_OFFSETS,
     SERE_WRONG_KIND,
@@ -207,6 +208,7 @@ ser_Error _ser_validateAndLockSpecSet(ser_SpecSet* set) {
     for (ser_Decl* decl = set->firstDecl; decl; decl = decl->nextDecl) {
         decl->id = set->declCount;
         set->declCount++;
+        _SER_EXPECT(strlen(decl->tag) > 0, SERE_EMPTY_TAG);
 
         // make sure this name isn't in conflict with any others
         for (ser_Decl* other = decl->nextDecl; other; other = other->nextDecl) {
@@ -249,7 +251,7 @@ ser_Error _ser_validateAndLockSpecSet(ser_SpecSet* set) {
             _SER_EXPECT(decl->enumVals != NULL, SERE_EMPTY_ENUM);
             _SER_EXPECT(decl->enumValCount != 0, SERE_EMPTY_ENUM);
         } else {
-            SER_ASSERT(false);
+            return SERE_WRONG_KIND;
         }
     }
 
@@ -645,6 +647,9 @@ ser_Error ser_writeObjectToFile(const char* path, const char* type, void* obj) {
         _SER_EXPECT(fread(&(var), sizeof(T), 1, file) == 1, SERE_FREAD_FAILED);  \
     } while(0)
 
+#define _SER_READ_OR_FAIL(buffer, size, file) \
+    _SER_EXPECT(fread(buffer, size, 1, file) == 1, SERE_FREAD_FAILED)
+
 typedef struct {
     bool initialized;
     FILE* file;
@@ -654,6 +659,7 @@ typedef struct {
     uint64_t fileVersion;
 } ser_ReadInstance;
 
+// allocates tags into the specset arena
 ser_Error _ser_dserDecl(ser_SpecSet* set, ser_ReadInstance* inst) {
     _SER_EXPECT(!set->isValidAndLocked, SERE_SPECSET_LOCKED);
 
@@ -663,7 +669,12 @@ ser_Error _ser_dserDecl(ser_SpecSet* set, ser_ReadInstance* inst) {
     _SER_READ_VAR_OR_FAIL(uint8_t, kind, inst->file);
     decl->kind = kind;
 
-    // const char* str = BUMP_PUSH_ARR;
+    uint64_t strLen = 0;
+    _SER_READ_VAR_OR_FAIL(uint64_t, strLen, inst->file);
+    char* str = BUMP_PUSH_ARR(&set->arena, strLen + 1, char); // add one for the null term >:(
+    _SER_READ_OR_FAIL(str, strLen, inst->file);
+    decl->tag = str;
+
     return SERE_OK;
 }
 
