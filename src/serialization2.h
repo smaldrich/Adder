@@ -74,8 +74,8 @@ const char* ser_specPropKindParseNames[] = {
     "int",
     "float",
     "arrIn",
-    "arrEx",
-    "ptr"
+    // "arrEx",
+    // "ptr"
 };
 
 typedef struct  ser_SpecProp ser_SpecProp;
@@ -96,6 +96,7 @@ struct ser_SpecProp {
     // location of this member inside of the parent struct, from the start, in bytes, used for reading and
     // writing to structs in the program
     uint64_t parentStructOffset;
+
     uint64_t arrayLengthParentStructOffset;
 
     const char* tag;
