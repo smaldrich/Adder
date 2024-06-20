@@ -135,6 +135,14 @@ typedef struct {
     bool isValidAndLocked;
 } ser_SpecSet;
 
+void _ser_clearSpecSet(ser_SpecSet* set) {
+    bump_clear(&set->arena);
+    set->firstDecl = NULL;
+    set->lastDecl = NULL;
+    set->isValidAndLocked = false;
+    set->declCount = 0;
+}
+
 ser_SpecSet _globalSpecSet; // TODO: actually init the damn arena
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -469,16 +477,16 @@ uint64_t ser version no
 uint64_t app version no
 uint64_t declCount
     uint8_t kind // direct from the enum // annoying that it's that big, but ok
+    uint64_t tagLen
     [tag string]
-    [null terminator] // TODO: probably bad for a file format
     if enum:
         uint64_t valCount
-            [value string]
-            [null term]
+            uint64_t val string length
+            [val string]
     if struct:
         uint64_t propCount
+            uint64_t tag length
             [tag string]
-            [null term]
             prop
                     // prop
                         uint8_t kind
@@ -576,20 +584,24 @@ ser_Error _ser_writeObjectToFileInner(const char* type, void* obj, FILE* file) {
         SER_ASSERT(decl->kind < 255 && decl->kind >= 0);
         _SER_WRITE_VAR_OR_FAIL(uint8_t, decl->kind, file);
 
-        _SER_WRITE_OR_FAIL(decl->tag, strlen(decl->tag) + 1, file); // TODO: will include the null term, always writes something fingers crossed
+        uint64_t tagLen = strlen(decl->tag);
+        _SER_WRITE_VAR_OR_FAIL(uint64_t, tagLen, file);
+        _SER_WRITE_OR_FAIL(decl->tag, tagLen, file);
 
         if (decl->kind == SER_DK_ENUM) {
             _SER_WRITE_VAR_OR_FAIL(uint64_t, decl->enumValCount, file);
             for (uint64_t enumValIdx = 0; enumValIdx < decl->enumValCount; enumValIdx++) {
                 const char* val = decl->enumVals[enumValIdx];
-                _SER_WRITE_OR_FAIL(val, strlen(val) + 1, file); // will include the null term, always writes something fingers crossed
+                uint64_t valStrLen = strlen(val);
+                _SER_WRITE_VAR_OR_FAIL(uint64_t, valStrLen, file);
+                _SER_WRITE_OR_FAIL(val, valStrLen, file);
             }
         } else if (decl->kind == SER_DK_STRUCT) {
             _SER_WRITE_VAR_OR_FAIL(uint64_t, decl->structPropCount, file);
             for (ser_Prop* prop = decl->structFirstChild; prop; prop = prop->nextProp) {
                 SER_ASSERT(prop->tagLen != 0);
+                _SER_WRITE_VAR_OR_FAIL(uint64_t, prop->tagLen, file);
                 _SER_WRITE_OR_FAIL(prop->tag, prop->tagLen, file);
-                _SER_WRITE_VAR_OR_FAIL(uint8_t, '\0', file);
                 _ser_serializeProp(file, prop);
             }
         } else {
@@ -652,6 +664,7 @@ ser_Error _ser_dserDecl(ser_SpecSet* set, ser_ReadInstance* inst) {
     decl->kind = kind;
 
     // const char* str = BUMP_PUSH_ARR;
+    return SERE_OK;
 }
 
 // TODO: file patches! // TODO: can we embed backwards compatibility things too?
@@ -671,7 +684,7 @@ ser_Error ser_dserStart(const char* path, ser_ReadInstance* outInst) {
     uint64_t declCount = 0;
     _SER_READ_VAR_OR_FAIL(uint64_t, declCount, outInst->file); // TODO: should there be a cap on this?
     for (uint64_t i = 0; i < declCount; i++) {
-        _SER_VALID_OR_RETURN(&newSet, _ser_dserDecl(outInst));
+        _SER_VALID_OR_RETURN(_ser_dserDecl(&newSet, outInst));
     }
     return SERE_OK;
 }
@@ -698,7 +711,7 @@ void ser_dserEnd(ser_ReadInstance* inst) {
 #define ser_specEnum(T, strs, count) SER_ASSERT_OK(_ser_specEnum(_SER_STRINGIZE(T), strs, count))
 
 // built becuase the linter was throwing a fit
-#define _SER_OFFSETOF(Toffsetof, prop) ((uint64_t)(uint8_t*)(&(((T*)(NULL))->prop)))
+#define _SER_OFFSETOF(T, prop) ((uint64_t)(uint8_t*)(&(((T*)(NULL))->prop)))
 
 #define _SER_OFFSET2(T, a) _SER_OFFSETOF(T, a)
 #define _SER_OFFSET3(T, a, b) _SER_OFFSETOF(T, a), _SER_OFFSETOF(T, b)
@@ -740,17 +753,13 @@ ser_Error _ser_test_expectString(const char* expected, FILE* file) {
     return SERE_OK;
 }
 
-void _ser_test_clearGlobalSpecSet() {
-    memset(&_globalSpecSet, 0, sizeof(ser_SpecSet));
-}
-
 // clear old assert definition so that tests can not exit on a failure
 #undef SER_ASSERT_OK
 #define SER_ASSERT_OK(expr) expr
 // TODO: this fucks w/ other files downstream
 
 ser_Error _ser_test_serializeVec2() {
-    _ser_test_clearGlobalSpecSet();
+    _ser_clearSpecSet(&_globalSpecSet);
 
     _SER_VALID_OR_RETURN(
         ser_specStruct(HMM_Vec2,
@@ -795,7 +804,7 @@ ser_Error _ser_test_serializeVec2() {
 }
 
 ser_Error _ser_test_shortStructSpec() {
-    _ser_test_clearGlobalSpecSet();
+    _ser_clearSpecSet(&_globalSpecSet);
     _SER_EXPECT(
         ser_specStruct(myStruct,
                        X float
@@ -806,7 +815,7 @@ ser_Error _ser_test_shortStructSpec() {
 }
 
 ser_Error _ser_test_badStructOffsetsCall() {
-    _ser_test_clearGlobalSpecSet();
+    _ser_clearSpecSet(&_globalSpecSet);
     _SER_VALID_OR_RETURN(ser_specStruct(HMM_Vec2, X float Y float));
     _SER_EXPECT(
         ser_specStructOffsets(HMM_Vec2, X) == SERE_VA_ARG_MISUSE,
@@ -815,7 +824,7 @@ ser_Error _ser_test_badStructOffsetsCall() {
 }
 
 ser_Error _ser_test_duplicateStructProps() {
-    _ser_test_clearGlobalSpecSet();
+    _ser_clearSpecSet(&_globalSpecSet);
     _SER_VALID_OR_RETURN(
         ser_specStruct(HMM_Vec2,
                        x int
@@ -828,7 +837,7 @@ ser_Error _ser_test_duplicateStructProps() {
 }
 
 ser_Error _ser_test_duplicateDecls() {
-    _ser_test_clearGlobalSpecSet();
+    _ser_clearSpecSet(&_globalSpecSet);
     _SER_VALID_OR_RETURN(ser_specStruct(myStruct, x int));
     const char* vals[] = { "hello" };
     _SER_VALID_OR_RETURN(ser_specEnum(myStruct, vals, 1));
@@ -839,7 +848,7 @@ ser_Error _ser_test_duplicateDecls() {
 }
 
 ser_Error _ser_test_emptyEnum() {
-    _ser_test_clearGlobalSpecSet();
+    _ser_clearSpecSet(&_globalSpecSet);
     const char* vals[] = { "hello" };
     _SER_VALID_OR_RETURN(ser_specEnum(enum, vals, 0));
     _SER_EXPECT(
@@ -849,7 +858,7 @@ ser_Error _ser_test_emptyEnum() {
 }
 
 ser_Error _ser_test_emptyEnum2() {
-    _ser_test_clearGlobalSpecSet();
+    _ser_clearSpecSet(&_globalSpecSet);
     _SER_VALID_OR_RETURN(ser_specEnum(enum, NULL, 10));
     ser_Error e = _ser_validateAndLockSpecSet(&_globalSpecSet);
     _SER_EXPECT(e == SERE_EMPTY_ENUM, SERE_TEST_EXPECT_FAILED);
@@ -857,7 +866,7 @@ ser_Error _ser_test_emptyEnum2() {
 }
 
 ser_Error _ser_test_unresolvedDeclRef() {
-    _ser_test_clearGlobalSpecSet();
+    _ser_clearSpecSet(&_globalSpecSet);
     ser_Error e = ser_specStruct(HMM_Vec2,
                                  next struct2
                                  prev struct1);
@@ -874,6 +883,8 @@ ser_Error _ser_test_unresolvedDeclRef() {
 
 void ser_tests() {
     test_printSectionHeader("Ser");
+
+    _globalSpecSet.arena = bump_allocate(1000000, "global specset arena");
 
     _SER_TEST_INVOKE(_ser_test_serializeVec2);
     _SER_TEST_INVOKE(_ser_test_shortStructSpec);
