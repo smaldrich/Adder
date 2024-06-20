@@ -60,8 +60,9 @@ typedef enum {
     SER_SP_INT,
     SER_SP_FLOAT,
 
-    SER_SP_ARRAY,
-    SER_SP_PTR,
+    SER_SP_INTERNAL_ARRAY, // an array that fits completely within a struct
+    // SER_SP_EXTERNAL_ARRAY, // an array allocated outside of the struct
+    // SER_SP_PTR,
     _SER_SP_PARSABLE_COUNT,
 
     SER_SP_USER,
@@ -72,7 +73,8 @@ const char* ser_specPropKindParseNames[] = {
     "char",
     "int",
     "float",
-    "arr",
+    "arrIn",
+    "arrEx",
     "ptr"
 };
 
@@ -181,10 +183,17 @@ ser_SpecUser* _ser_specUserGetByTag(ser_SpecSet* set, const char* tag, uint64_t 
     return NULL;
 }
 
+bool _ser_isPropKindNonTerminal(ser_SpecPropKind k) {
+    if (k == SER_SP_INTERNAL_ARRAY) {
+        return true;
+    }
+    return false;
+}
+
 ser_Error _ser_tryPatchPropUserRef(ser_SpecSet* set, ser_SpecProp* p) {
     if (p->kind != SER_SP_USER) {
-        if (p->kind == SER_SP_ARRAY || p->kind == SER_SP_PTR) {
-            return _ser_tryPatchPropUserRef(set, p->innerSpec); // drill into non-terminals to find end refs
+        if (_ser_isPropKindNonTerminal(p->kind)) {
+            return _ser_tryPatchPropUserRef(set, p->innerSpec);
         }
         return SERE_OK; // in the case where there is a terminal and it wasn't a SER_SP_USER node, all good
     }
@@ -349,10 +358,10 @@ ser_Error _ser_specParsePropInners(const char** str, ser_SpecProp** outProp) {
             lastInner = inner;
         }
 
-        if (inner->kind != SER_SP_ARRAY && inner->kind != SER_SP_PTR) {
-            break; // reached a terminal, stop looking for more inners
-        } else {
+        if (_ser_isPropKindNonTerminal(inner->kind)) {
             expectingAnotherToken = true;
+        } else {
+            break; // reached a terminal, stop looking for more inners
         }
     }
     *outProp = firstInner;
@@ -424,7 +433,7 @@ ser_Error _ser_specStructOffsets(const char* tag, int structSize, int argCount, 
         _SER_EXPECT(takenCount <= argCount, SERE_VA_ARG_MISUSE);
         prop->parentStructOffset = offset;
 
-        if (prop->kind == SER_SP_ARRAY) {
+        if (prop->kind == SER_SP_INTERNAL_ARRAY) {
             prop->arrayLengthParentStructOffset = va_arg(args, uint64_t);
             takenCount++;
             _SER_EXPECT(takenCount <= argCount, SERE_VA_ARG_MISUSE);
@@ -495,10 +504,8 @@ int64_t _ser_sizeOfPropStruct(ser_SpecProp* p) {
         return sizeof(int);
     } else if (p->kind == SER_SP_FLOAT) {
         return sizeof(float);
-    } else if (p->kind == SER_SP_ARRAY) {
+    } else if (p->kind == SER_SP_INTERNAL_ARRAY) {
         SER_ASSERT(false);
-    } else if (p->kind == SER_SP_PTR) {
-        SER_ASSERT(false); // TODO: the pointer thing
     } else if (p->kind == SER_SP_USER) {
         SER_ASSERT(p->userSpec->kind == SER_SU_STRUCT);
         return p->userSpec->structSize;
@@ -519,7 +526,7 @@ ser_Error _ser_serializeStructByPropSpec(FILE* file, void* obj, ser_SpecProp* sp
         _SER_WRITE_OR_FAIL(obj, sizeof(char), file);
     } else if (spec->kind == SER_SP_USER) {
         return _ser_serializeStructByUserSpec(file, obj, spec->userSpec);
-    } else if (spec->kind == SER_SP_ARRAY) {
+    } else if (spec->kind == SER_SP_INTERNAL_ARRAY) {
         // TODO: assuming type, will fuck w you later
         int64_t arrCount = *_SER_LOOKUP_MEMBER(int64_t, obj, spec->arrayLengthParentStructOffset);
         _SER_WRITE_VAR_OR_FAIL(uint64_t, arrCount, file); // TODO: cast here could also be dangerous
@@ -531,8 +538,6 @@ ser_Error _ser_serializeStructByPropSpec(FILE* file, void* obj, ser_SpecProp* sp
             ser_Error e = _ser_serializeStructByPropSpec(file, ptr, spec->innerSpec);
             _SER_VALID_OR_RETURN(e);
         }
-    } else if (spec->kind == SER_SP_PTR) {
-        SER_ASSERT(false);
     } else {
         SER_ASSERT(false);
     }
@@ -555,7 +560,7 @@ ser_Error _ser_serializeProp(FILE* file, ser_SpecProp* prop) {
         _SER_WRITE_VAR_OR_FAIL(uint64_t, prop->userSpec->id, file);
     }
 
-    if (prop->kind == SER_SP_ARRAY || prop->kind == SER_SP_PTR) {
+    if (_ser_isPropKindNonTerminal(prop->kind)) {
         _ser_serializeProp(file, prop->innerSpec);
     }
     return SERE_OK;
