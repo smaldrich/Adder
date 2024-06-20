@@ -43,7 +43,7 @@ typedef enum {
 
 // does not double eval expr :)
 // returns the result of expr if expr evaluates to something other than SERE_OK
-#define _SER_VALID_OR_RETURN(expr)  \
+#define _SER_EXPECT_OK(expr)  \
     do {                            \
         ser_Error _e = expr;        \
         if (_e != SERE_OK) {        \
@@ -237,7 +237,7 @@ ser_Error _ser_validateAndLockSpecSet(ser_SpecSet* set) {
                 // link any refs with actual pointers
                 // TODO: this is using tags to find and patch RN, might need to change this when specs from files come in
                 ser_Error e = _ser_tryPatchDeclRef(set, prop);
-                _SER_VALID_OR_RETURN(e);
+                _SER_EXPECT_OK(e);
                 propCount++;
 
                 // check duplicates
@@ -387,7 +387,7 @@ ser_Error _ser_specStruct(const char* tag, const char* str) {
             break;
         }
         ser_Prop* propSpec = NULL;
-        _SER_VALID_OR_RETURN(_ser_parsePropInners(&c, &propSpec));
+        _SER_EXPECT_OK(_ser_parsePropInners(&c, &propSpec));
         propSpec->tag = propName;
         propSpec->tagLen = propNameLen;
 
@@ -505,6 +505,7 @@ uint64_t object count
     uint64_t spec ID (index)
         parse by prop order dictated in the spec :)
         where arrays are a uint64_t for count and then repeated inner elements
+        where enums are just ints w the index of the value
 */
 
 int64_t _ser_sizeOfProp(ser_Prop* p) {
@@ -529,10 +530,10 @@ int64_t _ser_sizeOfProp(ser_Prop* p) {
     }
 }
 
-ser_Error _ser_serializeStructByPropSpec(FILE* file, void* obj, ser_Prop* spec);
-ser_Error _ser_serializeStructByDeclSpec(FILE* file, void* obj, ser_Decl* spec);
+ser_Error _ser_serializeObjByPropSpec(FILE* file, void* obj, ser_Prop* spec);
+ser_Error _ser_serializeObjByDeclSpec(FILE* file, void* obj, ser_Decl* spec);
 
-ser_Error _ser_serializeStructByPropSpec(FILE* file, void* obj, ser_Prop* spec) {
+ser_Error _ser_serializeObjByPropSpec(FILE* file, void* obj, ser_Prop* spec) {
     if (spec->kind == SER_PK_FLOAT) {
         _SER_WRITE_OR_FAIL(obj, sizeof(float), file);
     } else if (spec->kind == SER_PK_INT) {
@@ -540,7 +541,7 @@ ser_Error _ser_serializeStructByPropSpec(FILE* file, void* obj, ser_Prop* spec) 
     } else if (spec->kind == SER_PK_CHAR) {
         _SER_WRITE_OR_FAIL(obj, sizeof(char), file);
     } else if (spec->kind == SER_PK_DECL_REF) {
-        return _ser_serializeStructByDeclSpec(file, obj, spec->declRef);
+        return _ser_serializeObjByDeclSpec(file, obj, spec->declRef);
         // } else if (spec->kind == SER_PK_ARRAY_EXTERNAL) {
         //     // TODO: assuming type, will fuck w you later
         //     uint64_t arrCount = *_SER_LOOKUP_MEMBER(uint64_t, obj, spec->arrayLengthParentStructOffset);
@@ -551,8 +552,8 @@ ser_Error _ser_serializeStructByPropSpec(FILE* file, void* obj, ser_Prop* spec) 
         //     for (uint64_t i = 0; i < arrCount; i++) {
         //         uint64_t offset = (uint64_t)((char*)arrayPtr + (i * innerSize));
         //         void* ptr = _SER_LOOKUP_MEMBER(void, arrayPtr, offset);
-        //         ser_Error e = _ser_serializeStructByPropSpec(file, ptr, spec->innerProp);
-        //         _SER_VALID_OR_RETURN(e);
+        //         ser_Error e = _ser_serializeObjByPropSpec(file, ptr, spec->innerProp);
+        //         _SER_EXPECT_OK(e);
         //     }
     } else {
         SER_ASSERT(false);
@@ -560,20 +561,17 @@ ser_Error _ser_serializeStructByPropSpec(FILE* file, void* obj, ser_Prop* spec) 
     return SERE_OK;
 }
 
-ser_Error _ser_serializeStructByDeclSpec(FILE* file, void* obj, ser_Decl* spec) {
+// TODO: enums are assuming adjacent, incrementing from zero values - this isn't correct in some cases
+// should be documented or fixed
+
+ser_Error _ser_serializeObjByDeclSpec(FILE* file, void* obj, ser_Decl* spec) {
     if (spec->kind == SER_DK_STRUCT) {
         for (ser_Prop* prop = spec->structFirstChild; prop; prop = prop->nextProp) {
             void* propLoc = _SER_LOOKUP_MEMBER(void, obj, prop->parentStructOffset);
-            _ser_serializeStructByPropSpec(file, propLoc, prop);
+            _ser_serializeObjByPropSpec(file, propLoc, prop);
         }
     } else if (spec->kind == SER_DK_ENUM) {
-        _SER_WRITE_VAR_OR_FAIL(uint64_t, spec->enumValCount, file);
-        for (uint64_t i = 0; i < spec->enumValCount; i++) {
-            const char* val = spec->enumVals[i];
-            uint64_t len = strlen(val);
-            _SER_WRITE_VAR_OR_FAIL(uint64_t, len, file);
-            _SER_WRITE_OR_FAIL(val, len, file);
-        }
+        _SER_WRITE_OR_FAIL(obj, sizeof(int32_t), file);
     } else {
         SER_ASSERT(false);
     }
@@ -632,9 +630,8 @@ ser_Error _ser_writeObjectToFileInner(const char* type, void* obj, FILE* file) {
 
     // OBJECTS =============================================================
     ser_Decl* spec = _ser_declGetByTag(&_globalSpecSet, type, strlen(type));
-    SER_ASSERT(spec->kind == SER_DK_STRUCT);
     _SER_WRITE_VAR_OR_FAIL(uint64_t, spec->id, file);
-    _ser_serializeStructByDeclSpec(file, obj, spec);
+    _ser_serializeObjByDeclSpec(file, obj, spec);
     return SERE_OK;
 }
 
@@ -714,7 +711,7 @@ ser_Error ser_dserStart(const char* path, ser_ReadInstance* outInst) {
     uint64_t declCount = 0;
     _SER_READ_VAR_OR_FAIL(uint64_t, declCount, outInst->file); // TODO: should there be a cap on this?
     for (uint64_t i = 0; i < declCount; i++) {
-        _SER_VALID_OR_RETURN(_ser_dserDecl(&newSet, outInst));
+        _SER_EXPECT_OK(_ser_dserDecl(&newSet, outInst));
     }
     return SERE_OK;
 }
@@ -768,7 +765,7 @@ void ser_dserEnd(ser_ReadInstance* inst) {
     do {                                                                       \
         T _got;                                                                \
         _SER_EXPECT(fread(&_got, sizeof(T), 1, file) == 1, SERE_FREAD_FAILED); \
-        _SER_EXPECT(_got == expected, SERE_TEST_EXPECT_FAILED);                \
+        _SER_EXPECT(_got == (T)expected, SERE_TEST_EXPECT_FAILED);                \
     } while(0)
 
 ser_Error _ser_test_expectString(const char* expected, uint64_t expectedLen, FILE* file) {
@@ -789,18 +786,18 @@ ser_Error _ser_test_expectString(const char* expected, uint64_t expectedLen, FIL
 ser_Error _ser_test_serializeVec2() {
     _ser_clearSpecSet(&_globalSpecSet);
 
-    _SER_VALID_OR_RETURN(
+    _SER_EXPECT_OK(
         ser_specStruct(HMM_Vec2,
                        X float
                        Y float));
-    _SER_VALID_OR_RETURN(ser_specStructOffsets(HMM_Vec2, X, Y));
+    _SER_EXPECT_OK(ser_specStructOffsets(HMM_Vec2, X, Y));
 
-    _SER_VALID_OR_RETURN(_ser_validateAndLockSpecSet(&_globalSpecSet));
+    _SER_EXPECT_OK(_ser_validateAndLockSpecSet(&_globalSpecSet));
 
     HMM_Vec2 v = HMM_V2(69, 420);
-    _SER_VALID_OR_RETURN(ser_writeObjectToFile("./testing/file1", "HMM_Vec2", &v));
+    _SER_EXPECT_OK(ser_writeObjectToFile("./testing/serializeVec2", "HMM_Vec2", &v));
 
-    FILE* f = fopen("./testing/file1", "rb");
+    FILE* f = fopen("./testing/serializeVec2", "rb");
     _SER_EXPECT(f != NULL, SERE_FOPEN_FAILED);
 
     _SER_TEST_READ(uint64_t, 0, f); // ser version
@@ -809,15 +806,15 @@ ser_Error _ser_test_serializeVec2() {
 
     _SER_TEST_READ(uint8_t, SER_DK_STRUCT, f); // first spec is a struct
     _SER_TEST_READ(uint64_t, 8, f); // length of name str
-    _SER_VALID_OR_RETURN(_ser_test_expectString("HMM_Vec2", 8, f)); // name
+    _SER_EXPECT_OK(_ser_test_expectString("HMM_Vec2", 8, f)); // name
     _SER_TEST_READ(uint64_t, 2, f); // prop count
 
     _SER_TEST_READ(uint64_t, 1, f); // tag len
-    _SER_VALID_OR_RETURN(_ser_test_expectString("X", 1, f));
+    _SER_EXPECT_OK(_ser_test_expectString("X", 1, f));
     _SER_TEST_READ(uint8_t, SER_PK_FLOAT, f); // kind should be a float
 
     _SER_TEST_READ(uint64_t, 1, f); // tag len
-    _SER_VALID_OR_RETURN(_ser_test_expectString("Y", 1, f));
+    _SER_EXPECT_OK(_ser_test_expectString("Y", 1, f));
     _SER_TEST_READ(uint8_t, SER_PK_FLOAT, f); // kind should be a float
 
     _SER_TEST_READ(uint64_t, 0, f); // origin spec should be index 0, the vector
@@ -828,6 +825,42 @@ ser_Error _ser_test_serializeVec2() {
     _SER_EXPECT(fread(&eofProbe, sizeof(uint8_t), 1, f) == 0, SERE_TEST_EXPECT_FAILED);
 
     fclose(f);
+    return SERE_OK;
+}
+
+ser_Error _ser_test_serializeEnum() {
+    _ser_clearSpecSet(&_globalSpecSet);
+    const char* enumVals[] = {
+        "first",
+        "second",
+        "third",
+    };
+    _SER_EXPECT_OK(ser_specEnum(myEnum, enumVals, 3));
+    _SER_EXPECT_OK(_ser_validateAndLockSpecSet(&_globalSpecSet));
+    int32_t enumVal = 1;
+    _SER_EXPECT_OK(ser_writeObjectToFile("./testing/serializeEnum", "myEnum", &enumVal));
+
+    FILE* f = fopen("./testing/serializeEnum", "rb");
+    _SER_EXPECT(f != NULL, SERE_FOPEN_FAILED);
+
+    _SER_TEST_READ(uint64_t, 0, f); // ser version
+    _SER_TEST_READ(uint64_t, 0, f); // app version
+    _SER_TEST_READ(uint64_t, 1, f); // spec count
+
+    _SER_TEST_READ(uint8_t, SER_DK_ENUM, f); // decl kind
+    _SER_TEST_READ(uint64_t, 6, f); // length of tag string
+    _SER_EXPECT_OK(_ser_test_expectString("myEnum", 6, f));
+
+    _SER_TEST_READ(uint64_t, 3, f); // number of values
+    _SER_TEST_READ(uint64_t, 5, f); // length of first string
+    _SER_EXPECT_OK(_ser_test_expectString("first", 5, f));
+    _SER_TEST_READ(uint64_t, 6, f);
+    _SER_EXPECT_OK(_ser_test_expectString("second", 6, f));
+    _SER_TEST_READ(uint64_t, 5, f);
+    _SER_EXPECT_OK(_ser_test_expectString("third", 5, f));
+
+    _SER_TEST_READ(uint64_t, 0, f); // first obj specid should be the enum
+    _SER_TEST_READ(int32_t, 1, f); // value
     return SERE_OK;
 }
 
@@ -845,7 +878,7 @@ ser_Error _ser_test_shortStructSpec() {
 
 ser_Error _ser_test_badStructOffsetsCall() {
     _ser_clearSpecSet(&_globalSpecSet);
-    _SER_VALID_OR_RETURN(ser_specStruct(HMM_Vec2, X float Y float));
+    _SER_EXPECT_OK(ser_specStruct(HMM_Vec2, X float Y float));
     _SER_EXPECT(
         ser_specStructOffsets(HMM_Vec2, X) == SERE_VA_ARG_MISUSE,
         SERE_TEST_EXPECT_FAILED);
@@ -854,11 +887,11 @@ ser_Error _ser_test_badStructOffsetsCall() {
 
 ser_Error _ser_test_duplicateStructProps() {
     _ser_clearSpecSet(&_globalSpecSet);
-    _SER_VALID_OR_RETURN(
+    _SER_EXPECT_OK(
         ser_specStruct(HMM_Vec2,
                        x int
                        x char));
-    _SER_VALID_OR_RETURN(ser_specStructOffsets(HMM_Vec2, X, Y));
+    _SER_EXPECT_OK(ser_specStructOffsets(HMM_Vec2, X, Y));
     _SER_EXPECT(
         _ser_validateAndLockSpecSet(&_globalSpecSet) == SERE_DUPLICATE_PROP_NAMES,
         SERE_TEST_EXPECT_FAILED);
@@ -867,9 +900,9 @@ ser_Error _ser_test_duplicateStructProps() {
 
 ser_Error _ser_test_duplicateDecls() {
     _ser_clearSpecSet(&_globalSpecSet);
-    _SER_VALID_OR_RETURN(ser_specStruct(myStruct, x int));
+    _SER_EXPECT_OK(ser_specStruct(myStruct, x int));
     const char* vals[] = { "hello" };
-    _SER_VALID_OR_RETURN(ser_specEnum(myStruct, vals, 1));
+    _SER_EXPECT_OK(ser_specEnum(myStruct, vals, 1));
     _SER_EXPECT(
         _ser_validateAndLockSpecSet(&_globalSpecSet) == SERE_DUPLICATE_DECL_TAGS,
         SERE_TEST_EXPECT_FAILED);
@@ -879,7 +912,7 @@ ser_Error _ser_test_duplicateDecls() {
 ser_Error _ser_test_emptyEnum() {
     _ser_clearSpecSet(&_globalSpecSet);
     const char* vals[] = { "hello" };
-    _SER_VALID_OR_RETURN(ser_specEnum(enum, vals, 0));
+    _SER_EXPECT_OK(ser_specEnum(enum, vals, 0));
     _SER_EXPECT(
         _ser_validateAndLockSpecSet(&_globalSpecSet) == SERE_EMPTY_ENUM,
         SERE_TEST_EXPECT_FAILED);
@@ -888,7 +921,7 @@ ser_Error _ser_test_emptyEnum() {
 
 ser_Error _ser_test_emptyEnum2() {
     _ser_clearSpecSet(&_globalSpecSet);
-    _SER_VALID_OR_RETURN(ser_specEnum(enum, NULL, 10));
+    _SER_EXPECT_OK(ser_specEnum(enum, NULL, 10));
     ser_Error e = _ser_validateAndLockSpecSet(&_globalSpecSet);
     _SER_EXPECT(e == SERE_EMPTY_ENUM, SERE_TEST_EXPECT_FAILED);
     return SERE_OK;
@@ -899,15 +932,14 @@ ser_Error _ser_test_unresolvedDeclRef() {
     ser_Error e = ser_specStruct(HMM_Vec2,
                                  next struct2
                                  prev struct1);
-    _SER_VALID_OR_RETURN(e);
-    _SER_VALID_OR_RETURN(ser_specStructOffsets(HMM_Vec2, X, Y));
+    _SER_EXPECT_OK(e);
+    _SER_EXPECT_OK(ser_specStructOffsets(HMM_Vec2, X, Y));
 
     e = _ser_validateAndLockSpecSet(&_globalSpecSet);
     _SER_EXPECT(e == SERE_UNRESOLVED_DECL_TAG, SERE_TEST_EXPECT_FAILED);
     return SERE_OK;
 }
 
-// print a test with the result of the function being OK and the name being the name of the function
 #define _SER_TEST_INVOKE(func) test_printResult(func() == SERE_OK, _SER_STRINGIZE(func))
 
 void ser_tests() {
@@ -916,6 +948,7 @@ void ser_tests() {
     _globalSpecSet.arena = bump_allocate(1000000, "global specset arena");
 
     _SER_TEST_INVOKE(_ser_test_serializeVec2);
+    _SER_TEST_INVOKE(_ser_test_serializeEnum);
     _SER_TEST_INVOKE(_ser_test_shortStructSpec);
     _SER_TEST_INVOKE(_ser_test_badStructOffsetsCall);
     _SER_TEST_INVOKE(_ser_test_duplicateStructProps);
@@ -950,6 +983,4 @@ void ser_tests() {
     //                       points, pointCount,
     //                       lines, lineCount,
     //                       constraints, constraintCount);
-
-    // TODO: ENUM SERIALIZATION TEST TO FIT THE SPEC :)
 }
