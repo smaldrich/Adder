@@ -64,7 +64,7 @@ typedef enum {
     SER_PK_FLOAT,
 
     // SER_PK_ARRAY_INTERNAL, // an array that fits completely within a struct
-    SER_PK_ARRAY_EXTERNAL, // an array allocated outside of the struct
+    // SER_PK_ARRAY_EXTERNAL, // an array allocated outside of the struct // TODO: the array thing
     // SER_PK_PTR,
     _SER_PK_PARSABLE_COUNT,
 
@@ -77,7 +77,7 @@ const char* ser_propKindParseNames[] = {
     "int",
     "float",
     // "arrIn",
-    "arrEx",
+    // "arrEx",
     // "ptr"
 };
 
@@ -179,9 +179,12 @@ ser_Decl* _ser_declGetByTag(ser_SpecSet* set, const char* tag, uint64_t tagLen) 
 }
 
 bool _ser_isPropKindNonTerminal(ser_PropKind k) {
-    if (k == SER_PK_ARRAY_EXTERNAL) {
-        return true;
+    if (k == 100000000) { // getting rid of compile warning while working w/ no non terminals
+        return false;
     }
+    // if (k == SER_PK_ARRAY_EXTERNAL) {
+    //     return true;
+    // }
     return false;
 }
 
@@ -250,6 +253,7 @@ ser_Error _ser_validateAndLockSpecSet(ser_SpecSet* set) {
         } else if (decl->kind == SER_DK_ENUM) {
             _SER_EXPECT(decl->enumVals != NULL, SERE_EMPTY_ENUM);
             _SER_EXPECT(decl->enumValCount != 0, SERE_EMPTY_ENUM);
+            // TODO: check each indiv val for non null
         } else {
             return SERE_WRONG_KIND;
         }
@@ -313,7 +317,7 @@ ser_Error _ser_parsePropInners(const char** str, ser_Prop** outProp) {
     ser_Prop* firstInner = NULL;
     ser_Prop* lastInner = NULL;
 
-    bool expectingAnotherToken = false;
+    bool expectingAnotherToken = true; // start expecting at least one thing to be present
     while (true) {
         const char* kindStr;
         uint64_t kindStrLen;
@@ -434,11 +438,11 @@ ser_Error _ser_specStructOffsets(const char* tag, int structSize, int argCount, 
         _SER_EXPECT(takenCount <= argCount, SERE_VA_ARG_MISUSE);
         prop->parentStructOffset = offset;
 
-        if (prop->kind == SER_PK_ARRAY_EXTERNAL) {
-            prop->arrayLengthParentStructOffset = va_arg(args, uint64_t);
-            takenCount++;
-            _SER_EXPECT(takenCount <= argCount, SERE_VA_ARG_MISUSE);
-        }
+        // if (prop->kind == SER_PK_ARRAY_EXTERNAL) {
+        //     prop->arrayLengthParentStructOffset = va_arg(args, uint64_t);
+        //     takenCount++;
+        //     _SER_EXPECT(takenCount <= argCount, SERE_VA_ARG_MISUSE);
+        // }
     }
 
     va_end(args);
@@ -510,12 +514,16 @@ int64_t _ser_sizeOfProp(ser_Prop* p) {
         return sizeof(int);
     } else if (p->kind == SER_PK_FLOAT) {
         return sizeof(float);
-    } else if (p->kind == SER_PK_ARRAY_EXTERNAL) {
-        SER_ASSERT(false);
+        // } else if (p->kind == SER_PK_ARRAY_EXTERNAL) {
+        //     SER_ASSERT(false);
     } else if (p->kind == SER_PK_DECL_REF) {
-        // TODO: ENUMS BRO
-        SER_ASSERT(p->declRef->kind == SER_DK_STRUCT);
-        return p->declRef->structSize;
+        if (p->declRef->kind == SER_DK_STRUCT) {
+            return p->declRef->structSize;
+        } else if (p->declRef->kind == SER_DK_ENUM) {
+            return sizeof(int32_t); // TODO: assuming size, this will fuck someone over badly eventually
+        } else {
+            SER_ASSERT(false);
+        }
     } else {
         SER_ASSERT(false);
     }
@@ -533,19 +541,19 @@ ser_Error _ser_serializeStructByPropSpec(FILE* file, void* obj, ser_Prop* spec) 
         _SER_WRITE_OR_FAIL(obj, sizeof(char), file);
     } else if (spec->kind == SER_PK_DECL_REF) {
         return _ser_serializeStructByDeclSpec(file, obj, spec->declRef);
-    } else if (spec->kind == SER_PK_ARRAY_EXTERNAL) {
-        // TODO: assuming type, will fuck w you later
-        uint64_t arrCount = *_SER_LOOKUP_MEMBER(uint64_t, obj, spec->arrayLengthParentStructOffset);
-        _SER_WRITE_VAR_OR_FAIL(uint64_t, arrCount, file);
+        // } else if (spec->kind == SER_PK_ARRAY_EXTERNAL) {
+        //     // TODO: assuming type, will fuck w you later
+        //     uint64_t arrCount = *_SER_LOOKUP_MEMBER(uint64_t, obj, spec->arrayLengthParentStructOffset);
+        //     _SER_WRITE_VAR_OR_FAIL(uint64_t, arrCount, file);
 
-        int64_t innerSize = _ser_sizeOfProp(spec->innerProp); // array of arrays fails here // TODO: is that a bad thing?
-        void* arrayPtr = _SER_LOOKUP_MEMBER(void, obj, spec->parentStructOffset);
-        for (uint64_t i = 0; i < arrCount; i++) {
-            uint64_t offset = (uint64_t)((char*)arrayPtr + (i * innerSize));
-            void* ptr = _SER_LOOKUP_MEMBER(void, arrayPtr, offset);
-            ser_Error e = _ser_serializeStructByPropSpec(file, ptr, spec->innerProp);
-            _SER_VALID_OR_RETURN(e);
-        }
+        //     int64_t innerSize = _ser_sizeOfProp(spec->innerProp); // array of arrays fails here // TODO: is that a bad thing?
+        //     void* arrayPtr = _SER_LOOKUP_MEMBER(void, obj, spec->parentStructOffset);
+        //     for (uint64_t i = 0; i < arrCount; i++) {
+        //         uint64_t offset = (uint64_t)((char*)arrayPtr + (i * innerSize));
+        //         void* ptr = _SER_LOOKUP_MEMBER(void, arrayPtr, offset);
+        //         ser_Error e = _ser_serializeStructByPropSpec(file, ptr, spec->innerProp);
+        //         _SER_VALID_OR_RETURN(e);
+        //     }
     } else {
         SER_ASSERT(false);
     }
@@ -553,10 +561,21 @@ ser_Error _ser_serializeStructByPropSpec(FILE* file, void* obj, ser_Prop* spec) 
 }
 
 ser_Error _ser_serializeStructByDeclSpec(FILE* file, void* obj, ser_Decl* spec) {
-    // TODO: ENUMS BRO
-    for (ser_Prop* prop = spec->structFirstChild; prop; prop = prop->nextProp) {
-        void* propLoc = _SER_LOOKUP_MEMBER(void, obj, prop->parentStructOffset);
-        _ser_serializeStructByPropSpec(file, propLoc, prop);
+    if (spec->kind == SER_DK_STRUCT) {
+        for (ser_Prop* prop = spec->structFirstChild; prop; prop = prop->nextProp) {
+            void* propLoc = _SER_LOOKUP_MEMBER(void, obj, prop->parentStructOffset);
+            _ser_serializeStructByPropSpec(file, propLoc, prop);
+        }
+    } else if (spec->kind == SER_DK_ENUM) {
+        _SER_WRITE_VAR_OR_FAIL(uint64_t, spec->enumValCount, file);
+        for (uint64_t i = 0; i < spec->enumValCount; i++) {
+            const char* val = spec->enumVals[i];
+            uint64_t len = strlen(val);
+            _SER_WRITE_VAR_OR_FAIL(uint64_t, len, file);
+            _SER_WRITE_OR_FAIL(val, len, file);
+        }
+    } else {
+        SER_ASSERT(false);
     }
     return SERE_OK;
 }
@@ -818,8 +837,9 @@ ser_Error _ser_test_shortStructSpec() {
         ser_specStruct(myStruct,
                        X float
                        Y int
-                       Z arrEx) == SERE_PARSE_FAILED,
+                       Z) == SERE_PARSE_FAILED,
         SERE_TEST_EXPECT_FAILED);
+    // TODO: make this but with a non terminal
     return SERE_OK;
 }
 
@@ -930,4 +950,6 @@ void ser_tests() {
     //                       points, pointCount,
     //                       lines, lineCount,
     //                       constraints, constraintCount);
+
+    // TODO: ENUM SERIALIZATION TEST TO FIT THE SPEC :)
 }
