@@ -1,3 +1,6 @@
+#define BASE_IMPL
+#include "base/allocators.h"
+
 #include "serialization2.h"
 #include "sketches.h"
 

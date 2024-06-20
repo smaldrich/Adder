@@ -8,7 +8,7 @@
 #include <assert.h>
 #include <ctype.h>
 
-#include "base/options.h"
+#include "base/allocators.h"
 
 typedef enum {
     SERE_OK,
@@ -29,6 +29,8 @@ typedef enum {
     SERE_WRONG_KIND,
     SERE_PARSE_FAILED,
     SERE_VA_ARG_MISUSE,
+    SERE_READ_INST_INITIALIZED,
+    SERE_READ_INST_UNINITIALIZED,
 } ser_Error;
 
 #define _SER_EXPECT(expr, error) \
@@ -450,6 +452,12 @@ ser_Error _ser_specStructOffsets(const char* tag, int structSize, int argCount, 
 // SERIALIZATION
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
+// TODO: figure out a way to test desserialization on a big endian system
+bool _ser_isSystemLittleEndian() {
+    uint32_t x = 1;
+    return *(char*)(&x) == 1;
+}
+
 #define _SER_LOOKUP_MEMBER(outT, obj, offset) ((outT*)(((char*)obj) + (offset)))
 
 #define _SER_WRITE_VAR_OR_FAIL(T, var, file)           \
@@ -467,7 +475,8 @@ ser_Error _ser_specStructOffsets(const char* tag, int structSize, int argCount, 
 
 /*
 The File Format:
-uint64_t endian indicator
+all things stored as little endian
+
 uint64_t ser version no
 uint64_t app version no
 uint64_t declCount
@@ -571,7 +580,6 @@ ser_Error _ser_serializeProp(FILE* file, ser_Prop* prop) {
 // TODO: remove as many asserts as possible
 
 ser_Error _ser_writeObjectToFileInner(const char* type, void* obj, FILE* file) {
-    _SER_WRITE_VAR_OR_FAIL(uint64_t, 1, file); // endian indicator
     _SER_WRITE_VAR_OR_FAIL(uint64_t, 0, file); // ser version indicator
     _SER_WRITE_VAR_OR_FAIL(uint64_t, 0, file); // app version indicator
     _SER_WRITE_VAR_OR_FAIL(uint64_t, _globalSpecSet.declCount, file);
@@ -622,6 +630,67 @@ ser_Error ser_writeObjectToFile(const char* path, const char* type, void* obj) {
     return e;
 }
 
+// TODO: the push system for more than one object per file
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// DESERIALIZATION !?
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// quotes on the static assert here because the linter was tripping
+// makes sure that var and T are the same size
+// double evals T and var
+#define _SER_READ_VAR_OR_FAIL(T, var, file)                                             \
+    do {                                                                                \
+        static_assert(sizeof(var) == sizeof(T), "");                                    \
+        _SER_EXPECT(fread(&(var), sizeof(T), 1, file) == 1, SERE_FREAD_FAILED);  \
+    } while(0)
+
+typedef struct {
+    bool initialized;
+    FILE* file;
+    BumpAlloc arena; // TODO: allocator macro so that bump isn't embedded in here
+
+    uint64_t fileSerVersion;
+    uint64_t fileVersion;
+} ser_ReadInstance;
+
+// ser_Error _ser_dserDecl(ser_ReadInstance* inst) {
+
+// }
+
+// TODO: file patches! // TODO: can we embed backwards compatibility things too?
+ser_Error ser_dserStart(const char* path, ser_ReadInstance* outInst) {
+    _SER_EXPECT(outInst->initialized == false, SERE_READ_INST_INITIALIZED);
+    memset(outInst, 0, sizeof(ser_ReadInstance));
+
+    outInst->file = fopen(path, "rb");
+    _SER_EXPECT(outInst->file != NULL, SERE_FOPEN_FAILED);
+
+    _SER_READ_VAR_OR_FAIL(uint64_t, outInst->fileSerVersion, outInst->file);
+    _SER_READ_VAR_OR_FAIL(uint64_t, outInst->fileVersion, outInst->file);
+
+    uint64_t declCount = 0;
+    _SER_READ_VAR_OR_FAIL(uint64_t, declCount, outInst->file); // TODO: should there be a cap on this?
+    for (uint64_t i = 0; i < declCount; i++) {
+        // _SER_VALID_OR_RETURN(_ser_dserDecl(outInst));
+    }
+    return SERE_OK;
+}
+
+// void ser_dserQueryNext() {
+// }
+
+// void ser_dserPullNext() {
+// }
+
+void ser_dserEnd(ser_ReadInstance* inst) {
+    if (inst->file != NULL) {
+        fclose(inst->file);
+    }
+    bump_free(&inst->arena);
+    memset(inst, 0, sizeof(*inst));
+}
+
 // created on some public functions so that they fail unrecoverably in user code, but not in testing code
 #define SER_ASSERT_OK(expr) (SER_ASSERT(expr) == SERE_OK)
 
@@ -629,13 +698,14 @@ ser_Error ser_writeObjectToFile(const char* path, const char* type, void* obj) {
 #define ser_specStruct(T, str) SER_ASSERT_OK(_ser_specStruct(_SER_STRINGIZE(T), _SER_STRINGIZE(str)))
 #define ser_specEnum(T, strs, count) SER_ASSERT_OK(_ser_specEnum(_SER_STRINGIZE(T), strs, count))
 
-#define _SER_OFFSET2(T, a) offsetof(T, a)
-#define _SER_OFFSET3(T, a, b) offsetof(T, a), offsetof(T, b)
-#define _SER_OFFSET4(T, a, b, c) offsetof(T, a), offsetof(T, b), offsetof(T, c)
-#define _SER_OFFSET5(T, a, b, c, d) offsetof(T, a), offsetof(T, b), offsetof(T, c), offsetof(T, d)
-#define _SER_OFFSET6(T, a, b, c, d, e) offsetof(T, a), offsetof(T, b), offsetof(T, c), offsetof(T, d), offsetof(T, e)
-#define _SER_OFFSET7(T, a, b, c, d, e, f) offsetof(T, a), offsetof(T, b), offsetof(T, c), offsetof(T, d), offsetof(T, e), offsetof(T, f)
-#define _SER_OFFSET8(T, a, b, c, d, e, f, g) offsetof(T, a), offsetof(T, b), offsetof(T, c), offsetof(T, d), offsetof(T, e), offsetof(T, f), offsetof(T, g)
+#define _SER_OFFSETOF(T, prop) ((uint64_t)(uint8_t*)(&(((T*)(NULL))->prop)))
+#define _SER_OFFSET2(T, a) _SER_OFFSETOF(T, a)
+#define _SER_OFFSET3(T, a, b) _SER_OFFSETOF(T, a), _SER_OFFSETOF(T, b)
+#define _SER_OFFSET4(T, a, b, c) _SER_OFFSETOF(T, a), _SER_OFFSETOF(T, b), _SER_OFFSETOF(T, c)
+#define _SER_OFFSET5(T, a, b, c, d) _SER_OFFSETOF(T, a), _SER_OFFSETOF(T, b), _SER_OFFSETOF(T, c), _SER_OFFSETOF(T, d)
+#define _SER_OFFSET6(T, a, b, c, d, e) _SER_OFFSETOF(T, a), _SER_OFFSETOF(T, b), _SER_OFFSETOF(T, c), _SER_OFFSETOF(T, d), _SER_OFFSETOF(T, e)
+#define _SER_OFFSET7(T, a, b, c, d, e, f) _SER_OFFSETOF(T, a), _SER_OFFSETOF(T, b), _SER_OFFSETOF(T, c), _SER_OFFSETOF(T, d), _SER_OFFSETOF(T, e), _SER_OFFSETOF(T, f)
+#define _SER_OFFSET8(T, a, b, c, d, e, f, g) _SER_OFFSETOF(T, a), _SER_OFFSETOF(T, b), _SER_OFFSETOF(T, c), _SER_OFFSETOF(T, d), _SER_OFFSETOF(T, e), _SER_OFFSETOF(T, f), _SER_OFFSETOF(T, g)
 
 #define _SER_SELECT_BY_PARAM_COUNT(_1,_2,_3,_4,_5,_6,_7,_8,NAME,...) NAME
 #define _SER_OFFSET_SWITCH(...) _SER_SELECT_BY_PARAM_COUNT(__VA_ARGS__, _SER_OFFSET8, _SER_OFFSET7, _SER_OFFSET6, _SER_OFFSET5, _SER_OFFSET4, _SER_OFFSET3, _SER_OFFSET2)(__VA_ARGS__)
@@ -695,7 +765,6 @@ ser_Error _ser_test_serializeVec2() {
     FILE* f = fopen("./testing/file1", "rb");
     _SER_EXPECT(f != NULL, SERE_FOPEN_FAILED);
 
-    _SER_TEST_READ(uint64_t, 1, f); // endian
     _SER_TEST_READ(uint64_t, 0, f); // ser version
     _SER_TEST_READ(uint64_t, 0, f); // app version
     _SER_TEST_READ(uint64_t, 1, f); // spec count
