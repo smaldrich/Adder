@@ -25,6 +25,7 @@ typedef enum {
     SERE_DUPLICATE_PROP_NAMES,
     SERE_EMPTY_ENUM,
     SERE_EMPTY_USER_STRUCT,
+    SERE_NO_OFFSETS,
     SERE_WRONG_KIND,
     SERE_PARSE_FAILED,
     SERE_VA_ARG_MISUSE,
@@ -111,6 +112,7 @@ struct ser_SpecUser {
             ser_SpecProp* structFirstChild;
             uint64_t structSize;
             uint64_t structPropCount;
+            bool structOffsetsGiven; // flag for if ser_specOffsets has been called on a struct
         };
         struct {
             uint64_t enumValCount;
@@ -212,7 +214,6 @@ ser_Error _ser_validateAndLockSpecSet(ser_SpecSet* set) {
     }
     _SER_EXPECT(set->specCount != 0, SERE_SPECSET_EMPTY);
 
-    // TODO: fail when offsets haven't been set
     // TODO: fail on circular struct composition
 
     // once IDs are filled in, go back and patch any userSpec prop refs
@@ -220,6 +221,9 @@ ser_Error _ser_validateAndLockSpecSet(ser_SpecSet* set) {
     // TODO: inner prop strs shouldn't be null
     for (ser_SpecUser* userSpec = set->firstUserSpec; userSpec; userSpec = userSpec->nextUserSpec) {
         if (userSpec->kind == SER_SU_STRUCT) {
+            _SER_EXPECT(userSpec->structSize != 0, SERE_EMPTY_USER_STRUCT);
+            _SER_EXPECT(userSpec->structOffsetsGiven, SERE_NO_OFFSETS);
+
             int64_t propCount = 0;
             for (ser_SpecProp* prop = userSpec->structFirstChild; prop; prop = prop->nextProp) {
                 // link any refs with actual pointers
@@ -412,6 +416,7 @@ ser_Error _ser_specStructOffsets(const char* tag, int structSize, int argCount, 
     _SER_EXPECT(structSpec->kind == SER_SU_STRUCT, SERE_WRONG_KIND);
 
     structSpec->structSize = structSize;
+    structSpec->structOffsetsGiven = true;
 
     for (ser_SpecProp* prop = structSpec->structFirstChild; prop; prop = prop->nextProp) {
         int64_t offset = va_arg(args, uint64_t);
@@ -735,10 +740,10 @@ ser_Error _ser_test_badStructOffsetsCall() {
 ser_Error _ser_test_duplicateStructProps() {
     _ser_test_clearGlobalSpecSet();
     _SER_VALID_OR_RETURN(
-        ser_specStruct(myStruct,
+        ser_specStruct(HMM_Vec2,
                        x int
-                       y float
                        x char));
+    _SER_VALID_OR_RETURN(ser_specStructOffsets(HMM_Vec2, X, Y));
     _SER_EXPECT(
         _ser_validateAndLockSpecSet(&_globalSpecSet) == SERE_DUPLICATE_PROP_NAMES,
         SERE_TEST_EXPECT_FAILED);
@@ -776,10 +781,11 @@ ser_Error _ser_test_emptyEnum2() {
 
 ser_Error _ser_test_unresolvedUserSpecRef() {
     _ser_test_clearGlobalSpecSet();
-    ser_Error e = ser_specStruct(struct1,
+    ser_Error e = ser_specStruct(HMM_Vec2,
                                  next struct2
                                  prev struct1);
     _SER_VALID_OR_RETURN(e);
+    _SER_VALID_OR_RETURN(ser_specStructOffsets(HMM_Vec2, X, Y));
 
     e = _ser_validateAndLockSpecSet(&_globalSpecSet);
     _SER_EXPECT(e == SERE_UNRESOLVED_USER_SPEC_TAG, SERE_TEST_EXPECT_FAILED);
