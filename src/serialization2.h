@@ -125,15 +125,8 @@ struct ser_Decl {
     };
 };
 
-typedef union {
-    ser_Prop prop;
-    ser_Decl decl;
-} ser_SpecNodeTypeUnion;
-
-#define SER_MAX_SPEC_NODES 10000
 typedef struct {
-    ser_SpecNodeTypeUnion specNodes[SER_MAX_SPEC_NODES];
-    int allocatedSpecNodeCount;
+    BumpAlloc arena; // TODO: don't embed these as a dep
 
     ser_Decl* firstDecl;
     ser_Decl* lastDecl;
@@ -142,25 +135,16 @@ typedef struct {
     bool isValidAndLocked;
 } ser_SpecSet;
 
-ser_SpecSet _globalSpecSet;
+ser_SpecSet _globalSpecSet; // TODO: actually init the damn arena
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // SPEC CONSTRUCTION
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-// retreives space for a spec from the set // doesn't do anything else
-ser_SpecNodeTypeUnion* _ser_specNodePush(ser_SpecSet* set) {
-    SER_ASSERT(!set->isValidAndLocked);
-    SER_ASSERT(set->allocatedSpecNodeCount < SER_MAX_SPEC_NODES);
-    return &set->specNodes[set->allocatedSpecNodeCount++];
-}
-
 // pushes a new decl, fills in tag and kind, and adds it to the list for the set
-ser_Decl* _ser_declPush(ser_SpecSet* set, const char* tag, ser_DeclKind kind) {
+ser_Decl* _ser_declPush(ser_SpecSet* set) {
     SER_ASSERT(!set->isValidAndLocked);
-    ser_Decl* s = &_ser_specNodePush(set)->decl;
-    s->tag = tag;
-    s->kind = kind;
+    ser_Decl* s = BUMP_PUSH_NEW(&set->arena, ser_Decl);
 
     // push to the list of decls
     if (!set->firstDecl) {
@@ -343,7 +327,7 @@ ser_Error _ser_parsePropInners(const char** str, ser_Prop** outProp) {
             }
         } // end matching keywords for prop kinds
 
-        ser_Prop* inner = &_ser_specNodePush(&_globalSpecSet)->prop;
+        ser_Prop* inner = BUMP_PUSH_NEW(&_globalSpecSet.arena, ser_Prop);
         inner->kind = k;
 
         if (inner->kind == SER_PK_DECL_REF) {
@@ -372,7 +356,9 @@ ser_Error _ser_parsePropInners(const char** str, ser_Prop** outProp) {
 
 ser_Error _ser_specStruct(const char* tag, const char* str) {
     _SER_EXPECT(!_globalSpecSet.isValidAndLocked, SERE_SPECSET_LOCKED);
-    ser_Decl* decl = _ser_declPush(&_globalSpecSet, tag, SER_DK_STRUCT);
+    ser_Decl* decl = _ser_declPush(&_globalSpecSet);
+    decl->tag = tag;
+    decl->kind = SER_DK_STRUCT;
 
     ser_Prop* firstProp = NULL;
     ser_Prop* lastProp = NULL;
@@ -409,7 +395,9 @@ ser_Error _ser_specStruct(const char* tag, const char* str) {
 
 ser_Error _ser_specEnum(const char* tag, const char* strs[], int count) {
     _SER_EXPECT(!_globalSpecSet.isValidAndLocked, SERE_SPECSET_LOCKED);
-    ser_Decl* s = _ser_declPush(&_globalSpecSet, tag, SER_DK_ENUM);
+    ser_Decl* s = _ser_declPush(&_globalSpecSet);
+    s->tag = tag;
+    s->kind = SER_DK_ENUM;
     s->enumVals = strs;
     s->enumValCount = count;
     return SERE_OK;
@@ -641,7 +629,7 @@ ser_Error ser_writeObjectToFile(const char* path, const char* type, void* obj) {
 // double evals T and var
 #define _SER_READ_VAR_OR_FAIL(T, var, file)                                             \
     do {                                                                                \
-        static_assert(sizeof(var) == sizeof(T), "");                                    \
+        static_assert(sizeof(var) >= sizeof(T), "");                                    \
         _SER_EXPECT(fread(&(var), sizeof(T), 1, file) == 1, SERE_FREAD_FAILED);  \
     } while(0)
 
@@ -654,9 +642,17 @@ typedef struct {
     uint64_t fileVersion;
 } ser_ReadInstance;
 
-// ser_Error _ser_dserDecl(ser_ReadInstance* inst) {
+ser_Error _ser_dserDecl(ser_SpecSet* set, ser_ReadInstance* inst) {
+    _SER_EXPECT(!set->isValidAndLocked, SERE_SPECSET_LOCKED);
 
-// }
+    ser_Decl* decl = _ser_declPush(set);
+
+    uint8_t kind = 0;
+    _SER_READ_VAR_OR_FAIL(uint8_t, kind, inst->file);
+    decl->kind = kind;
+
+    // const char* str = BUMP_PUSH_ARR;
+}
 
 // TODO: file patches! // TODO: can we embed backwards compatibility things too?
 ser_Error ser_dserStart(const char* path, ser_ReadInstance* outInst) {
@@ -669,10 +665,13 @@ ser_Error ser_dserStart(const char* path, ser_ReadInstance* outInst) {
     _SER_READ_VAR_OR_FAIL(uint64_t, outInst->fileSerVersion, outInst->file);
     _SER_READ_VAR_OR_FAIL(uint64_t, outInst->fileVersion, outInst->file);
 
+    ser_SpecSet newSet;
+    memset(&newSet, 0, sizeof(ser_SpecSet));
+
     uint64_t declCount = 0;
     _SER_READ_VAR_OR_FAIL(uint64_t, declCount, outInst->file); // TODO: should there be a cap on this?
     for (uint64_t i = 0; i < declCount; i++) {
-        // _SER_VALID_OR_RETURN(_ser_dserDecl(outInst));
+        _SER_VALID_OR_RETURN(&newSet, _ser_dserDecl(outInst));
     }
     return SERE_OK;
 }
@@ -700,6 +699,7 @@ void ser_dserEnd(ser_ReadInstance* inst) {
 
 // built becuase the linter was throwing a fit
 #define _SER_OFFSETOF(Toffsetof, prop) ((uint64_t)(uint8_t*)(&(((T*)(NULL))->prop)))
+
 #define _SER_OFFSET2(T, a) _SER_OFFSETOF(T, a)
 #define _SER_OFFSET3(T, a, b) _SER_OFFSETOF(T, a), _SER_OFFSETOF(T, b)
 #define _SER_OFFSET4(T, a, b, c) _SER_OFFSETOF(T, a), _SER_OFFSETOF(T, b), _SER_OFFSETOF(T, c)
