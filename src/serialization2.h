@@ -35,7 +35,10 @@ typedef enum {
     SERE_VA_ARG_MISUSE,
     SERE_READ_INST_INITIALIZED,
     SERE_READ_INST_UNINITIALIZED,
+    SERE_SPEC_MISMATCH,
 } ser_Error;
+// TODO: array of readable strings for each error code
+// TODO: cull unused errors
 
 #define _SER_EXPECT(expr, error) \
     do { \
@@ -145,7 +148,7 @@ void _ser_clearSpecSet(ser_SpecSet* set) {
     set->declCount = 0;
 }
 
-ser_SpecSet _globalSpecSet; // TODO: actually init the damn arena
+ser_SpecSet _globalSpecSet;
 bool _isGlobalSetLocked;
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -482,7 +485,7 @@ ser_Error _ser_specStructOffsets(const char* tag, int structSize, int argCount, 
 // SERIALIZATION
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-// TODO: figure out a way to test desserialization on a big endian system
+// TODO: figure out a way to test deserialization on a big endian system
 bool _ser_isSystemLittleEndian() {
     uint32_t x = 1;
     return *(char*)(&x) == 1;
@@ -676,7 +679,7 @@ ser_Error ser_writeObjectToFile(const char* path, const char* type, void* obj) {
     return e;
 }
 
-// TODO: the push system for more than one object per file
+// TODO: the push/pull system for more than one object per file
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // DESERIALIZATION !?
@@ -695,7 +698,6 @@ ser_Error ser_writeObjectToFile(const char* path, const char* type, void* obj) {
     _SER_EXPECT(fread(buffer, size, 1, file) == 1, SERE_FREAD_FAILED)
 
 typedef struct {
-    bool initialized;
     FILE* file;
     ser_SpecSet specSet;
 
@@ -774,42 +776,79 @@ ser_Error _ser_dserDecl(ser_DserInstance* inst) {
 }
 
 // TODO: file patches! // TODO: can we embed backwards compatibility things too?
-ser_Error ser_dserStart(const char* path, ser_DserInstance* outInst) {
-    _SER_EXPECT(outInst->initialized == false, SERE_READ_INST_INITIALIZED);
-    memset(outInst, 0, sizeof(ser_DserInstance));
-    outInst->specSet = _ser_specSetInit("dser inst spec set arena");
-    outInst->initialized = true;
+ser_Error ser_readObjFromFile(const char* path, const char* type, void* obj) {
+    _SER_EXPECT(_isGlobalSetLocked, SERE_GLOBAL_SET_UNLOCKED);
 
-    outInst->file = fopen(path, "rb");
-    _SER_EXPECT(outInst->file != NULL, SERE_FOPEN_FAILED);
+    ser_DserInstance inst;
+    memset(&inst, 0, sizeof(ser_DserInstance));
+    inst.specSet = _ser_specSetInit("dser inst spec set arena");
+    inst.file = fopen(path, "rb");
+    _SER_EXPECT(inst.file != NULL, SERE_FOPEN_FAILED);
 
-    _SER_READ_VAR_OR_FAIL(uint64_t, outInst->fileSerVersion, outInst->file);
-    _SER_READ_VAR_OR_FAIL(uint64_t, outInst->fileVersion, outInst->file);
+    _SER_READ_VAR_OR_FAIL(uint64_t, inst.fileSerVersion, inst.file);
+    _SER_READ_VAR_OR_FAIL(uint64_t, inst.fileVersion, inst.file);
 
     uint64_t declCount = 0;
     // TODO: REASONABLE LIMITS FOR LENGTHS ON DESERIALIZED INFO??
-    _SER_READ_VAR_OR_FAIL(uint64_t, declCount, outInst->file); // TODO: should there be a cap on this?
+    _SER_READ_VAR_OR_FAIL(uint64_t, declCount, inst.file);
     for (uint64_t i = 0; i < declCount; i++) {
-        _SER_EXPECT_OK(_ser_dserDecl(outInst));
+        _SER_EXPECT_OK(_ser_dserDecl(&inst));
     }
 
     _SER_EXPECT_OK(_ser_checkSpecSetDuplicatesCountsKindsAndEmpties(&_globalSpecSet));
     _SER_EXPECT_OK(_ser_patchAndCheckSpecSetDeclRefs(&_globalSpecSet));
-    return SERE_OK;
-}
 
-// void ser_dserQueryNext() {
-// }
+    // TODO: rn checking that current and old specs exactly match, then copying over offsets, add more flex
+    // decl reordering, enum reordering, prop reordering, removed props, added props, etc.
+    ser_Decl* globalDecl = _globalSpecSet.firstDecl;
+    ser_Decl* fileDecl = inst.specSet.firstDecl;
+    while (true) {
+        // same tags
+        _SER_EXPECT(strcmp(globalDecl->tag, fileDecl->tag) == 0, SERE_SPEC_MISMATCH);
+        _SER_EXPECT(globalDecl->kind == fileDecl->kind, SERE_SPEC_MISMATCH);
 
-// void ser_dserPullNext() {
-// }
+        if (globalDecl->kind == SER_DK_STRUCT) {
+            while (true) {
+                ser_Prop* globalProp = globalDecl->structFirstProp;
+                ser_Prop* fileProp = fileDecl->structFirstProp;
 
-void ser_dserEnd(ser_DserInstance* inst) {
-    if (inst->file != NULL) {
-        fclose(inst->file);
+                _SER_EXPECT(globalProp->tagLen == fileProp->tagLen, SERE_SPEC_MISMATCH);
+                _SER_EXPECT(strcmp(globalProp->tag, fileProp->tag) == 0, SERE_SPEC_MISMATCH);
+                _SER_EXPECT(globalProp->kind == fileProp->kind, SERE_SPEC_MISMATCH);
+                // TODO: nonterminals are not completely typechecked here bc im lazy af
+                if (_ser_isPropKindNonTerminal(globalProp->kind)) {
+                    SER_ASSERT(false);
+                }
+
+                globalProp = globalProp->nextProp;
+                fileProp = fileProp->nextProp;
+                if (fileProp == NULL || globalProp == NULL) {
+                    _SER_EXPECT(fileProp == NULL && globalProp == NULL, SERE_SPEC_MISMATCH);
+                    break;
+                }
+            }
+        } else if (globalDecl->kind == SER_DK_ENUM) {
+            _SER_EXPECT(globalDecl->enumValCount == fileDecl->enumValCount, SERE_SPEC_MISMATCH);
+            for (uint64_t i = 0; i < globalDecl->enumValCount; i++) {
+                _SER_EXPECT(strcmp(globalDecl->enumVals[i], fileDecl->enumVals[i]) == 0, SERE_SPEC_MISMATCH);
+            }
+        } else {
+            SER_ASSERT(false);
+        }
+
+        globalDecl = globalDecl->nextDecl;
+        fileDecl = fileDecl->nextDecl;
+        if (globalDecl == NULL || fileDecl == NULL) {
+            _SER_EXPECT(globalDecl == NULL && fileDecl == NULL, SERE_SPEC_MISMATCH);
+            break;
+        }
     }
-    bump_free(&inst->specSet.arena);
-    memset(inst, 0, sizeof(*inst));
+
+    if (inst.file != NULL) {
+        fclose(inst.file);
+    }
+    bump_free(&inst.specSet.arena);
+    return SERE_OK;
 }
 
 // created on some public functions so that they fail unrecoverably in user code, but not in testing code
