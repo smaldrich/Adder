@@ -36,6 +36,7 @@ typedef enum {
     SERE_READ_INST_INITIALIZED,
     SERE_READ_INST_UNINITIALIZED,
     SERE_SPEC_MISMATCH,
+    SERE_INVALID_PULL_TYPE,
 } ser_Error;
 // TODO: array of readable strings for each error code
 // TODO: cull unused errors
@@ -105,7 +106,6 @@ struct ser_Prop {
     // location of this member inside of the parent struct, from the start, in bytes, used for reading and
     // writing to structs in the program
     uint64_t parentStructOffset;
-    uint64_t arrayLengthParentStructOffset;
 
     const char* tag;
     uint64_t tagLen;
@@ -191,6 +191,16 @@ ser_Decl* _ser_declGetByTag(ser_SpecSet* set, const char* tag, uint64_t tagLen) 
     return NULL;
 }
 
+ser_Decl* _ser_declGetByID(ser_SpecSet* set, uint64_t id) {
+    // RN just braindead loop until we find the thing w/ the right ID
+    for (ser_Decl* decl = set->firstDecl; decl; decl = decl->nextDecl) {
+        if (decl->id == id) {
+            return decl;
+        }
+    }
+    return NULL;
+}
+
 bool _ser_isPropKindNonTerminal(ser_PropKind k) {
     if (k == 100000000) { // getting rid of compile warning while working w/ no non terminals
         return false;
@@ -264,12 +274,9 @@ ser_Error _ser_tryPatchDeclRef(ser_SpecSet* set, ser_Prop* p) {
     } else {
         _SER_EXPECT(p->declRefId > 0, SERE_INVALID_DECL_REF_ID);
         _SER_EXPECT(p->declRefId <= set->declCount, SERE_INVALID_DECL_REF_ID); // because 1 indexed, the last ID can be equal to the count
-        // RN just braindead loop until we find the thing w/ the right index
-        for (ser_Decl* decl = set->firstDecl; decl; decl = decl->nextDecl) {
-            if (decl->id == p->declRefId) {
-                p->declRef = decl;
-                return SERE_OK;
-            }
+        ser_Decl* decl = _ser_declGetByID(set, p->declRefId);
+        if (decl != NULL) {
+            p->declRef = decl;
         }
     }
     SER_ASSERT(false);
@@ -536,7 +543,7 @@ uint64_t object count
     uint64_t spec ID (index)
         parse by prop order dictated in the spec :)
         where arrays are a uint64_t for count and then repeated inner elements
-        where enums are just ints w the index of the value
+        where enums are just int32_ts w the index of the value
 */
 
 int64_t _ser_sizeOfProp(ser_Prop* p) {
@@ -775,75 +782,129 @@ ser_Error _ser_dserDecl(ser_DserInstance* inst) {
     return SERE_OK;
 }
 
+// both of these are expecting that the decl/prop has been fully filled in for deserialization // offsets done, links completed etc.
+ser_Error _ser_readToObjFromDecl(void* obj, ser_Decl* decl, FILE* file);
+ser_Error _ser_readToObjFromProp(void* obj, ser_Prop* prop, FILE* file);
+
+ser_Error _ser_readToObjFromDecl(void* obj, ser_Decl* decl, FILE* file) {
+    if (decl->kind == SER_DK_STRUCT) {
+        for (ser_Prop* prop = decl->structFirstProp; prop; prop = prop->nextProp) {
+            void* propLoc = _SER_LOOKUP_MEMBER(void, obj, prop->parentStructOffset);
+            _SER_EXPECT_OK(_ser_readToObjFromProp(propLoc, prop, file));
+        }
+    } else if (decl->kind == SER_DK_ENUM) {
+        // TODO: when enum reordering gets added - see if this changes at all
+        // TODO: assuming int32_t is gonna be really upsetting at some point
+        _SER_READ_OR_FAIL(obj, sizeof(int32_t), file);
+    } else {
+        SER_ASSERT(false);
+    }
+    return SERE_OK;
+}
+
+ser_Error _ser_readToObjFromProp(void* obj, ser_Prop* prop, FILE* file) {
+    if (prop->kind == SER_PK_CHAR) {
+        _SER_READ_OR_FAIL(obj, sizeof(uint8_t), file);
+    } else if (prop->kind == SER_PK_INT) {
+        _SER_READ_OR_FAIL(obj, sizeof(int), file);
+    } else if (prop->kind == SER_PK_FLOAT) {
+        _SER_READ_OR_FAIL(obj, sizeof(float), file);
+    } else if (prop->kind == SER_PK_DECL_REF) {
+        _SER_EXPECT_OK(_ser_readToObjFromDecl(obj, prop->declRef, file));
+    } else {
+        SER_ASSERT(false);
+    }
+    return SERE_OK;
+    // TODO: i don't like how many switches there are on every prop kind. its gonna be a bug at some point missing updating one
+}
+
+
+
 // TODO: file patches! // TODO: can we embed backwards compatibility things too?
 ser_Error ser_readObjFromFile(const char* path, const char* type, void* obj) {
     _SER_EXPECT(_isGlobalSetLocked, SERE_GLOBAL_SET_UNLOCKED);
 
     ser_DserInstance inst;
-    memset(&inst, 0, sizeof(ser_DserInstance));
-    inst.specSet = _ser_specSetInit("dser inst spec set arena");
-    inst.file = fopen(path, "rb");
-    _SER_EXPECT(inst.file != NULL, SERE_FOPEN_FAILED);
+    // intiailize things, deserialize the spec from the file
+    {
+        memset(&inst, 0, sizeof(ser_DserInstance));
+        inst.specSet = _ser_specSetInit("dser inst spec set arena");
+        inst.file = fopen(path, "rb");
+        _SER_EXPECT(inst.file != NULL, SERE_FOPEN_FAILED);
 
-    _SER_READ_VAR_OR_FAIL(uint64_t, inst.fileSerVersion, inst.file);
-    _SER_READ_VAR_OR_FAIL(uint64_t, inst.fileVersion, inst.file);
+        _SER_READ_VAR_OR_FAIL(uint64_t, inst.fileSerVersion, inst.file);
+        _SER_READ_VAR_OR_FAIL(uint64_t, inst.fileVersion, inst.file);
 
-    uint64_t declCount = 0;
-    // TODO: REASONABLE LIMITS FOR LENGTHS ON DESERIALIZED INFO??
-    _SER_READ_VAR_OR_FAIL(uint64_t, declCount, inst.file);
-    for (uint64_t i = 0; i < declCount; i++) {
-        _SER_EXPECT_OK(_ser_dserDecl(&inst));
+        uint64_t declCount = 0;
+        // TODO: REASONABLE LIMITS FOR LENGTHS ON DESERIALIZED INFO??
+        _SER_READ_VAR_OR_FAIL(uint64_t, declCount, inst.file);
+        for (uint64_t i = 0; i < declCount; i++) {
+            _SER_EXPECT_OK(_ser_dserDecl(&inst));
+        }
+
+        _SER_EXPECT_OK(_ser_checkSpecSetDuplicatesCountsKindsAndEmpties(&_globalSpecSet));
+        _SER_EXPECT_OK(_ser_patchAndCheckSpecSetDeclRefs(&_globalSpecSet));
     }
-
-    _SER_EXPECT_OK(_ser_checkSpecSetDuplicatesCountsKindsAndEmpties(&_globalSpecSet));
-    _SER_EXPECT_OK(_ser_patchAndCheckSpecSetDeclRefs(&_globalSpecSet));
 
     // TODO: rn checking that current and old specs exactly match, then copying over offsets, add more flex
     // decl reordering, enum reordering, prop reordering, removed props, added props, etc.
-    ser_Decl* globalDecl = _globalSpecSet.firstDecl;
-    ser_Decl* fileDecl = inst.specSet.firstDecl;
-    while (true) {
-        // same tags
-        _SER_EXPECT(strcmp(globalDecl->tag, fileDecl->tag) == 0, SERE_SPEC_MISMATCH);
-        _SER_EXPECT(globalDecl->kind == fileDecl->kind, SERE_SPEC_MISMATCH);
+    {
+        ser_Decl* globalDecl = _globalSpecSet.firstDecl;
+        ser_Decl* fileDecl = inst.specSet.firstDecl;
+        while (true) {
+            // same tags
+            _SER_EXPECT(strcmp(globalDecl->tag, fileDecl->tag) == 0, SERE_SPEC_MISMATCH);
+            _SER_EXPECT(globalDecl->kind == fileDecl->kind, SERE_SPEC_MISMATCH);
 
-        if (globalDecl->kind == SER_DK_STRUCT) {
-            while (true) {
+            if (globalDecl->kind == SER_DK_STRUCT) {
                 ser_Prop* globalProp = globalDecl->structFirstProp;
                 ser_Prop* fileProp = fileDecl->structFirstProp;
+                while (true) {
+                    _SER_EXPECT(globalProp->tagLen == fileProp->tagLen, SERE_SPEC_MISMATCH);
+                    _SER_EXPECT(strncmp(globalProp->tag, fileProp->tag, globalProp->tagLen) == 0, SERE_SPEC_MISMATCH);
+                    _SER_EXPECT(globalProp->kind == fileProp->kind, SERE_SPEC_MISMATCH);
+                    // TODO: nonterminals are not completely typechecked here bc im lazy af
+                    if (_ser_isPropKindNonTerminal(globalProp->kind)) {
+                        SER_ASSERT(false);
+                    }
+                    fileProp->parentStructOffset = globalProp->parentStructOffset;
 
-                _SER_EXPECT(globalProp->tagLen == fileProp->tagLen, SERE_SPEC_MISMATCH);
-                _SER_EXPECT(strcmp(globalProp->tag, fileProp->tag) == 0, SERE_SPEC_MISMATCH);
-                _SER_EXPECT(globalProp->kind == fileProp->kind, SERE_SPEC_MISMATCH);
-                // TODO: nonterminals are not completely typechecked here bc im lazy af
-                if (_ser_isPropKindNonTerminal(globalProp->kind)) {
-                    SER_ASSERT(false);
+                    globalProp = globalProp->nextProp;
+                    fileProp = fileProp->nextProp;
+                    if (fileProp == NULL || globalProp == NULL) {
+                        _SER_EXPECT(fileProp == NULL && globalProp == NULL, SERE_SPEC_MISMATCH);
+                        break;
+                    }
                 }
-
-                globalProp = globalProp->nextProp;
-                fileProp = fileProp->nextProp;
-                if (fileProp == NULL || globalProp == NULL) {
-                    _SER_EXPECT(fileProp == NULL && globalProp == NULL, SERE_SPEC_MISMATCH);
-                    break;
+            } else if (globalDecl->kind == SER_DK_ENUM) {
+                _SER_EXPECT(globalDecl->enumValCount == fileDecl->enumValCount, SERE_SPEC_MISMATCH);
+                for (uint64_t i = 0; i < globalDecl->enumValCount; i++) {
+                    _SER_EXPECT(strcmp(globalDecl->enumVals[i], fileDecl->enumVals[i]) == 0, SERE_SPEC_MISMATCH);
                 }
+            } else {
+                SER_ASSERT(false);
             }
-        } else if (globalDecl->kind == SER_DK_ENUM) {
-            _SER_EXPECT(globalDecl->enumValCount == fileDecl->enumValCount, SERE_SPEC_MISMATCH);
-            for (uint64_t i = 0; i < globalDecl->enumValCount; i++) {
-                _SER_EXPECT(strcmp(globalDecl->enumVals[i], fileDecl->enumVals[i]) == 0, SERE_SPEC_MISMATCH);
-            }
-        } else {
-            SER_ASSERT(false);
-        }
 
-        globalDecl = globalDecl->nextDecl;
-        fileDecl = fileDecl->nextDecl;
-        if (globalDecl == NULL || fileDecl == NULL) {
-            _SER_EXPECT(globalDecl == NULL && fileDecl == NULL, SERE_SPEC_MISMATCH);
-            break;
+            globalDecl = globalDecl->nextDecl;
+            fileDecl = fileDecl->nextDecl;
+            if (globalDecl == NULL || fileDecl == NULL) {
+                _SER_EXPECT(globalDecl == NULL && fileDecl == NULL, SERE_SPEC_MISMATCH);
+                break;
+            }
         }
     }
 
+    // now that the spec from the file has been filled in properly to dserialize data into structs, do it
+    {
+        ser_Decl* targetSpec = _ser_declGetByTag(&inst.specSet, type, strlen(type));
+        uint64_t targetSpecID = 0;
+        _SER_READ_VAR_OR_FAIL(uint64_t, targetSpecID, inst.file);
+        _SER_EXPECT(targetSpecID == targetSpec->id, SERE_INVALID_PULL_TYPE);
+        SER_ASSERT(targetSpec->kind == SER_DK_STRUCT); // TODO: is this correct?
+        _SER_EXPECT_OK(_ser_readToObjFromDecl(obj, targetSpec, inst.file));
+    }
+
+    // TODO: this reasource leaks on errors rn, probably should fix that
     if (inst.file != NULL) {
         fclose(inst.file);
     }
@@ -959,11 +1020,9 @@ ser_Error _ser_test_vec2RoundTrip() {
     HMM_Vec2 v = HMM_V2(69, 420);
     _SER_EXPECT_OK(ser_writeObjectToFile("./testing/v2RoundTrip", "HMM_Vec2", &v));
 
-    ser_DserInstance read;
-    memset(&read, 0, sizeof(read)); // TODO: having to zero this is annoying, but good
-    _SER_EXPECT_OK(ser_dserStart("./testing/v2RoundTrip", &read));
-    ser_dserEnd(&read);
-
+    HMM_Vec2 out = HMM_V2(0, 0);
+    _SER_EXPECT_OK(ser_readObjFromFile("./testing/v2RoundTrip", "HMM_Vec2", &out));
+    _SER_EXPECT(out.X == v.X && out.Y == v.Y, SERE_TEST_EXPECT_FAILED);
     return SERE_OK;
 }
 
