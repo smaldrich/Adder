@@ -16,14 +16,16 @@ typedef enum {
     SERE_FWRITE_FAILED,
     SERE_FREAD_FAILED,
     SERE_BAD_POINTER,
-    SERE_UNRESOLVED_DECL_TAG,
+    SERE_INVALID_DECL_REF_TAG,
+    SERE_INVALID_DECL_REF_ID,
     SERE_TEST_EXPECT_FAILED,
     SERE_SPECSET_EMPTY,
-    SERE_SPECSET_UNLOCKED,
-    SERE_SPECSET_LOCKED,
+    SERE_GLOBAL_SET_UNLOCKED,
+    SERE_GLOBAL_SET_LOCKED,
     SERE_SPECSET_INCORRECT_DECL_COUNT,
+    SERE_SPECSET_INCORRECT_PROP_COUNT,
     SERE_DUPLICATE_DECL_TAGS,
-    SERE_DUPLICATE_PROP_NAMES,
+    SERE_DUPLICATE_PROP_TAGS,
     SERE_EMPTY_ENUM,
     SERE_EMPTY_TAG,
     SERE_EMPTY_STRUCT_DECL,
@@ -34,8 +36,6 @@ typedef enum {
     SERE_READ_INST_INITIALIZED,
     SERE_READ_INST_UNINITIALIZED,
 } ser_Error;
-
-// TODO: FIXME: the damn validate function should be patching IDs from deserialized specs
 
 #define _SER_EXPECT(expr, error) \
     do { \
@@ -59,6 +59,7 @@ typedef enum {
 typedef enum {
     SER_DK_STRUCT,
     SER_DK_ENUM,
+    SER_DK_COUNT,
 } ser_DeclKind;
 
 typedef enum {
@@ -85,18 +86,18 @@ const char* ser_propKindParseNames[] = {
 typedef struct ser_Prop ser_Prop;
 typedef struct ser_Decl ser_Decl;
 
+// TODO: docs and comment pass
+
 struct ser_Prop {
     ser_PropKind kind;
     ser_Prop* nextProp;
 
     ser_Prop* innerProp; // valid for any non terminal kind - check _ser_isPropKindNonTerminal
 
-    // these two are filled in as soon as the spec is parsed from the user. The pointer needs to wait until
-    // the whole set is validated
-    const char* declRefTag;
+    const char* declRefTag; // used to patch the declref ptr after a specset from the user is validated
     int64_t declRefTagLen;
     uint64_t declRefId; // ID for the ref, used for patching the pointer when specs are loaded from files
-    ser_Decl* declRef; // filled in during specset validation
+    ser_Decl* declRef;
 
     // location of this member inside of the parent struct, from the start, in bytes, used for reading and
     // writing to structs in the program
@@ -112,7 +113,8 @@ struct ser_Decl {
     ser_Decl* nextDecl;
     const char* tag;
 
-    uint64_t id; // calcualted on lock, just the index in the specSet list
+    // done so that 0 is an invalid index, to make sure that patching references is less error prone
+    uint64_t id; // 1 BASED index into the specSet list // filled in on push
 
     union {
         struct {
@@ -134,19 +136,17 @@ typedef struct {
     ser_Decl* firstDecl;
     ser_Decl* lastDecl;
     uint64_t declCount; // calcualted with _ser_declPush, but double checked at validation time
-
-    bool isValidAndLocked;
 } ser_SpecSet;
 
 void _ser_clearSpecSet(ser_SpecSet* set) {
     bump_clear(&set->arena);
     set->firstDecl = NULL;
     set->lastDecl = NULL;
-    set->isValidAndLocked = false;
     set->declCount = 0;
 }
 
 ser_SpecSet _globalSpecSet; // TODO: actually init the damn arena
+bool _isGlobalSetLocked;
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // SPEC CONSTRUCTION
@@ -159,10 +159,11 @@ ser_SpecSet _ser_specSetInit(const char* arenaName) {
     return out;
 }
 
-// pushes a new decl, fills in tag and kind, and adds it to the list for the set
+// pushes a new decl, fills the ID as the index, and pushes it to the sets list
 ser_Decl* _ser_declPush(ser_SpecSet* set) {
-    SER_ASSERT(!set->isValidAndLocked);
     ser_Decl* s = BUMP_PUSH_NEW(&set->arena, ser_Decl);
+    set->declCount++;
+    s->id = set->declCount; // make it 1 indexed // see comment at definition
 
     // push to the list of decls
     if (!set->firstDecl) {
@@ -172,7 +173,6 @@ ser_Decl* _ser_declPush(ser_SpecSet* set) {
         set->lastDecl->nextDecl = s;
         set->lastDecl = s;
     }
-    set->declCount++;
     return s;
 }
 
@@ -198,70 +198,36 @@ bool _ser_isPropKindNonTerminal(ser_PropKind k) {
     return false;
 }
 
-ser_Error _ser_tryPatchDeclRef(ser_SpecSet* set, ser_Prop* p) {
-    if (p->kind != SER_PK_DECL_REF) {
-        if (_ser_isPropKindNonTerminal(p->kind)) {
-            return _ser_tryPatchDeclRef(set, p->innerProp);
-        }
-        return SERE_OK; // in the case where there is a terminal and it wasn't a SER_PK_DECL_REF node, all good
-    }
-
-    ser_Decl* decl = _ser_declGetByTag(set, p->declRefTag, p->declRefTagLen);
-    if (decl == NULL) {
-        return SERE_UNRESOLVED_DECL_TAG;
-    }
-    p->declRef = decl;
-
-    return SERE_OK;
-}
-
-// TODO: test if this works getting called on an already validated/locked specset
-ser_Error _ser_validateAndLockSpecSet(ser_SpecSet* set) {
-    // fill in IDs of each declaration, collect the count of itesm in the list
-    uint64_t declId = 0;
+// DOES NOT CHECK FOR VALID DECL REFS OR OFFSETS OR MODIFY THE SET IN ANY WAY
+ser_Error _ser_checkSpecSetDuplicatesCountsKindsAndEmpties(const ser_SpecSet* set) {
+    uint64_t countedDecls = 0; // doing this is very redundant but who cares
     for (ser_Decl* decl = set->firstDecl; decl; decl = decl->nextDecl) {
-        decl->id = declId;
-        _SER_EXPECT(strlen(decl->tag) > 0, SERE_EMPTY_TAG);
-
-        // make sure this name isn't in conflict with any others
         for (ser_Decl* other = decl->nextDecl; other; other = other->nextDecl) {
             if (strcmp(other->tag, decl->tag) == 0) {
                 return SERE_DUPLICATE_DECL_TAGS;
             }
         }
-        declId++;
-    }
-    _SER_EXPECT(declId == set->declCount, SERE_SPECSET_INCORRECT_DECL_COUNT); // TODO: what are we doing here lol
-    _SER_EXPECT(set->declCount != 0, SERE_SPECSET_EMPTY);
+        countedDecls++;
 
-    // TODO: fail on circular struct composition
-
-    // once IDs are filled in, go back and patch any decl ref pointers
-    // TODO: pointers to every ref could be found at spec construction time and this search wouldn't have to happen
-    // TODO: inner prop strs shouldn't be null
-    for (ser_Decl* decl = set->firstDecl; decl; decl = decl->nextDecl) {
         if (decl->kind == SER_DK_STRUCT) {
-            _SER_EXPECT(decl->structSize != 0, SERE_EMPTY_STRUCT_DECL);
-            _SER_EXPECT(decl->structOffsetsGiven, SERE_NO_OFFSETS);
-
-            int64_t propCount = 0;
+            uint64_t countedProps = 0; // this is also very redundant
             for (ser_Prop* prop = decl->structFirstProp; prop; prop = prop->nextProp) {
-                // link any refs with actual pointers
-                // TODO: this is using tags to find and patch RN, might need to change this when specs from files come in
-                ser_Error e = _ser_tryPatchDeclRef(set, prop);
-                _SER_EXPECT_OK(e);
-                propCount++;
+                _SER_EXPECT(prop->tagLen > 0, SERE_EMPTY_TAG);
+                _SER_EXPECT(prop->tag != NULL, SERE_EMPTY_TAG);
+                _SER_EXPECT(prop->kind >= 0 && prop->kind < SER_PK_COUNT, SERE_UNEXPECTED_KIND);
 
                 // check duplicates
                 for (ser_Prop* other = prop->nextProp; other; other = other->nextProp) {
                     if (other->tagLen == prop->tagLen) {
                         if (strncmp(other->tag, prop->tag, prop->tagLen) == 0) {
-                            return SERE_DUPLICATE_PROP_NAMES;
+                            return SERE_DUPLICATE_PROP_TAGS;
                         }
                     }
                 }
+                countedProps++;
             }
-            decl->structPropCount = propCount;
+            _SER_EXPECT(countedProps != 0, SERE_EMPTY_STRUCT_DECL);
+            _SER_EXPECT(countedProps == decl->structPropCount, SERE_SPECSET_INCORRECT_PROP_COUNT);
         } else if (decl->kind == SER_DK_ENUM) {
             _SER_EXPECT(decl->enumVals != NULL, SERE_EMPTY_ENUM);
             _SER_EXPECT(decl->enumValCount != 0, SERE_EMPTY_ENUM);
@@ -270,17 +236,66 @@ ser_Error _ser_validateAndLockSpecSet(ser_SpecSet* set) {
             return SERE_UNEXPECTED_KIND;
         }
     }
+    _SER_EXPECT(countedDecls != 0, SERE_SPECSET_EMPTY);
+    _SER_EXPECT(countedDecls == set->declCount, SERE_SPECSET_INCORRECT_DECL_COUNT);
+    return SERE_OK;
+}
 
-    set->isValidAndLocked = true;
+// patches pointers first based on if there is a tag, if there isn't, does it via ID
+// Assumes that _ser_checkSpecSetDuplicatesKindsAndEmpties has been called on the set and was OK.
+ser_Error _ser_tryPatchDeclRef(ser_SpecSet* set, ser_Prop* p) {
+    if (p->kind != SER_PK_DECL_REF) {
+        if (_ser_isPropKindNonTerminal(p->kind)) {
+            return _ser_tryPatchDeclRef(set, p->innerProp);
+        }
+        return SERE_OK; // in the case where there is a terminal and it wasn't a SER_PK_DECL_REF node, exit without doing anything
+    }
+
+    if (p->declRefTagLen > 0) {
+        ser_Decl* decl = _ser_declGetByTag(set, p->declRefTag, p->declRefTagLen);
+        if (decl == NULL) {
+            return SERE_INVALID_DECL_REF_TAG;
+        }
+        p->declRef = decl;
+        return SERE_OK;
+    } else {
+        _SER_EXPECT(p->declRefId > 0, SERE_INVALID_DECL_REF_ID);
+        _SER_EXPECT(p->declRefId <= set->declCount, SERE_INVALID_DECL_REF_ID); // because 1 indexed, the last ID can be equal to the count
+        // RN just braindead loop until we find the thing w/ the right index
+        for (ser_Decl* decl = set->firstDecl; decl; decl = decl->nextDecl) {
+            if (decl->id == p->declRefId) {
+                p->declRef = decl;
+                return SERE_OK;
+            }
+        }
+    }
+    SER_ASSERT(false);
+}
+
+// uses IDs or tags, whichever is present to fill in the declRef ptr in each declRef prop.
+// Assumes that _ser_checkSpecSetDuplicatesKindsAndEmpties has been called on the set and was OK.
+ser_Error _ser_patchAndCheckSpecSetDeclRefs(ser_SpecSet* set) {
+    // TODO: fail on circular struct composition
+    for (ser_Decl* decl = set->firstDecl; decl; decl = decl->nextDecl) {
+        if (decl->kind == SER_DK_STRUCT) {
+            for (ser_Prop* prop = decl->structFirstProp; prop; prop = prop->nextProp) {
+                ser_Error e = _ser_tryPatchDeclRef(set, prop);
+                _SER_EXPECT_OK(e);
+            }
+        }
+    }
     return SERE_OK;
 }
 
 // public function used to indicate that every spec is done being constructed.
 // name is wierd because the user will never have to deal with >1 specset.
-// validates and locks the global set.
-void ser_lockSpecs() {
-    SER_ASSERT(_globalSpecSet.isValidAndLocked == false);
-    SER_ASSERT(_ser_validateAndLockSpecSet(&_globalSpecSet) == SERE_OK);
+// validates and locks the global set // should only be called once in user code
+ser_Error _ser_lockSpecs() {
+    _SER_EXPECT(_isGlobalSetLocked == false, SERE_GLOBAL_SET_LOCKED);
+    _isGlobalSetLocked = true;
+    _SER_EXPECT_OK(_ser_checkSpecSetDuplicatesCountsKindsAndEmpties(&_globalSpecSet));
+    _SER_EXPECT_OK(_ser_patchAndCheckSpecSetDeclRefs(&_globalSpecSet));
+    return SERE_OK;
 }
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -382,7 +397,8 @@ ser_Error _ser_parsePropInners(const char** str, ser_Prop** outProp) {
 }
 
 ser_Error _ser_specStruct(const char* tag, const char* str) {
-    _SER_EXPECT(!_globalSpecSet.isValidAndLocked, SERE_SPECSET_LOCKED);
+    _SER_EXPECT(!_isGlobalSetLocked, SERE_GLOBAL_SET_LOCKED);
+
     ser_Decl* decl = _ser_declPush(&_globalSpecSet);
     decl->tag = tag;
     decl->kind = SER_DK_STRUCT;
@@ -421,7 +437,7 @@ ser_Error _ser_specStruct(const char* tag, const char* str) {
 }
 
 ser_Error _ser_specEnum(const char* tag, const char* strs[], int count) {
-    _SER_EXPECT(!_globalSpecSet.isValidAndLocked, SERE_SPECSET_LOCKED);
+    _SER_EXPECT(!_isGlobalSetLocked, SERE_GLOBAL_SET_LOCKED);
     ser_Decl* s = _ser_declPush(&_globalSpecSet);
     s->tag = tag;
     s->kind = SER_DK_ENUM;
@@ -432,14 +448,13 @@ ser_Error _ser_specEnum(const char* tag, const char* strs[], int count) {
 
 // TODO: document how this function works
 ser_Error _ser_specStructOffsets(const char* tag, int structSize, int argCount, ...) {
-    _SER_EXPECT(!_globalSpecSet.isValidAndLocked, SERE_SPECSET_LOCKED);
-
+    _SER_EXPECT(!_isGlobalSetLocked, SERE_GLOBAL_SET_LOCKED);
     va_list args;
     va_start(args, argCount);
     int takenCount = 0;
 
     ser_Decl* structSpec = _ser_declGetByTag(&_globalSpecSet, tag, strlen(tag));
-    _SER_EXPECT(structSpec != NULL, SERE_UNRESOLVED_DECL_TAG);
+    _SER_EXPECT(structSpec != NULL, SERE_INVALID_DECL_REF_TAG);
     _SER_EXPECT(structSpec->kind == SER_DK_STRUCT, SERE_UNEXPECTED_KIND);
 
     structSpec->structSize = structSize;
@@ -651,7 +666,7 @@ ser_Error _ser_writeObjectToFileInner(const char* type, void* obj, FILE* file) {
 // this function got split so that early error returns from the inner still close the file properly
 // wish I could have inlined the function but c sucks
 ser_Error ser_writeObjectToFile(const char* path, const char* type, void* obj) {
-    _SER_EXPECT(_globalSpecSet.isValidAndLocked == true, SERE_SPECSET_UNLOCKED);
+    _SER_EXPECT(_isGlobalSetLocked, SERE_GLOBAL_SET_UNLOCKED);
 
     FILE* file = fopen(path, "wb");
     _SER_EXPECT(file != NULL, SERE_FOPEN_FAILED);
@@ -778,7 +793,8 @@ ser_Error ser_dserStart(const char* path, ser_DserInstance* outInst) {
         _SER_EXPECT_OK(_ser_dserDecl(outInst));
     }
 
-    _SER_EXPECT_OK(_ser_validateAndLockSpecSet(&outInst->specSet));
+    _SER_EXPECT_OK(_ser_checkSpecSetDuplicatesCountsKindsAndEmpties(&_globalSpecSet));
+    _SER_EXPECT_OK(_ser_patchAndCheckSpecSetDeclRefs(&_globalSpecSet));
     return SERE_OK;
 }
 
@@ -802,6 +818,7 @@ void ser_dserEnd(ser_DserInstance* inst) {
 #define _SER_STRINGIZE(x) #x
 #define ser_specStruct(T, str) SER_ASSERT_OK(_ser_specStruct(_SER_STRINGIZE(T), _SER_STRINGIZE(str)))
 #define ser_specEnum(T, strs, count) SER_ASSERT_OK(_ser_specEnum(_SER_STRINGIZE(T), strs, count))
+#define ser_lockSpecs() SER_ASSERT_OK(_ser_lockSpecs())
 
 // built becuase the linter was throwing a fit
 #define _SER_OFFSETOF(T, prop) ((uint64_t)(uint8_t*)(&(((T*)(NULL))->prop)))
@@ -850,15 +867,13 @@ ser_Error _ser_test_expectString(const char* expected, uint64_t expectedLen, FIL
 // TODO: this fucks w/ other files downstream
 
 ser_Error _ser_test_serializeVec2() {
-    _ser_clearSpecSet(&_globalSpecSet);
-
     _SER_EXPECT_OK(
         ser_specStruct(HMM_Vec2,
                        X float
                        Y float));
     _SER_EXPECT_OK(ser_specStructOffsets(HMM_Vec2, X, Y));
 
-    _SER_EXPECT_OK(_ser_validateAndLockSpecSet(&_globalSpecSet));
+    _SER_EXPECT_OK(ser_lockSpecs());
 
     HMM_Vec2 v = HMM_V2(69, 420);
     _SER_EXPECT_OK(ser_writeObjectToFile("./testing/serializeVec2", "HMM_Vec2", &v));
@@ -883,7 +898,7 @@ ser_Error _ser_test_serializeVec2() {
     _SER_EXPECT_OK(_ser_test_expectString("Y", 1, f));
     _SER_TEST_READ(uint8_t, SER_PK_FLOAT, f); // kind should be a float
 
-    _SER_TEST_READ(uint64_t, 0, f); // origin spec should be index 0, the vector
+    _SER_TEST_READ(uint64_t, 1, f); // origin spec should be ID 1, the vector
     _SER_TEST_READ(float, 69, f);
     _SER_TEST_READ(float, 420, f);
 
@@ -895,14 +910,12 @@ ser_Error _ser_test_serializeVec2() {
 }
 
 ser_Error _ser_test_vec2RoundTrip() {
-    _ser_clearSpecSet(&_globalSpecSet);
-
     _SER_EXPECT_OK(
         ser_specStruct(HMM_Vec2,
                        X float
                        Y float));
     _SER_EXPECT_OK(ser_specStructOffsets(HMM_Vec2, X, Y));
-    _SER_EXPECT_OK(_ser_validateAndLockSpecSet(&_globalSpecSet));
+    _SER_EXPECT_OK(ser_lockSpecs());
 
     HMM_Vec2 v = HMM_V2(69, 420);
     _SER_EXPECT_OK(ser_writeObjectToFile("./testing/v2RoundTrip", "HMM_Vec2", &v));
@@ -916,14 +929,13 @@ ser_Error _ser_test_vec2RoundTrip() {
 }
 
 ser_Error _ser_test_serializeEnum() {
-    _ser_clearSpecSet(&_globalSpecSet);
     const char* enumVals[] = {
         "first",
         "second",
         "third",
     };
     _SER_EXPECT_OK(ser_specEnum(myEnum, enumVals, 3));
-    _SER_EXPECT_OK(_ser_validateAndLockSpecSet(&_globalSpecSet));
+    _SER_EXPECT_OK(ser_lockSpecs());
     int32_t enumVal = 1;
     _SER_EXPECT_OK(ser_writeObjectToFile("./testing/serializeEnum", "myEnum", &enumVal));
 
@@ -946,13 +958,12 @@ ser_Error _ser_test_serializeEnum() {
     _SER_TEST_READ(uint64_t, 5, f);
     _SER_EXPECT_OK(_ser_test_expectString("third", 5, f));
 
-    _SER_TEST_READ(uint64_t, 0, f); // first obj specid should be the enum
+    _SER_TEST_READ(uint64_t, 1, f); // first obj ID should be the enum
     _SER_TEST_READ(int32_t, 1, f); // value
     return SERE_OK;
 }
 
 ser_Error _ser_test_shortStructSpec() {
-    _ser_clearSpecSet(&_globalSpecSet);
     _SER_EXPECT(
         ser_specStruct(myStruct,
                        X float
@@ -964,7 +975,6 @@ ser_Error _ser_test_shortStructSpec() {
 }
 
 ser_Error _ser_test_badStructOffsetsCall() {
-    _ser_clearSpecSet(&_globalSpecSet);
     _SER_EXPECT_OK(ser_specStruct(HMM_Vec2, X float Y float));
     _SER_EXPECT(
         ser_specStructOffsets(HMM_Vec2, X) == SERE_VA_ARG_MISUSE,
@@ -973,63 +983,62 @@ ser_Error _ser_test_badStructOffsetsCall() {
 }
 
 ser_Error _ser_test_duplicateStructProps() {
-    _ser_clearSpecSet(&_globalSpecSet);
     _SER_EXPECT_OK(
         ser_specStruct(HMM_Vec2,
                        x int
                        x char));
     _SER_EXPECT_OK(ser_specStructOffsets(HMM_Vec2, X, Y));
     _SER_EXPECT(
-        _ser_validateAndLockSpecSet(&_globalSpecSet) == SERE_DUPLICATE_PROP_NAMES,
+        ser_lockSpecs() == SERE_DUPLICATE_PROP_TAGS,
         SERE_TEST_EXPECT_FAILED);
     return SERE_OK;
 }
 
 ser_Error _ser_test_duplicateDecls() {
-    _ser_clearSpecSet(&_globalSpecSet);
     _SER_EXPECT_OK(ser_specStruct(myStruct, x int));
     const char* vals[] = { "hello" };
     _SER_EXPECT_OK(ser_specEnum(myStruct, vals, 1));
     _SER_EXPECT(
-        _ser_validateAndLockSpecSet(&_globalSpecSet) == SERE_DUPLICATE_DECL_TAGS,
+        ser_lockSpecs() == SERE_DUPLICATE_DECL_TAGS,
         SERE_TEST_EXPECT_FAILED);
     return SERE_OK;
 }
 
 ser_Error _ser_test_emptyEnum() {
-    _ser_clearSpecSet(&_globalSpecSet);
     const char* vals[] = { "hello" };
     _SER_EXPECT_OK(ser_specEnum(enum, vals, 0));
     _SER_EXPECT(
-        _ser_validateAndLockSpecSet(&_globalSpecSet) == SERE_EMPTY_ENUM,
+        ser_lockSpecs() == SERE_EMPTY_ENUM,
         SERE_TEST_EXPECT_FAILED);
     return SERE_OK;
 }
 
 ser_Error _ser_test_emptyEnum2() {
-    _ser_clearSpecSet(&_globalSpecSet);
     _SER_EXPECT_OK(ser_specEnum(enum, NULL, 10));
-    ser_Error e = _ser_validateAndLockSpecSet(&_globalSpecSet);
+    ser_Error e = ser_lockSpecs();
     _SER_EXPECT(e == SERE_EMPTY_ENUM, SERE_TEST_EXPECT_FAILED);
     return SERE_OK;
 }
 
 ser_Error _ser_test_unresolvedDeclRef() {
-    _ser_clearSpecSet(&_globalSpecSet);
     ser_Error e = ser_specStruct(HMM_Vec2,
                                  next struct2
                                  prev struct1);
     _SER_EXPECT_OK(e);
     _SER_EXPECT_OK(ser_specStructOffsets(HMM_Vec2, X, Y));
 
-    e = _ser_validateAndLockSpecSet(&_globalSpecSet);
-    _SER_EXPECT(e == SERE_UNRESOLVED_DECL_TAG, SERE_TEST_EXPECT_FAILED);
+    e = ser_lockSpecs();
+    _SER_EXPECT(e == SERE_INVALID_DECL_REF_TAG, SERE_TEST_EXPECT_FAILED);
     return SERE_OK;
 }
 
 #define _SER_TEST_INVOKE(func) _ser_test_invoke(func, _SER_STRINGIZE(func))
 typedef ser_Error(*_ser_testFunc)();
 void _ser_test_invoke(_ser_testFunc func, const char* name) {
+    // reset the global spec so each test can run cleanly
+    _ser_clearSpecSet(&_globalSpecSet);
+    _isGlobalSetLocked = false;
+
     ser_Error e = func();
     test_printResult(e == SERE_OK, name);
     if (e != SERE_OK) {
@@ -1041,7 +1050,6 @@ void ser_tests() {
     test_printSectionHeader("Ser");
 
     _globalSpecSet = _ser_specSetInit("global spec set arena");
-
     _SER_TEST_INVOKE(_ser_test_serializeVec2);
     _SER_TEST_INVOKE(_ser_test_vec2RoundTrip);
     _SER_TEST_INVOKE(_ser_test_serializeEnum);
