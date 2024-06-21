@@ -69,6 +69,7 @@ void bump_free(BumpAlloc* a) {
     a->end = NULL;
 }
 
+// TODO: push aligned + benchmark if it helps
 void* bump_push(BumpAlloc* a, int64_t size) {
     char* o = (char*)(a->end);
     if (!(o + size < (char*)(a->start) + a->reserved)) {
