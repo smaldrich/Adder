@@ -37,9 +37,15 @@ typedef enum {
     SERE_READ_INST_UNINITIALIZED,
     SERE_SPEC_MISMATCH,
     SERE_INVALID_PULL_TYPE,
+    SERE_UNINITIALIZED_WRITER,
 } ser_Error;
 // TODO: array of readable strings for each error code
 // TODO: cull unused errors
+
+// TODO: organize error enum
+// TODO: singleheader-ify this
+// TODO: docs pass
+// TODO: write down possible error returns from each public function
 
 #define _SER_EXPECT(expr, error) \
     do { \
@@ -59,6 +65,8 @@ typedef enum {
     } while (0)
 
 #define SER_ASSERT(expr) assert(expr)
+// created on some public functions so that they fail unrecoverably in user code, but not in testing code
+#define SER_ASSERT_OK(expr) (SER_ASSERT(expr == SERE_OK))
 
 typedef enum {
     SER_DK_STRUCT,
@@ -300,11 +308,12 @@ ser_Error _ser_patchAndCheckSpecSetDeclRefs(ser_SpecSet* set) {
 // public function used to indicate that every spec is done being constructed.
 // name is wierd because the user will never have to deal with >1 specset.
 // validates and locks the global set // should only be called once in user code
+// only locks when checks successful
 ser_Error _ser_lockSpecs() {
     _SER_EXPECT(_isGlobalSetLocked == false, SERE_GLOBAL_SET_LOCKED);
-    _isGlobalSetLocked = true;
     _SER_EXPECT_OK(_ser_checkSpecSetDuplicatesCountsKindsAndEmpties(&_globalSpecSet));
     _SER_EXPECT_OK(_ser_patchAndCheckSpecSetDeclRefs(&_globalSpecSet));
+    _isGlobalSetLocked = true;
     return SERE_OK;
 }
 
@@ -632,7 +641,8 @@ ser_Error _ser_serializeProp(FILE* file, ser_Prop* prop) {
 
 // TODO: remove as many asserts as possible
 
-ser_Error _ser_writeObjectToFileInner(const char* type, void* obj, FILE* file) {
+// removed from writer init because the early returns
+ser_Error _ser_serializeGlobalSpec(FILE* file) {
     _SER_WRITE_VAR_OR_FAIL(uint64_t, 0, file); // ser version indicator
     _SER_WRITE_VAR_OR_FAIL(uint64_t, 0, file); // app version indicator
     _SER_WRITE_VAR_OR_FAIL(uint64_t, _globalSpecSet.declCount, file);
@@ -665,28 +675,85 @@ ser_Error _ser_writeObjectToFileInner(const char* type, void* obj, FILE* file) {
             SER_ASSERT(false);
         }
     }
-
-    // OBJECTS =============================================================
-    ser_Decl* spec = _ser_declGetByTag(&_globalSpecSet, type, strlen(type));
-    _SER_WRITE_VAR_OR_FAIL(uint64_t, spec->id, file);
-    _ser_serializeObjByDeclSpec(file, obj, spec);
     return SERE_OK;
 }
 
-// this function got split so that early error returns from the inner still close the file properly
-// wish I could have inlined the function but c sucks
-ser_Error ser_writeObjectToFile(const char* path, const char* type, void* obj) {
-    _SER_EXPECT(_isGlobalSetLocked, SERE_GLOBAL_SET_UNLOCKED);
+typedef struct _ser_WriteNode _ser_WriteNode;
+struct _ser_WriteNode {
+    void* obj;
+    ser_Decl* spec;
+    _ser_WriteNode* next;
+};
 
-    FILE* file = fopen(path, "wb");
-    _SER_EXPECT(file != NULL, SERE_FOPEN_FAILED);
+typedef struct {
+    bool initialized;
+    BumpAlloc arena;
+    _ser_WriteNode* firstNode;
+    _ser_WriteNode* lastNode;
+    FILE* file;
+} _ser_Writer;
+// TODO: opaque handle
 
-    ser_Error e = _ser_writeObjectToFileInner(type, obj, file);
-    SER_ASSERT(fclose(file) == 0);
-    return e;
+_ser_Writer ser_writerInit(const char* path, ser_Error* outError) {
+    *outError = SERE_OK;
+    _ser_Writer out;
+
+    if (!_isGlobalSetLocked) {
+        *outError = SERE_GLOBAL_SET_UNLOCKED;
+        return out;
+    }
+    memset(&out, 0, sizeof(out));
+    out.initialized = true;
+    out.arena = bump_allocate(1000000, "ser writer arena");
+
+    out.file = fopen(path, "wb");
+    if (!out.file) {
+        *outError = SERE_FOPEN_FAILED;
+        return out;
+    }
+    ser_Error e = _ser_serializeGlobalSpec(out.file);
+    if (e != SERE_OK) {
+        *outError = e;
+        return out;
+    }
+    return out;
+    // TODO: do we want asserts here or not
 }
 
-// TODO: the push/pull system for more than one object per file
+ser_Error ser_writerPush(_ser_Writer* writer, void* object, const char* specTag) {
+    _SER_EXPECT(writer->initialized, SERE_UNINITIALIZED_WRITER);
+    _ser_WriteNode* node = BUMP_PUSH_NEW(&writer->arena, _ser_WriteNode);
+    node->obj = object;
+    node->spec = _ser_declGetByTag(&_globalSpecSet, specTag, strlen(specTag));
+    _SER_EXPECT(node->spec != NULL, SERE_INVALID_DECL_REF_TAG);
+    if (writer->firstNode == NULL) {
+        writer->firstNode = node;
+        writer->lastNode = node;
+    } else {
+        writer->lastNode->next = node;
+        writer->lastNode = node;
+    }
+    return SERE_OK;
+}
+
+// split from writerEnd so that errors still close the file
+ser_Error _ser_writeObjects(_ser_Writer* writer) {
+    // TODO: infinite loop guards????
+    for (_ser_WriteNode* node = writer->firstNode; node; node = node->next) {
+        _SER_WRITE_VAR_OR_FAIL(uint64_t, node->spec->id, writer->file);
+        _SER_EXPECT_OK(_ser_serializeObjByDeclSpec(writer->file, node->obj, node->spec));
+    }
+    return SERE_OK;
+}
+
+// writes objects, no matter what the file gets closed and nothing leaks, but errors are still passed up
+ser_Error ser_writerEnd(_ser_Writer* writer) {
+    ser_Error e = _ser_writeObjects(writer);
+    bump_free(&writer->arena);
+    SER_ASSERT(fclose(writer->file) == 0);
+    memset(writer, 0, sizeof(*writer));
+    return e;
+}
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // DESERIALIZATION !?
@@ -911,9 +978,6 @@ ser_Error ser_readObjFromFile(const char* path, const char* type, void* obj) {
     bump_free(&inst.specSet.arena);
     return SERE_OK;
 }
-
-// created on some public functions so that they fail unrecoverably in user code, but not in testing code
-#define SER_ASSERT_OK(expr) (SER_ASSERT(expr) == SERE_OK)
 
 #define _SER_STRINGIZE(x) #x
 #define ser_specStruct(T, str) SER_ASSERT_OK(_ser_specStruct(_SER_STRINGIZE(T), _SER_STRINGIZE(str)))
