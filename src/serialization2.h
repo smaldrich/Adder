@@ -522,6 +522,8 @@ int64_t _ser_sizeOfProp(_ser_InnerProp* p) {
         } else {
             SER_ASSERT(false);
         }
+    } else if (p->kind == SER_PK_PTR) {
+        return sizeof(void*);
     } else {
         SER_ASSERT(false);
     }
@@ -711,9 +713,15 @@ ser_Error _ser_serializeObjByInner(FILE* file, _ser_PtrTable* ptrTable, void* pr
     } else if (spec->kind == SER_PK_DECL_REF) {
         return _ser_serializeObjByDeclSpec(file, ptrTable, propLoc, spec->declRef);
     } else if (spec->kind == SER_PK_PTR) {
-        _ser_PtrTableElem* elem = _ser_ptrTableMatchPtr(ptrTable, *(void**)propLoc);
-        _SER_EXPECT(elem != NULL, SERE_UNRESOLVED_PTR);
-        _SER_WRITE_VAR_OR_FAIL(uint64_t, elem->objId, file);
+        void* ptr = *(void**)propLoc;
+        if (ptr != NULL) {
+            _ser_PtrTableElem* elem = _ser_ptrTableMatchPtr(ptrTable, *(void**)propLoc);
+            _SER_EXPECT(elem != NULL, SERE_UNRESOLVED_PTR);
+            _SER_EXPECT(elem->objId == 0, SERE_UNRESOLVED_PTR);
+            _SER_WRITE_VAR_OR_FAIL(uint64_t, elem->objId, file);
+        } else {
+            _SER_WRITE_VAR_OR_FAIL(uint64_t, 0, file);
+        }
     } else {
         SER_ASSERT(false);
     }
@@ -850,9 +858,41 @@ ser_Error _ser_writeObj(const char* specTag, void* obj, const char* path) {
     _SER_EXPECT(fread(buffer, size, 1, file) == 1, SERE_FREAD_FAILED)
 
 typedef struct {
+    bool isPtr;
+    void* address;
+    uint64_t objId;
+    uint64_t ptrTargetObjId;
+} _ser_DserPtrTableElem;
+
+typedef struct {
+    _ser_DserPtrTableElem* elems;
+    BumpAlloc arena;
+    uint64_t count;
+} _ser_DserPtrTable;
+
+_ser_DserPtrTable _ser_dserPtrTableInit() {
+    _ser_DserPtrTable table;
+    memset(&table, 0, sizeof(table));
+    table.arena = bump_allocate(1000000, "ser dserPtrTable arena");
+    table.elems = table.arena.start;
+    return table;
+}
+
+// fills in objID for the element
+_ser_DserPtrTableElem* _ser_dserPtrTablePush(_ser_DserPtrTable* table) {
+    _ser_DserPtrTableElem* p = BUMP_PUSH_NEW(&table->arena, _ser_DserPtrTableElem);
+    table->count++;
+    p->objId = table->count;
+    return p;
+}
+// TODO: this dserTable thing was not built for any type of performance, just hacked together
+// if/when it's an issue, come back and make it better
+
+typedef struct {
     FILE* file;
     _ser_SpecSet specSet;
     BumpAlloc* outArena;
+    _ser_DserPtrTable ptrTable;
 
     uint64_t fileSerVersion;
     uint64_t fileVersion;
@@ -923,15 +963,17 @@ ser_Error _ser_dserDecl(_ser_DserInstance* inst) {
 }
 
 // both of these are expecting that the decl/prop has been fully filled in for deserialization // offsets done, links completed etc.
-ser_Error _ser_readToObjFromDecl(void* obj, _ser_Decl* decl, FILE* file, BumpAlloc* arena);
-ser_Error _ser_readToObjFromProp(void* obj, _ser_OuterProp* prop, FILE* file, BumpAlloc* arena);
+ser_Error _ser_readToPropFromInner(void* loc, _ser_InnerProp* prop, _ser_DserPtrTable* table, FILE* file, BumpAlloc* arena);
+ser_Error _ser_readToObjFromProp(void* obj, _ser_OuterProp* prop, _ser_DserPtrTable* table, FILE* file, BumpAlloc* arena);
 
-ser_Error _ser_readToObjFromDecl(void* obj, _ser_Decl* decl, FILE* file, BumpAlloc* arena) {
+ser_Error _ser_readToObjFromDecl(void* obj, _ser_Decl* decl, _ser_DserPtrTable* table, FILE* file, BumpAlloc* arena) {
     if (decl->kind == SER_DK_STRUCT) {
+        _ser_dserPtrTablePush(table)->address = obj;
         for (_ser_OuterProp* prop = decl->structInfo.firstProp; prop; prop = prop->next) {
-            _SER_EXPECT_OK(_ser_readToObjFromProp(obj, prop, file, arena));
+            _SER_EXPECT_OK(_ser_readToObjFromProp(obj, prop, table, file, arena));
         }
     } else if (decl->kind == SER_DK_ENUM) {
+        _ser_dserPtrTablePush(table)->address = obj;
         // TODO: when enum reordering gets added - see if this changes at all
         // TODO: assuming int32_t is gonna be really upsetting at some point
         _SER_READ_OR_FAIL(obj, sizeof(int32_t), file);
@@ -941,15 +983,24 @@ ser_Error _ser_readToObjFromDecl(void* obj, _ser_Decl* decl, FILE* file, BumpAll
     return SERE_OK;
 }
 
-ser_Error _ser_readToPropFromInner(void* loc, _ser_InnerProp* prop, FILE* file, BumpAlloc* arena) {
+ser_Error _ser_readToPropFromInner(void* loc, _ser_InnerProp* prop, _ser_DserPtrTable* table, FILE* file, BumpAlloc* arena) {
     if (prop->kind == SER_PK_CHAR) {
+        _ser_dserPtrTablePush(table)->address = loc;
         _SER_READ_OR_FAIL(loc, sizeof(uint8_t), file);
     } else if (prop->kind == SER_PK_INT) {
+        _ser_dserPtrTablePush(table)->address = loc;
         _SER_READ_OR_FAIL(loc, sizeof(int), file);
     } else if (prop->kind == SER_PK_FLOAT) {
+        _ser_dserPtrTablePush(table)->address = loc;
         _SER_READ_OR_FAIL(loc, sizeof(float), file);
+    } else if (prop->kind == SER_PK_PTR) {
+        _ser_DserPtrTableElem* elem = _ser_dserPtrTablePush(table);
+        elem->address = loc;
+        elem->isPtr = true;
+        _SER_READ_OR_FAIL(&elem->ptrTargetObjId, sizeof(uint64_t), file);
     } else if (prop->kind == SER_PK_DECL_REF) {
-        _SER_EXPECT_OK(_ser_readToObjFromDecl(loc, prop->declRef, file, arena));
+        // decl refs push their own obj id
+        _SER_EXPECT_OK(_ser_readToObjFromDecl(loc, prop->declRef, table, file, arena));
     } else {
         SER_ASSERT(false);
     }
@@ -958,7 +1009,7 @@ ser_Error _ser_readToPropFromInner(void* loc, _ser_InnerProp* prop, FILE* file, 
 }
 
 // each prop needs to offset itself into the struct (bc array has to reference two different things)
-ser_Error _ser_readToObjFromProp(void* obj, _ser_OuterProp* prop, FILE* file, BumpAlloc* arena) {
+ser_Error _ser_readToObjFromProp(void* obj, _ser_OuterProp* prop, _ser_DserPtrTable* table, FILE* file, BumpAlloc* arena) {
     if (prop->inner.kind == SER_PK_ARRAY_EXTERNAL) {
         uint64_t count = 0;
         _SER_READ_VAR_OR_FAIL(uint64_t, count, file);
@@ -966,13 +1017,14 @@ ser_Error _ser_readToObjFromProp(void* obj, _ser_OuterProp* prop, FILE* file, Bu
         uint64_t innerSize = _ser_sizeOfProp(prop->inner.inner);
         void* array = bump_push(arena, innerSize * count);
         *_SER_LOOKUP_MEMBER(void*, obj, prop->parentStructOffset) = array;
+        _ser_dserPtrTablePush(table)->address = array;
         for (uint64_t i = 0; i < count; i++) {
             void* loc = _SER_LOOKUP_MEMBER(void*, array, i * innerSize);
-            _SER_EXPECT_OK(_ser_readToPropFromInner(loc, prop->inner.inner, file, arena));
+            _SER_EXPECT_OK(_ser_readToPropFromInner(loc, prop->inner.inner, table, file, arena));
         }
     } else {
         void* propLoc = _SER_LOOKUP_MEMBER(void, obj, prop->parentStructOffset);
-        _ser_readToPropFromInner(propLoc, &prop->inner, file, arena);
+        _ser_readToPropFromInner(propLoc, &prop->inner, table, file, arena);
     }
     return SERE_OK;
 }
@@ -1068,7 +1120,7 @@ ser_Error _ser_readObjFromFileInner(_ser_DserInstance* inst, const char* type, v
     _SER_READ_VAR_OR_FAIL(uint64_t, targetSpecID, inst->file);
     _SER_EXPECT(targetSpecID == targetSpec->id, SERE_INVALID_PULL_TYPE);
     SER_ASSERT(targetSpec->kind == SER_DK_STRUCT);
-    _SER_EXPECT_OK(_ser_readToObjFromDecl(obj, targetSpec, inst->file, inst->outArena));
+    _SER_EXPECT_OK(_ser_readToObjFromDecl(obj, targetSpec, &inst->ptrTable, inst->file, inst->outArena));
     return SERE_OK;
 }
 
@@ -1082,6 +1134,7 @@ ser_Error _ser_readObjFromFile(const char* type, void* obj, const char* path, Bu
     inst.file = fopen(path, "rb");
     _SER_EXPECT(inst.file != NULL, SERE_FOPEN_FAILED);
     inst.outArena = outArena;
+    inst.ptrTable = _ser_dserPtrTableInit();
 
     ser_Error e = _ser_readObjFromFileInner(&inst, type, obj);
 
@@ -1090,6 +1143,7 @@ ser_Error _ser_readObjFromFile(const char* type, void* obj, const char* path, Bu
         fclose(inst.file);
     }
     bump_free(&inst.specSet.arena);
+    bump_free(&inst.ptrTable.arena);
     return e;
 }
 
