@@ -94,14 +94,14 @@ const char* ser_propKindParseNames[] = {
     // "ptr"
 };
 
-typedef struct ser_Prop ser_Prop;
+typedef struct ser_OuterProp ser_OuterProp;
+typedef struct ser_InnerProp ser_InnerProp;
+typedef struct ser_Decl ser_Decl;
 typedef struct ser_Decl ser_Decl;
 
-struct ser_Prop {
+struct ser_InnerProp {
     ser_PropKind kind;
-    ser_Prop* nextProp;
-
-    ser_Prop* innerProp; // valid for any non terminal kind - check _ser_isPropKindNonTerminal
+    ser_InnerProp* inner; // valid for any non terminal kind - check _ser_isPropKindNonTerminal
 
     const char* declRefTag; // used to patch the declref ptr after a specset from the user is validated
     int64_t declRefTagLen;
@@ -112,7 +112,11 @@ struct ser_Prop {
     // writing to structs in the program
     uint64_t parentStructOffset;
     uint64_t arrLengthParentStructOffset;
+};
 
+struct ser_OuterProp {
+    ser_OuterProp* next;
+    ser_InnerProp inner;
     const char* tag;
     uint64_t tagLen;
 };
@@ -128,7 +132,7 @@ struct ser_Decl {
 
     union {
         struct {
-            ser_Prop* structFirstProp;
+            ser_OuterProp* structFirstProp;
             uint64_t structSize;
             uint64_t structPropCount;
             bool structOffsetsGiven; // flag for if ser_specOffsets has been called on a struct
@@ -228,32 +232,32 @@ ser_Error _ser_checkSpecSetDuplicatesCountsKindsInnersAndEmpties(const ser_SpecS
 
         if (decl->kind == SER_DK_STRUCT) {
             uint64_t countedProps = 0; // this is also very redundant
-            for (ser_Prop* prop = decl->structFirstProp; prop; prop = prop->nextProp) {
-                _SER_EXPECT(prop->tagLen > 0, SERE_EMPTY_TAG);
-                _SER_EXPECT(prop->tag != NULL, SERE_EMPTY_TAG);
-                _SER_EXPECT(prop->kind >= 0 && prop->kind < SER_PK_COUNT, SERE_UNEXPECTED_KIND);
+            for (ser_OuterProp* outer = decl->structFirstProp; outer; outer = outer->next) {
+                _SER_EXPECT(outer->tagLen > 0, SERE_EMPTY_TAG);
+                _SER_EXPECT(outer->tag != NULL, SERE_EMPTY_TAG);
 
                 // make sure non terminals have inners, that terminals dont
-                for (ser_Prop* inner = prop; inner; inner = inner->innerProp) {
+                for (ser_InnerProp* inner = &outer->inner; inner; inner = inner->inner) {
+                    _SER_EXPECT(inner->kind >= 0 && inner->kind < SER_PK_COUNT, SERE_UNEXPECTED_KIND);
                     if (_ser_isPropKindNonTerminal(inner->kind)) {
-                        _SER_EXPECT(inner->innerProp != NULL, SERE_NONTERMINAL_WITH_NO_INNER);
+                        _SER_EXPECT(inner->inner != NULL, SERE_NONTERMINAL_WITH_NO_INNER);
                     } else {
-                        _SER_EXPECT(inner->innerProp == NULL, SERE_TERMINAL_WITH_INNER);
+                        _SER_EXPECT(inner->inner == NULL, SERE_TERMINAL_WITH_INNER);
                         break;
                     }
                 }
 
                 // invalidate arrays of arrays
-                if (prop->kind == SER_PK_ARRAY_EXTERNAL) {
-                    if (prop->innerProp->kind == SER_PK_ARRAY_EXTERNAL) {
+                if (outer->inner.kind == SER_PK_ARRAY_EXTERNAL) {
+                    if (outer->inner.inner->kind == SER_PK_ARRAY_EXTERNAL) {
                         return SERE_ARRAY_OF_ARRAYS;
                     }
                 }
 
                 // check duplicates
-                for (ser_Prop* other = prop->nextProp; other; other = other->nextProp) {
-                    if (other->tagLen == prop->tagLen) {
-                        if (strncmp(other->tag, prop->tag, prop->tagLen) == 0) {
+                for (ser_OuterProp* other = outer->next; other; other = other->next) {
+                    if (other->tagLen == outer->tagLen) {
+                        if (strncmp(other->tag, outer->tag, outer->tagLen) == 0) {
                             return SERE_DUPLICATE_PROP_TAGS;
                         }
                     }
@@ -277,10 +281,10 @@ ser_Error _ser_checkSpecSetDuplicatesCountsKindsInnersAndEmpties(const ser_SpecS
 
 // patches pointers first based on if there is a tag, if there isn't, does it via ID
 // Assumes that _ser_checkSpecSetDuplicatesKindsAndEmpties has been called on the set and was OK.
-ser_Error _ser_tryPatchDeclRef(ser_SpecSet* set, ser_Prop* p) {
+ser_Error _ser_tryPatchDeclRef(ser_SpecSet* set, ser_InnerProp* p) {
     if (p->kind != SER_PK_DECL_REF) {
         if (_ser_isPropKindNonTerminal(p->kind)) {
-            return _ser_tryPatchDeclRef(set, p->innerProp);
+            return _ser_tryPatchDeclRef(set, p->inner);
         }
         return SERE_OK; // in the case where there is a terminal and it wasn't a SER_PK_DECL_REF node, exit without doing anything
     }
@@ -307,8 +311,8 @@ ser_Error _ser_patchAndCheckSpecSetDeclRefs(ser_SpecSet* set) {
     // TODO: fail on circular struct composition
     for (ser_Decl* decl = set->firstDecl; decl; decl = decl->nextDecl) {
         if (decl->kind == SER_DK_STRUCT) {
-            for (ser_Prop* prop = decl->structFirstProp; prop; prop = prop->nextProp) {
-                ser_Error e = _ser_tryPatchDeclRef(set, prop);
+            for (ser_OuterProp* prop = decl->structFirstProp; prop; prop = prop->next) {
+                ser_Error e = _ser_tryPatchDeclRef(set, &prop->inner);
                 _SER_EXPECT_OK(e);
             }
         }
@@ -379,61 +383,35 @@ bool _ser_parseToken(const char** ptr, const char** outTokStart, uint64_t* outTo
 }
 
 // str is a read/write param that represents where parsing is along a null terminated string
-// takes the string and parses out a list of specs for *one* prop
 // this takes care of arr and ptr needing more tokens after
-ser_Error _ser_parsePropInners(const char** str, ser_Prop** outProp) {
-    ser_Prop* firstInner = NULL;
-    ser_Prop* lastInner = NULL;
+// allocates into the global sets arena
+ser_Error _ser_parsePropInners(const char** str, ser_InnerProp* prop) {
+    const char* kindStr;
+    uint64_t kindStrLen;
+    _SER_EXPECT(_ser_parseToken(str, &kindStr, &kindStrLen), SERE_PARSE_FAILED);
 
-    bool expectingAnotherToken = true; // start expecting at least one thing to be present
-    while (true) {
-        const char* kindStr;
-        uint64_t kindStrLen;
-        bool newToken = _ser_parseToken(str, &kindStr, &kindStrLen);
-        if (!newToken) {
-            // non terminals require another token after them, if there are none left but we are expecting one, fail
-            if (expectingAnotherToken) {
-                return SERE_PARSE_FAILED;
+    ser_PropKind k = SER_PK_DECL_REF; // default to a decl kind if no keywords match
+    const uint64_t parsableCount = sizeof(ser_propKindParseNames) / sizeof(const char*);
+    for (uint64_t i = 0; i < parsableCount; i++) {
+        const char* keywordCandidate = ser_propKindParseNames[i];
+        if (strlen(keywordCandidate) == kindStrLen) {
+            if (strncmp(ser_propKindParseNames[i], kindStr, kindStrLen) == 0) {
+                k = i;
+                break;
             }
-            break;
-        }
-
-        ser_PropKind k = SER_PK_DECL_REF; // default to a decl kind if no keywords match
-        const uint64_t parsableCount = sizeof(ser_propKindParseNames) / sizeof(const char*);
-        for (uint64_t i = 0; i < parsableCount; i++) {
-            const char* keywordCandidate = ser_propKindParseNames[i];
-            if (strlen(keywordCandidate) == kindStrLen) {
-                if (strncmp(ser_propKindParseNames[i], kindStr, kindStrLen) == 0) {
-                    k = i;
-                    break;
-                }
-            }
-        } // end matching keywords for prop kinds
-
-        ser_Prop* inner = BUMP_PUSH_NEW(&_globalSpecSet.arena, ser_Prop);
-        inner->kind = k;
-
-        if (inner->kind == SER_PK_DECL_REF) {
-            inner->declRefTag = kindStr;
-            inner->declRefTagLen = kindStrLen;
-        }
-
-        if (!firstInner) {
-            firstInner = inner;
-            lastInner = inner;
-        } else {
-            // push to the back of the list
-            lastInner->innerProp = inner;
-            lastInner = inner;
-        }
-
-        if (_ser_isPropKindNonTerminal(inner->kind)) {
-            expectingAnotherToken = true;
-        } else {
-            break; // reached a terminal, stop looking for more inners
         }
     }
-    *outProp = firstInner;
+
+    prop->kind = k;
+    if (prop->kind == SER_PK_DECL_REF) {
+        prop->declRefTag = kindStr;
+        prop->declRefTagLen = kindStrLen;
+    }
+
+    if (_ser_isPropKindNonTerminal(prop->kind)) {
+        prop->inner = BUMP_PUSH_NEW(&_globalSpecSet.arena, ser_InnerProp);
+        _SER_EXPECT_OK(_ser_parsePropInners(str, prop->inner));
+    }
     return SERE_OK;
 }
 
@@ -444,29 +422,25 @@ ser_Error _ser_specStruct(const char* tag, const char* str) {
     decl->tag = tag;
     decl->kind = SER_DK_STRUCT;
 
-    ser_Prop* firstProp = NULL;
-    ser_Prop* lastProp = NULL;
+    ser_OuterProp* firstProp = NULL;
+    ser_OuterProp* lastProp = NULL;
     int64_t propCount = 0;
 
     const char* c = str;
     while (true) {
-        const char* propName = NULL;
-        uint64_t propNameLen = 0;
-        bool newToken = _ser_parseToken(&c, &propName, &propNameLen);
+        ser_OuterProp* prop = BUMP_PUSH_NEW(&_globalSpecSet.arena, ser_OuterProp);
+        bool newToken = _ser_parseToken(&c, &prop->tag, &prop->tagLen);
         if (!newToken) {
             break;
         }
-        ser_Prop* propSpec = NULL;
-        _SER_EXPECT_OK(_ser_parsePropInners(&c, &propSpec));
-        propSpec->tag = propName;
-        propSpec->tagLen = propNameLen;
+        _SER_EXPECT_OK(_ser_parsePropInners(&c, &prop->inner));
 
         if (firstProp == NULL) {
-            firstProp = propSpec;
-            lastProp = propSpec;
+            firstProp = prop;
+            lastProp = prop;
         } else {
-            lastProp->nextProp = propSpec;
-            lastProp = propSpec;
+            lastProp->next = prop;
+            lastProp = prop;
         }
         propCount++;
     }
@@ -501,14 +475,14 @@ ser_Error _ser_specStructOffsets(const char* tag, int structSize, int argCount, 
     structSpec->structSize = structSize;
     structSpec->structOffsetsGiven = true;
 
-    for (ser_Prop* prop = structSpec->structFirstProp; prop; prop = prop->nextProp) {
+    for (ser_OuterProp* prop = structSpec->structFirstProp; prop; prop = prop->next) {
         int64_t offset = va_arg(args, uint64_t);
         takenCount++;
         _SER_EXPECT(takenCount <= argCount, SERE_VA_ARG_MISUSE);
-        prop->parentStructOffset = offset;
+        prop->inner.parentStructOffset = offset;
 
-        if (prop->kind == SER_PK_ARRAY_EXTERNAL) {
-            prop->arrLengthParentStructOffset = va_arg(args, uint64_t);
+        if (prop->inner.kind == SER_PK_ARRAY_EXTERNAL) {
+            prop->inner.arrLengthParentStructOffset = va_arg(args, uint64_t);
             takenCount++;
             _SER_EXPECT(takenCount <= argCount, SERE_VA_ARG_MISUSE);
         }
@@ -576,7 +550,7 @@ uint64_t spec ID (index)
     where enums are just int32_ts w the index of the value
 */
 
-int64_t _ser_sizeOfProp(ser_Prop* p) {
+int64_t _ser_sizeOfProp(ser_InnerProp* p) {
     if (p->kind == SER_PK_CHAR) {
         return sizeof(char);
     } else if (p->kind == SER_PK_INT) {
@@ -598,11 +572,11 @@ int64_t _ser_sizeOfProp(ser_Prop* p) {
     }
 }
 
-ser_Error _ser_serializeObjByPropSpec(FILE* file, void* obj, ser_Prop* spec);
+ser_Error _ser_serializeObjByPropSpec(FILE* file, void* obj, ser_InnerProp* spec);
 ser_Error _ser_serializeObjByDeclSpec(FILE* file, void* obj, ser_Decl* spec);
 
 // each prop needs to find its own offset in the object, (because arrays need >1 the function couldn't be factored to just pass the loc of the prop)
-ser_Error _ser_serializeObjByPropSpec(FILE* file, void* obj, ser_Prop* prop) {
+ser_Error _ser_serializeObjByPropSpec(FILE* file, void* obj, ser_InnerProp* prop) {
     void* propLoc = _SER_LOOKUP_MEMBER(void, obj, prop->parentStructOffset);
     if (prop->kind == SER_PK_FLOAT) {
         _SER_WRITE_OR_FAIL(propLoc, sizeof(float), file);
@@ -617,11 +591,11 @@ ser_Error _ser_serializeObjByPropSpec(FILE* file, void* obj, ser_Prop* prop) {
         uint64_t arrCount = *_SER_LOOKUP_MEMBER(uint64_t, obj, prop->arrLengthParentStructOffset);
         _SER_WRITE_VAR_OR_FAIL(uint64_t, arrCount, file);
 
-        int64_t innerSize = _ser_sizeOfProp(prop->innerProp);
+        int64_t innerSize = _ser_sizeOfProp(prop->inner);
         void* arrayStart = *_SER_LOOKUP_MEMBER(void*, obj, prop->parentStructOffset);
         for (uint64_t i = 0; i < arrCount; i++) {
             void* ptr = _SER_LOOKUP_MEMBER(void, arrayStart, (i * innerSize));
-            ser_Error e = _ser_serializeObjByPropSpec(file, ptr, prop->innerProp);
+            ser_Error e = _ser_serializeObjByPropSpec(file, ptr, prop->inner);
             _SER_EXPECT_OK(e);
         }
     } else {
@@ -635,8 +609,8 @@ ser_Error _ser_serializeObjByPropSpec(FILE* file, void* obj, ser_Prop* prop) {
 
 ser_Error _ser_serializeObjByDeclSpec(FILE* file, void* obj, ser_Decl* spec) {
     if (spec->kind == SER_DK_STRUCT) {
-        for (ser_Prop* prop = spec->structFirstProp; prop; prop = prop->nextProp) {
-            _ser_serializeObjByPropSpec(file, obj, prop);
+        for (ser_OuterProp* prop = spec->structFirstProp; prop; prop = prop->next) {
+            _ser_serializeObjByPropSpec(file, obj, &prop->inner);
         }
     } else if (spec->kind == SER_DK_ENUM) {
         _SER_WRITE_OR_FAIL(obj, sizeof(int32_t), file);
@@ -646,7 +620,7 @@ ser_Error _ser_serializeObjByDeclSpec(FILE* file, void* obj, ser_Decl* spec) {
     return SERE_OK;
 }
 
-ser_Error _ser_serializeProp(FILE* file, ser_Prop* prop) {
+ser_Error _ser_serializeInnerProp(FILE* file, ser_InnerProp* prop) {
     SER_ASSERT(prop->kind < 255 && prop->kind >= 0);
     _SER_WRITE_VAR_OR_FAIL(uint8_t, prop->kind, file);
 
@@ -655,7 +629,7 @@ ser_Error _ser_serializeProp(FILE* file, ser_Prop* prop) {
     }
 
     if (_ser_isPropKindNonTerminal(prop->kind)) {
-        _ser_serializeProp(file, prop->innerProp);
+        _ser_serializeInnerProp(file, prop->inner);
     }
     return SERE_OK;
 }
@@ -686,11 +660,11 @@ ser_Error _ser_writeObjInner(FILE* file, void* obj, const char* specTag) {
             }
         } else if (decl->kind == SER_DK_STRUCT) {
             _SER_WRITE_VAR_OR_FAIL(uint64_t, decl->structPropCount, file);
-            for (ser_Prop* prop = decl->structFirstProp; prop; prop = prop->nextProp) {
+            for (ser_OuterProp* prop = decl->structFirstProp; prop; prop = prop->next) {
                 SER_ASSERT(prop->tagLen != 0);
                 _SER_WRITE_VAR_OR_FAIL(uint64_t, prop->tagLen, file);
                 _SER_WRITE_OR_FAIL(prop->tag, prop->tagLen, file);
-                _ser_serializeProp(file, prop);
+                _SER_EXPECT_OK(_ser_serializeInnerProp(file, &prop->inner));
             }
         } else {
             SER_ASSERT(false);
@@ -738,25 +712,22 @@ typedef struct {
     uint64_t fileVersion;
 } _ser_DserInstance;
 
-// this function allocates and fills in outProp with a kind and any inner props // also parses out decl_ref id - not tag or ptr
-// tags and props allocated to the specsets arena
-ser_Error _ser_dserPropInner(_ser_DserInstance* inst, ser_Prop** outProp) {
-    ser_Prop* prop = BUMP_PUSH_NEW(&inst->specSet.arena, ser_Prop);
+// fills in kinds and aux info for the first prop and any inners
+// props allocated to the specsets arena
+ser_Error _ser_dserPropInner(_ser_DserInstance* inst, ser_InnerProp* first) {
     uint8_t kind = 0;
     _SER_READ_VAR_OR_FAIL(uint8_t, kind, inst->file);
     _SER_EXPECT(kind < SER_PK_COUNT, SERE_UNEXPECTED_KIND);
-    prop->kind = kind;
+    first->kind = kind;
 
-    if (_ser_isPropKindNonTerminal(prop->kind)) {
-        ser_Prop* inner = NULL;
-        _SER_EXPECT_OK(_ser_dserPropInner(inst, &inner));
+    if (_ser_isPropKindNonTerminal(first->kind)) {
+        ser_InnerProp* inner = BUMP_PUSH_NEW(&inst->specSet.arena, ser_InnerProp);
+        _SER_EXPECT_OK(_ser_dserPropInner(inst, inner));
         SER_ASSERT(inner != NULL);
-        prop->innerProp = inner;
-    } else if (prop->kind == SER_PK_DECL_REF) {
-        _SER_READ_VAR_OR_FAIL(uint64_t, prop->declRefId, inst->file);
+        first->inner = inner;
+    } else if (first->kind == SER_PK_DECL_REF) {
+        _SER_READ_VAR_OR_FAIL(uint64_t, first->declRefId, inst->file);
     }
-
-    *outProp = prop;
     return SERE_OK;
 }
 
@@ -777,26 +748,23 @@ ser_Error _ser_dserDecl(_ser_DserInstance* inst) {
 
     if (decl->kind == SER_DK_STRUCT) {
         _SER_READ_VAR_OR_FAIL(uint64_t, decl->structPropCount, inst->file);
-        ser_Prop* lastProp = NULL;
+        ser_OuterProp* lastProp = NULL;
 
         for (uint64_t i = 0; i < decl->structPropCount; i++) {
-            uint64_t propTagLen = 0;
-            _SER_READ_VAR_OR_FAIL(uint64_t, propTagLen, inst->file);
-            char* propTag = BUMP_PUSH_ARR(&inst->specSet.arena, propTagLen + 1, char); // add one for the null term >:(
-            _SER_READ_OR_FAIL(propTag, propTagLen, inst->file);
-
-            ser_Prop* prop = NULL;
-            _SER_EXPECT_OK(_ser_dserPropInner(inst, &prop));
-            prop->tag = propTag;
-            prop->tagLen = propTagLen;
+            ser_OuterProp* p = BUMP_PUSH_NEW(&inst->specSet.arena, ser_OuterProp);
+            _SER_READ_VAR_OR_FAIL(uint64_t, p->tagLen, inst->file);
+            char* tagBuf = BUMP_PUSH_ARR(&inst->specSet.arena, p->tagLen + 1, char); // add one for the null term >:(
+            _SER_READ_OR_FAIL(tagBuf, p->tagLen, inst->file);
+            p->tag = tagBuf;
+            _SER_EXPECT_OK(_ser_dserPropInner(inst, &p->inner));
 
             // push to the back of the prop list
             if (!lastProp) {
-                decl->structFirstProp = prop;
-                lastProp = prop;
+                decl->structFirstProp = p;
+                lastProp = p;
             } else {
-                lastProp->nextProp = prop;
-                lastProp = prop;
+                lastProp->next = p;
+                lastProp = p;
             }
         }
     } else if (decl->kind == SER_DK_ENUM) {
@@ -810,12 +778,12 @@ ser_Error _ser_dserDecl(_ser_DserInstance* inst) {
 
 // both of these are expecting that the decl/prop has been fully filled in for deserialization // offsets done, links completed etc.
 ser_Error _ser_readToObjFromDecl(void* obj, ser_Decl* decl, FILE* file, BumpAlloc* arena);
-ser_Error _ser_readToObjFromProp(void* obj, ser_Prop* prop, FILE* file, BumpAlloc* arena);
+ser_Error _ser_readToObjFromProp(void* obj, ser_InnerProp* prop, FILE* file, BumpAlloc* arena);
 
 ser_Error _ser_readToObjFromDecl(void* obj, ser_Decl* decl, FILE* file, BumpAlloc* arena) {
     if (decl->kind == SER_DK_STRUCT) {
-        for (ser_Prop* prop = decl->structFirstProp; prop; prop = prop->nextProp) {
-            _SER_EXPECT_OK(_ser_readToObjFromProp(obj, prop, file, arena));
+        for (ser_OuterProp* prop = decl->structFirstProp; prop; prop = prop->next) {
+            _SER_EXPECT_OK(_ser_readToObjFromProp(obj, &prop->inner, file, arena));
         }
     } else if (decl->kind == SER_DK_ENUM) {
         // TODO: when enum reordering gets added - see if this changes at all
@@ -828,7 +796,7 @@ ser_Error _ser_readToObjFromDecl(void* obj, ser_Decl* decl, FILE* file, BumpAllo
 }
 
 // each prop needs to offset itself into the struct (bc array has to reference two different things)
-ser_Error _ser_readToObjFromProp(void* obj, ser_Prop* prop, FILE* file, BumpAlloc* arena) {
+ser_Error _ser_readToObjFromProp(void* obj, ser_InnerProp* prop, FILE* file, BumpAlloc* arena) {
     void* propLoc = _SER_LOOKUP_MEMBER(void, obj, prop->parentStructOffset);
     if (prop->kind == SER_PK_CHAR) {
         _SER_READ_OR_FAIL(propLoc, sizeof(uint8_t), file);
@@ -840,12 +808,12 @@ ser_Error _ser_readToObjFromProp(void* obj, ser_Prop* prop, FILE* file, BumpAllo
         uint64_t count = 0;
         _SER_READ_VAR_OR_FAIL(uint64_t, count, file);
         *_SER_LOOKUP_MEMBER(uint64_t, obj, prop->arrLengthParentStructOffset) = count; // TODO: type assumption will be bad at some point
-        uint64_t innerSize = _ser_sizeOfProp(prop->innerProp);
+        uint64_t innerSize = _ser_sizeOfProp(prop->inner);
         void* array = bump_push(arena, innerSize * count);
         *_SER_LOOKUP_MEMBER(void*, obj, prop->parentStructOffset) = array;
         for (uint64_t i = 0; i < count; i++) {
             void* loc = _SER_LOOKUP_MEMBER(void*, array, i * innerSize);
-            _SER_EXPECT_OK(_ser_readToObjFromProp(loc, prop->innerProp, file, arena));
+            _SER_EXPECT_OK(_ser_readToObjFromProp(loc, prop->inner, file, arena));
         }
     } else if (prop->kind == SER_PK_DECL_REF) {
         _SER_EXPECT_OK(_ser_readToObjFromDecl(obj, prop->declRef, file, arena));
@@ -888,8 +856,8 @@ ser_Error _ser_readObjFromFileInner(_ser_DserInstance* inst, const char* type, v
             if (globalDecl->kind == SER_DK_STRUCT) {
                 _SER_EXPECT(globalDecl->structPropCount == fileDecl->structPropCount, SERE_SPEC_MISMATCH);
                 fileDecl->structSize = globalDecl->structSize;
-                ser_Prop* globalProp = globalDecl->structFirstProp;
-                ser_Prop* fileProp = fileDecl->structFirstProp;
+                ser_OuterProp* globalProp = globalDecl->structFirstProp;
+                ser_OuterProp* fileProp = fileDecl->structFirstProp;
                 while (true) {
                     _SER_EXPECT(globalProp->tagLen == fileProp->tagLen, SERE_SPEC_MISMATCH);
                     _SER_EXPECT(strncmp(globalProp->tag, fileProp->tag, globalProp->tagLen) == 0, SERE_SPEC_MISMATCH);
@@ -897,8 +865,8 @@ ser_Error _ser_readObjFromFileInner(_ser_DserInstance* inst, const char* type, v
                     // make sure all inner kinds and inner info match // copy inner offsets for arrays
                     {
                         // we can assume both have correct inners because of checks from above
-                        ser_Prop* globalInner = globalProp;
-                        ser_Prop* fileInner = fileProp;
+                        ser_InnerProp* globalInner = &globalProp->inner;
+                        ser_InnerProp* fileInner = &fileProp->inner;
                         while (true) {
                             _SER_EXPECT(globalInner->kind == fileInner->kind, SERE_SPEC_MISMATCH);
                             if (globalInner->kind == SER_PK_DECL_REF) {
@@ -908,16 +876,16 @@ ser_Error _ser_readObjFromFileInner(_ser_DserInstance* inst, const char* type, v
                             }
                             fileInner->parentStructOffset = globalInner->parentStructOffset;
 
-                            globalInner = globalInner->innerProp;
-                            fileInner = fileInner->innerProp;
+                            globalInner = globalInner->inner;
+                            fileInner = fileInner->inner;
                             if (globalInner == NULL) {
                                 break;
                             }
                         }
                     }
                     // assume both end at the same time because of previous checks
-                    globalProp = globalProp->nextProp;
-                    fileProp = fileProp->nextProp;
+                    globalProp = globalProp->next;
+                    fileProp = fileProp->next;
                     if (globalProp == NULL) {
                         break;
                     }
