@@ -15,7 +15,6 @@ typedef enum {
     SERE_FOPEN_FAILED,
     SERE_FWRITE_FAILED,
     SERE_FREAD_FAILED,
-    SERE_BAD_POINTER,
     SERE_INVALID_DECL_REF_TAG,
     SERE_INVALID_DECL_REF_ID,
     SERE_TEST_EXPECT_FAILED,
@@ -33,8 +32,6 @@ typedef enum {
     SERE_UNEXPECTED_KIND,
     SERE_PARSE_FAILED,
     SERE_VA_ARG_MISUSE,
-    SERE_READ_INST_INITIALIZED,
-    SERE_READ_INST_UNINITIALIZED,
     SERE_SPEC_MISMATCH,
     SERE_INVALID_PULL_TYPE,
     SERE_ARRAY_OF_ARRAYS,
@@ -119,6 +116,7 @@ struct ser_Prop {
     const char* tag;
     uint64_t tagLen;
 };
+// TODO: refactor props into inner and outer structs
 
 struct ser_Decl {
     ser_DeclKind kind;
@@ -318,6 +316,15 @@ ser_Error _ser_patchAndCheckSpecSetDeclRefs(ser_SpecSet* set) {
     return SERE_OK;
 }
 
+ser_Error _ser_checkOffsetsAreSet(ser_SpecSet* set) {
+    for (ser_Decl* decl = set->firstDecl; decl; decl = decl->nextDecl) {
+        if (decl->kind == SER_DK_STRUCT) {
+            _SER_EXPECT(decl->structOffsetsGiven, SERE_NO_OFFSETS);
+        }
+    }
+    return SERE_OK;
+}
+
 // public function used to indicate that every spec is done being constructed.
 // name is wierd because the user will never have to deal with >1 specset.
 // validates and locks the global set // should only be called once in user code
@@ -326,6 +333,7 @@ ser_Error _ser_lockSpecs() {
     _SER_EXPECT(_isGlobalSetLocked == false, SERE_GLOBAL_SET_LOCKED);
     _SER_EXPECT_OK(_ser_checkSpecSetDuplicatesCountsKindsInnersAndEmpties(&_globalSpecSet));
     _SER_EXPECT_OK(_ser_patchAndCheckSpecSetDeclRefs(&_globalSpecSet));
+    _SER_EXPECT_OK(_ser_checkOffsetsAreSet(&_globalSpecSet));
     // TODO: non null offset sets check
     _isGlobalSetLocked = true;
     return SERE_OK;
