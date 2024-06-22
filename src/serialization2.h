@@ -132,15 +132,15 @@ struct ser_Decl {
 
     union {
         struct {
-            ser_OuterProp* structFirstProp;
-            uint64_t structSize;
-            uint64_t structPropCount;
-            bool structOffsetsGiven; // flag for if ser_specOffsets has been called on a struct
-        };
+            ser_OuterProp* firstProp;
+            uint64_t propCount;
+            uint64_t size;
+            bool offsetsGiven; // flag for if ser_specOffsets has been called on this
+        } structInfo;
         struct {
-            uint64_t enumValCount;
-            const char** enumVals;
-        };
+            uint64_t valCount;
+            const char** vals;
+        } enumInfo;
     };
 };
 
@@ -232,7 +232,7 @@ ser_Error _ser_checkSpecSetDuplicatesCountsKindsInnersAndEmpties(const ser_SpecS
 
         if (decl->kind == SER_DK_STRUCT) {
             uint64_t countedProps = 0; // this is also very redundant
-            for (ser_OuterProp* outer = decl->structFirstProp; outer; outer = outer->next) {
+            for (ser_OuterProp* outer = decl->structInfo.firstProp; outer; outer = outer->next) {
                 _SER_EXPECT(outer->tagLen > 0, SERE_EMPTY_TAG);
                 _SER_EXPECT(outer->tag != NULL, SERE_EMPTY_TAG);
 
@@ -265,10 +265,10 @@ ser_Error _ser_checkSpecSetDuplicatesCountsKindsInnersAndEmpties(const ser_SpecS
                 countedProps++;
             }
             _SER_EXPECT(countedProps != 0, SERE_EMPTY_STRUCT_DECL);
-            _SER_EXPECT(countedProps == decl->structPropCount, SERE_SPECSET_INCORRECT_PROP_COUNT);
+            _SER_EXPECT(countedProps == decl->structInfo.propCount, SERE_SPECSET_INCORRECT_PROP_COUNT);
         } else if (decl->kind == SER_DK_ENUM) {
-            _SER_EXPECT(decl->enumVals != NULL, SERE_EMPTY_ENUM);
-            _SER_EXPECT(decl->enumValCount != 0, SERE_EMPTY_ENUM);
+            _SER_EXPECT(decl->enumInfo.vals != NULL, SERE_EMPTY_ENUM);
+            _SER_EXPECT(decl->enumInfo.valCount != 0, SERE_EMPTY_ENUM);
             // TODO: check each indiv val for non null
         } else {
             return SERE_UNEXPECTED_KIND;
@@ -311,7 +311,7 @@ ser_Error _ser_patchAndCheckSpecSetDeclRefs(ser_SpecSet* set) {
     // TODO: fail on circular struct composition
     for (ser_Decl* decl = set->firstDecl; decl; decl = decl->nextDecl) {
         if (decl->kind == SER_DK_STRUCT) {
-            for (ser_OuterProp* prop = decl->structFirstProp; prop; prop = prop->next) {
+            for (ser_OuterProp* prop = decl->structInfo.firstProp; prop; prop = prop->next) {
                 ser_Error e = _ser_tryPatchDeclRef(set, &prop->inner);
                 _SER_EXPECT_OK(e);
             }
@@ -323,7 +323,7 @@ ser_Error _ser_patchAndCheckSpecSetDeclRefs(ser_SpecSet* set) {
 ser_Error _ser_checkOffsetsAreSet(ser_SpecSet* set) {
     for (ser_Decl* decl = set->firstDecl; decl; decl = decl->nextDecl) {
         if (decl->kind == SER_DK_STRUCT) {
-            _SER_EXPECT(decl->structOffsetsGiven, SERE_NO_OFFSETS);
+            _SER_EXPECT(decl->structInfo.offsetsGiven, SERE_NO_OFFSETS);
         }
     }
     return SERE_OK;
@@ -446,8 +446,8 @@ ser_Error _ser_specStruct(const char* tag, const char* str) {
     }
 
     _SER_EXPECT(firstProp != NULL, SERE_EMPTY_STRUCT_DECL);
-    decl->structFirstProp = firstProp;
-    decl->structPropCount = propCount;
+    decl->structInfo.firstProp = firstProp;
+    decl->structInfo.propCount = propCount;
     return SERE_OK;
 }
 
@@ -456,8 +456,8 @@ ser_Error _ser_specEnum(const char* tag, const char* strs[], int count) {
     ser_Decl* s = _ser_declPush(&_globalSpecSet);
     s->tag = tag;
     s->kind = SER_DK_ENUM;
-    s->enumVals = strs;
-    s->enumValCount = count;
+    s->enumInfo.vals = strs;
+    s->enumInfo.valCount = count;
     return SERE_OK;
 }
 
@@ -472,10 +472,10 @@ ser_Error _ser_specStructOffsets(const char* tag, int structSize, int argCount, 
     _SER_EXPECT(structSpec != NULL, SERE_INVALID_DECL_REF_TAG);
     _SER_EXPECT(structSpec->kind == SER_DK_STRUCT, SERE_UNEXPECTED_KIND);
 
-    structSpec->structSize = structSize;
-    structSpec->structOffsetsGiven = true;
+    structSpec->structInfo.size = structSize;
+    structSpec->structInfo.offsetsGiven = true;
 
-    for (ser_OuterProp* prop = structSpec->structFirstProp; prop; prop = prop->next) {
+    for (ser_OuterProp* prop = structSpec->structInfo.firstProp; prop; prop = prop->next) {
         int64_t offset = va_arg(args, uint64_t);
         takenCount++;
         _SER_EXPECT(takenCount <= argCount, SERE_VA_ARG_MISUSE);
@@ -561,7 +561,7 @@ int64_t _ser_sizeOfProp(ser_InnerProp* p) {
         SER_ASSERT(false);
     } else if (p->kind == SER_PK_DECL_REF) {
         if (p->declRef->kind == SER_DK_STRUCT) {
-            return p->declRef->structSize;
+            return p->declRef->structInfo.size;
         } else if (p->declRef->kind == SER_DK_ENUM) {
             return sizeof(int32_t); // TODO: assuming size, this will fuck someone over badly eventually
         } else {
@@ -609,7 +609,7 @@ ser_Error _ser_serializeObjByPropSpec(FILE* file, void* obj, ser_InnerProp* prop
 
 ser_Error _ser_serializeObjByDeclSpec(FILE* file, void* obj, ser_Decl* spec) {
     if (spec->kind == SER_DK_STRUCT) {
-        for (ser_OuterProp* prop = spec->structFirstProp; prop; prop = prop->next) {
+        for (ser_OuterProp* prop = spec->structInfo.firstProp; prop; prop = prop->next) {
             _ser_serializeObjByPropSpec(file, obj, &prop->inner);
         }
     } else if (spec->kind == SER_DK_ENUM) {
@@ -651,16 +651,16 @@ ser_Error _ser_writeObjInner(FILE* file, void* obj, const char* specTag) {
         _SER_WRITE_OR_FAIL(decl->tag, tagLen, file);
 
         if (decl->kind == SER_DK_ENUM) {
-            _SER_WRITE_VAR_OR_FAIL(uint64_t, decl->enumValCount, file);
-            for (uint64_t enumValIdx = 0; enumValIdx < decl->enumValCount; enumValIdx++) {
-                const char* val = decl->enumVals[enumValIdx];
+            _SER_WRITE_VAR_OR_FAIL(uint64_t, decl->enumInfo.valCount, file);
+            for (uint64_t enumValIdx = 0; enumValIdx < decl->enumInfo.valCount; enumValIdx++) {
+                const char* val = decl->enumInfo.vals[enumValIdx];
                 uint64_t valStrLen = strlen(val);
                 _SER_WRITE_VAR_OR_FAIL(uint64_t, valStrLen, file);
                 _SER_WRITE_OR_FAIL(val, valStrLen, file);
             }
         } else if (decl->kind == SER_DK_STRUCT) {
-            _SER_WRITE_VAR_OR_FAIL(uint64_t, decl->structPropCount, file);
-            for (ser_OuterProp* prop = decl->structFirstProp; prop; prop = prop->next) {
+            _SER_WRITE_VAR_OR_FAIL(uint64_t, decl->structInfo.propCount, file);
+            for (ser_OuterProp* prop = decl->structInfo.firstProp; prop; prop = prop->next) {
                 SER_ASSERT(prop->tagLen != 0);
                 _SER_WRITE_VAR_OR_FAIL(uint64_t, prop->tagLen, file);
                 _SER_WRITE_OR_FAIL(prop->tag, prop->tagLen, file);
@@ -747,10 +747,10 @@ ser_Error _ser_dserDecl(_ser_DserInstance* inst) {
     decl->tag = str;
 
     if (decl->kind == SER_DK_STRUCT) {
-        _SER_READ_VAR_OR_FAIL(uint64_t, decl->structPropCount, inst->file);
+        _SER_READ_VAR_OR_FAIL(uint64_t, decl->structInfo.propCount, inst->file);
         ser_OuterProp* lastProp = NULL;
 
-        for (uint64_t i = 0; i < decl->structPropCount; i++) {
+        for (uint64_t i = 0; i < decl->structInfo.propCount; i++) {
             ser_OuterProp* p = BUMP_PUSH_NEW(&inst->specSet.arena, ser_OuterProp);
             _SER_READ_VAR_OR_FAIL(uint64_t, p->tagLen, inst->file);
             char* tagBuf = BUMP_PUSH_ARR(&inst->specSet.arena, p->tagLen + 1, char); // add one for the null term >:(
@@ -760,7 +760,7 @@ ser_Error _ser_dserDecl(_ser_DserInstance* inst) {
 
             // push to the back of the prop list
             if (!lastProp) {
-                decl->structFirstProp = p;
+                decl->structInfo.firstProp = p;
                 lastProp = p;
             } else {
                 lastProp->next = p;
@@ -782,7 +782,7 @@ ser_Error _ser_readToObjFromProp(void* obj, ser_InnerProp* prop, FILE* file, Bum
 
 ser_Error _ser_readToObjFromDecl(void* obj, ser_Decl* decl, FILE* file, BumpAlloc* arena) {
     if (decl->kind == SER_DK_STRUCT) {
-        for (ser_OuterProp* prop = decl->structFirstProp; prop; prop = prop->next) {
+        for (ser_OuterProp* prop = decl->structInfo.firstProp; prop; prop = prop->next) {
             _SER_EXPECT_OK(_ser_readToObjFromProp(obj, &prop->inner, file, arena));
         }
     } else if (decl->kind == SER_DK_ENUM) {
@@ -854,10 +854,10 @@ ser_Error _ser_readObjFromFileInner(_ser_DserInstance* inst, const char* type, v
             _SER_EXPECT(globalDecl->kind == fileDecl->kind, SERE_SPEC_MISMATCH);
 
             if (globalDecl->kind == SER_DK_STRUCT) {
-                _SER_EXPECT(globalDecl->structPropCount == fileDecl->structPropCount, SERE_SPEC_MISMATCH);
-                fileDecl->structSize = globalDecl->structSize;
-                ser_OuterProp* globalProp = globalDecl->structFirstProp;
-                ser_OuterProp* fileProp = fileDecl->structFirstProp;
+                _SER_EXPECT(globalDecl->structInfo.propCount == fileDecl->structInfo.propCount, SERE_SPEC_MISMATCH);
+                fileDecl->structInfo.size = globalDecl->structInfo.size;
+                ser_OuterProp* globalProp = globalDecl->structInfo.firstProp;
+                ser_OuterProp* fileProp = fileDecl->structInfo.firstProp;
                 while (true) {
                     _SER_EXPECT(globalProp->tagLen == fileProp->tagLen, SERE_SPEC_MISMATCH);
                     _SER_EXPECT(strncmp(globalProp->tag, fileProp->tag, globalProp->tagLen) == 0, SERE_SPEC_MISMATCH);
@@ -891,9 +891,9 @@ ser_Error _ser_readObjFromFileInner(_ser_DserInstance* inst, const char* type, v
                     }
                 }
             } else if (globalDecl->kind == SER_DK_ENUM) {
-                _SER_EXPECT(globalDecl->enumValCount == fileDecl->enumValCount, SERE_SPEC_MISMATCH);
-                for (uint64_t i = 0; i < globalDecl->enumValCount; i++) {
-                    _SER_EXPECT(strcmp(globalDecl->enumVals[i], fileDecl->enumVals[i]) == 0, SERE_SPEC_MISMATCH);
+                _SER_EXPECT(globalDecl->enumInfo.valCount == fileDecl->enumInfo.valCount, SERE_SPEC_MISMATCH);
+                for (uint64_t i = 0; i < globalDecl->enumInfo.valCount; i++) {
+                    _SER_EXPECT(strcmp(globalDecl->enumInfo.vals[i], fileDecl->enumInfo.vals[i]) == 0, SERE_SPEC_MISMATCH);
                 }
             } else {
                 SER_ASSERT(false);
