@@ -807,8 +807,7 @@ ser_Error _ser_readToObjFromProp(void* obj, ser_Prop* prop, FILE* file, BumpAllo
 ser_Error _ser_readToObjFromDecl(void* obj, ser_Decl* decl, FILE* file, BumpAlloc* arena) {
     if (decl->kind == SER_DK_STRUCT) {
         for (ser_Prop* prop = decl->structFirstProp; prop; prop = prop->nextProp) {
-            void* propLoc = _SER_LOOKUP_MEMBER(void, obj, prop->parentStructOffset);
-            _SER_EXPECT_OK(_ser_readToObjFromProp(propLoc, prop, file, arena));
+            _SER_EXPECT_OK(_ser_readToObjFromProp(obj, prop, file, arena));
         }
     } else if (decl->kind == SER_DK_ENUM) {
         // TODO: when enum reordering gets added - see if this changes at all
@@ -820,13 +819,15 @@ ser_Error _ser_readToObjFromDecl(void* obj, ser_Decl* decl, FILE* file, BumpAllo
     return SERE_OK;
 }
 
+// each prop needs to offset itself into the struct (bc array has to reference two different things)
 ser_Error _ser_readToObjFromProp(void* obj, ser_Prop* prop, FILE* file, BumpAlloc* arena) {
+    void* propLoc = _SER_LOOKUP_MEMBER(void, obj, prop->parentStructOffset);
     if (prop->kind == SER_PK_CHAR) {
-        _SER_READ_OR_FAIL(obj, sizeof(uint8_t), file);
+        _SER_READ_OR_FAIL(propLoc, sizeof(uint8_t), file);
     } else if (prop->kind == SER_PK_INT) {
-        _SER_READ_OR_FAIL(obj, sizeof(int), file);
+        _SER_READ_OR_FAIL(propLoc, sizeof(int), file);
     } else if (prop->kind == SER_PK_FLOAT) {
-        _SER_READ_OR_FAIL(obj, sizeof(float), file);
+        _SER_READ_OR_FAIL(propLoc, sizeof(float), file);
     } else if (prop->kind == SER_PK_ARRAY_EXTERNAL) {
         uint64_t count = 0;
         _SER_READ_VAR_OR_FAIL(uint64_t, count, file);
@@ -1059,8 +1060,9 @@ ser_Error _ser_test_serializeVec2() {
 }
 
 typedef struct {
-    void* elems;
+    char pad;
     uint64_t count;
+    void* elems;
 } _ser_test_arrayStruct;
 
 ser_Error _ser_test_multipleVec2RoundTrip() {
@@ -1086,6 +1088,7 @@ ser_Error _ser_test_multipleVec2RoundTrip() {
     _SER_EXPECT_OK(ser_writeObj(_ser_test_arrayStruct, &vecArr, "./testing/v2RoundTrip"));
 
     _ser_test_arrayStruct outArr;
+    memset(&outArr, 0, sizeof(outArr));
     BumpAlloc arena = bump_allocate(1000000, "v2 round trip arena");
     _SER_EXPECT_OK(ser_readObj(_ser_test_arrayStruct, &outArr, "./testing/v2RoundTrip", &arena));
 
