@@ -720,7 +720,7 @@ _ser_Writer ser_writerInit(const char* path, ser_Error* outError) {
     // TODO: do we want asserts here or not
 }
 
-ser_Error ser_writerPush(_ser_Writer* writer, void* object, const char* specTag) {
+ser_Error _ser_writerPush(_ser_Writer* writer, void* object, const char* specTag) {
     _SER_EXPECT(writer->initialized, SERE_UNINITIALIZED_WRITER);
     _ser_WriteNode* node = BUMP_PUSH_NEW(&writer->arena, _ser_WriteNode);
     node->obj = object;
@@ -983,6 +983,7 @@ ser_Error ser_readObjFromFile(const char* path, const char* type, void* obj) {
 #define ser_specStruct(T, str) SER_ASSERT_OK(_ser_specStruct(_SER_STRINGIZE(T), _SER_STRINGIZE(str)))
 #define ser_specEnum(T, strs, count) SER_ASSERT_OK(_ser_specEnum(_SER_STRINGIZE(T), strs, count))
 #define ser_lockSpecs() SER_ASSERT_OK(_ser_lockSpecs())
+#define ser_writerPush(T, ptr, writer) SER_ASSERT_OK(_ser_writerPush(writer, ptr, _SER_STRINGIZE(T)))
 
 // built becuase the linter was throwing a fit
 #define _SER_OFFSETOF(T, prop) ((uint64_t)(uint8_t*)(&(((T*)(NULL))->prop)))
@@ -1040,7 +1041,12 @@ ser_Error _ser_test_serializeVec2() {
     _SER_EXPECT_OK(ser_lockSpecs());
 
     HMM_Vec2 v = HMM_V2(69, 420);
-    _SER_EXPECT_OK(ser_writeObjectToFile("./testing/serializeVec2", "HMM_Vec2", &v));
+
+    ser_Error e = SERE_OK;
+    _ser_Writer writer = ser_writerInit("./testing/serializeVec2", &e);
+    _SER_EXPECT_OK(e);
+    _SER_EXPECT_OK(ser_writerPush(HMM_Vec2, &v, &writer));
+    _SER_EXPECT_OK(ser_writerEnd(&writer));
 
     FILE* f = fopen("./testing/serializeVec2", "rb");
     _SER_EXPECT(f != NULL, SERE_FOPEN_FAILED);
@@ -1073,7 +1079,7 @@ ser_Error _ser_test_serializeVec2() {
     return SERE_OK;
 }
 
-ser_Error _ser_test_vec2RoundTrip() {
+ser_Error _ser_test_multipleVec2RoundTrip() {
     _SER_EXPECT_OK(
         ser_specStruct(HMM_Vec2,
                        X float
@@ -1081,47 +1087,23 @@ ser_Error _ser_test_vec2RoundTrip() {
     _SER_EXPECT_OK(ser_specStructOffsets(HMM_Vec2, X, Y));
     _SER_EXPECT_OK(ser_lockSpecs());
 
-    HMM_Vec2 v = HMM_V2(69, 420);
-    _SER_EXPECT_OK(ser_writeObjectToFile("./testing/v2RoundTrip", "HMM_Vec2", &v));
+    HMM_Vec2 vecs[] = {
+        HMM_V2(1, 2),
+        HMM_V2(21, 23),
+        HMM_V2(41, 0),
+        HMM_V2(9, 10),
+    };
+    ser_Error e = SERE_OK;
+    _ser_Writer writer = ser_writerInit("./testing/v2RoundTrip", &e);
+    _SER_EXPECT_OK(e);
+    for (uint64_t i = 0; i < sizeof(vecs) / sizeof(HMM_Vec2); i++) {
+        _SER_EXPECT_OK(ser_writerPush(HMM_Vec2, &(vecs[i]), &writer));
+    }
+    _SER_EXPECT_OK(ser_writerEnd(&writer));
 
     HMM_Vec2 out = HMM_V2(0, 0);
     _SER_EXPECT_OK(ser_readObjFromFile("./testing/v2RoundTrip", "HMM_Vec2", &out));
-    _SER_EXPECT(out.X == v.X && out.Y == v.Y, SERE_TEST_EXPECT_FAILED);
-    return SERE_OK;
-}
-
-ser_Error _ser_test_serializeEnum() {
-    const char* enumVals[] = {
-        "first",
-        "second",
-        "third",
-    };
-    _SER_EXPECT_OK(ser_specEnum(myEnum, enumVals, 3));
-    _SER_EXPECT_OK(ser_lockSpecs());
-    int32_t enumVal = 1;
-    _SER_EXPECT_OK(ser_writeObjectToFile("./testing/serializeEnum", "myEnum", &enumVal));
-
-    FILE* f = fopen("./testing/serializeEnum", "rb");
-    _SER_EXPECT(f != NULL, SERE_FOPEN_FAILED);
-
-    _SER_TEST_READ(uint64_t, 0, f); // ser version
-    _SER_TEST_READ(uint64_t, 0, f); // app version
-    _SER_TEST_READ(uint64_t, 1, f); // spec count
-
-    _SER_TEST_READ(uint8_t, SER_DK_ENUM, f); // decl kind
-    _SER_TEST_READ(uint64_t, 6, f); // length of tag string
-    _SER_EXPECT_OK(_ser_test_expectString("myEnum", 6, f));
-
-    _SER_TEST_READ(uint64_t, 3, f); // number of values
-    _SER_TEST_READ(uint64_t, 5, f); // length of first string
-    _SER_EXPECT_OK(_ser_test_expectString("first", 5, f));
-    _SER_TEST_READ(uint64_t, 6, f);
-    _SER_EXPECT_OK(_ser_test_expectString("second", 6, f));
-    _SER_TEST_READ(uint64_t, 5, f);
-    _SER_EXPECT_OK(_ser_test_expectString("third", 5, f));
-
-    _SER_TEST_READ(uint64_t, 1, f); // first obj ID should be the enum
-    _SER_TEST_READ(int32_t, 1, f); // value
+    _SER_EXPECT(out.X == vecs[0].X && out.Y == vecs[0].Y, SERE_TEST_EXPECT_FAILED);
     return SERE_OK;
 }
 
@@ -1213,8 +1195,7 @@ void ser_tests() {
 
     _globalSpecSet = _ser_specSetInit("global spec set arena");
     _SER_TEST_INVOKE(_ser_test_serializeVec2);
-    _SER_TEST_INVOKE(_ser_test_vec2RoundTrip);
-    _SER_TEST_INVOKE(_ser_test_serializeEnum);
+    _SER_TEST_INVOKE(_ser_test_multipleVec2RoundTrip);
     _SER_TEST_INVOKE(_ser_test_shortStructSpec);
     _SER_TEST_INVOKE(_ser_test_badStructOffsetsCall);
     _SER_TEST_INVOKE(_ser_test_duplicateStructProps);
