@@ -35,6 +35,7 @@ typedef enum {
     SERE_SPEC_MISMATCH,
     SERE_INVALID_PULL_TYPE,
     SERE_ARRAY_OF_ARRAYS,
+    SERE_PTR_TO_ARRAY,
     SERE_TERMINAL_WITH_INNER,
     SERE_NONTERMINAL_WITH_NO_INNER,
 } ser_Error;
@@ -44,6 +45,7 @@ typedef enum {
 // TODO: singleheader-ify this
 // TODO: docs pass
 // TODO: write down possible error returns from each public function
+// TODO: warn on unused results
 
 #define _SER_EXPECT(expr, error) \
     do { \
@@ -81,7 +83,7 @@ typedef enum {
     SER_PK_FLOAT,
     // SER_PK_ARRAY_INTERNAL, // an array that fits completely within a struct // TODO: this
     SER_PK_ARRAY_EXTERNAL, // an array allocated outside of the struct
-    // SER_PK_PTR,
+    SER_PK_PTR,
     SER_PK_DECL_REF, // indicates that the type for this is another declaration (struct or enum)
     SER_PK_COUNT,
 } _ser_PropKind;
@@ -93,7 +95,7 @@ const char* _ser_propKindParseNames[] = {
     "float",
     // "arrIn",
     "arr",
-    // "ptr"
+    "ptr",
 };
 
 typedef struct _ser_OuterProp _ser_OuterProp;
@@ -109,10 +111,7 @@ struct _ser_InnerProp {
     uint64_t declRefId; // ID for the ref, used for patching the pointer when specs are loaded from files
     _ser_Decl* declRef;
 
-    // location of this member inside of the parent struct, from the start, in bytes, used for reading and
-    // writing to structs in the program
-    uint64_t parentStructOffset;
-    uint64_t arrLengthParentStructOffset;
+    uint64_t arrLengthParentStructOffset; // in here only because it depends on kind.
 };
 
 struct _ser_OuterProp {
@@ -120,6 +119,10 @@ struct _ser_OuterProp {
     _ser_InnerProp inner;
     const char* tag;
     uint64_t tagLen;
+
+    // location of this member inside of the parent struct, from the start, in bytes, used for reading and
+    // writing to structs in the program
+    uint64_t parentStructOffset;
 };
 // TODO: refactor props into inner and outer structs
 
@@ -252,6 +255,12 @@ ser_Error _ser_checkSpecSetDuplicatesCountsKindsInnersAndEmpties(const _ser_Spec
                 if (outer->inner.kind == SER_PK_ARRAY_EXTERNAL) {
                     if (outer->inner.inner->kind == SER_PK_ARRAY_EXTERNAL) {
                         return SERE_ARRAY_OF_ARRAYS;
+                    }
+                }
+                // invalidate ptr to an array - cause where would the length live?
+                if (outer->inner.kind == SER_PK_PTR) {
+                    if (outer->inner.inner->kind == SER_PK_ARRAY_EXTERNAL) {
+                        return SERE_PTR_TO_ARRAY;
                     }
                 }
 
@@ -480,7 +489,7 @@ ser_Error _ser_specStructOffsets(const char* tag, int structSize, int argCount, 
         int64_t offset = va_arg(args, uint64_t);
         takenCount++;
         _SER_EXPECT(takenCount <= argCount, SERE_VA_ARG_MISUSE);
-        prop->inner.parentStructOffset = offset;
+        prop->parentStructOffset = offset;
 
         if (prop->inner.kind == SER_PK_ARRAY_EXTERNAL) {
             prop->inner.arrLengthParentStructOffset = va_arg(args, uint64_t);
@@ -551,6 +560,35 @@ uint64_t spec ID (index)
     where enums are just int32_ts w the index of the value
 */
 
+typedef struct {
+    void** elems;
+    uint64_t count;
+} _ser_PointerTable;
+
+ser_Error _ser_genPtrTableFromDecl(_ser_PointerTable* table, _ser_Decl* spec, void* obj) {
+    table->elems[table->count] = obj;
+    table->count += 1;
+
+    if (spec->kind == SER_DK_STRUCT) {
+        for (_ser_OuterProp* prop = spec->structInfo.firstProp; prop; prop = prop->next) {
+            if (prop->inner.kind == SER_PK_PTR) {
+                table->elems[table->count] = *_SER_LOOKUP_MEMBER(void*, obj, prop->parentStructOffset);
+                table->count += 1;
+            }
+        }
+    } else if (spec->kind == SER_DK_ENUM) {
+
+    } else {
+
+    }
+    return SERE_OK;
+}
+
+ser_Error _ser_genPtrTableFromProp() {
+
+    return SERE_OK;
+}
+
 int64_t _ser_sizeOfProp(_ser_InnerProp* p) {
     if (p->kind == SER_PK_CHAR) {
         return sizeof(char);
@@ -573,34 +611,44 @@ int64_t _ser_sizeOfProp(_ser_InnerProp* p) {
     }
 }
 
-ser_Error _ser_serializeObjByPropSpec(FILE* file, void* obj, _ser_InnerProp* spec);
 ser_Error _ser_serializeObjByDeclSpec(FILE* file, void* obj, _ser_Decl* spec);
 
-// each prop needs to find its own offset in the object, (because arrays need >1 the function couldn't be factored to just pass the loc of the prop)
-ser_Error _ser_serializeObjByPropSpec(FILE* file, void* obj, _ser_InnerProp* prop) {
-    void* propLoc = _SER_LOOKUP_MEMBER(void, obj, prop->parentStructOffset);
-    if (prop->kind == SER_PK_FLOAT) {
+// used on everything except arrays, because those need access to the OG object, not just the location of the array
+ser_Error _ser_serializeObjByInner(FILE* file, void* propLoc, _ser_InnerProp* spec) {
+    if (spec->kind == SER_PK_FLOAT) {
         _SER_WRITE_OR_FAIL(propLoc, sizeof(float), file);
-    } else if (prop->kind == SER_PK_INT) {
+    } else if (spec->kind == SER_PK_INT) {
         _SER_WRITE_OR_FAIL(propLoc, sizeof(int), file);
-    } else if (prop->kind == SER_PK_CHAR) {
+    } else if (spec->kind == SER_PK_CHAR) {
         _SER_WRITE_OR_FAIL(propLoc, sizeof(char), file);
-    } else if (prop->kind == SER_PK_DECL_REF) {
-        return _ser_serializeObjByDeclSpec(file, propLoc, prop->declRef);
-    } else if (prop->kind == SER_PK_ARRAY_EXTERNAL) {
+    } else if (spec->kind == SER_PK_DECL_REF) {
+        return _ser_serializeObjByDeclSpec(file, propLoc, spec->declRef);
+    } else if (spec->kind == SER_PK_PTR) {
+        SER_ASSERT(false); // TODO: here
+    } else {
+        SER_ASSERT(false);
+    }
+    // array inners should never be other arrays
+    return SERE_OK;
+}
+
+ser_Error _ser_serializeObjByOuter(FILE* file, void* obj, _ser_OuterProp* prop) {
+    if (prop->inner.kind == SER_PK_ARRAY_EXTERNAL) {
         // TODO: assuming type, will fuck w you later
-        uint64_t arrCount = *_SER_LOOKUP_MEMBER(uint64_t, obj, prop->arrLengthParentStructOffset);
+        uint64_t arrCount = *_SER_LOOKUP_MEMBER(uint64_t, obj, prop->inner.arrLengthParentStructOffset);
         _SER_WRITE_VAR_OR_FAIL(uint64_t, arrCount, file);
 
-        int64_t innerSize = _ser_sizeOfProp(prop->inner);
+        int64_t innerSize = _ser_sizeOfProp(prop->inner.inner);
         void* arrayStart = *_SER_LOOKUP_MEMBER(void*, obj, prop->parentStructOffset);
         for (uint64_t i = 0; i < arrCount; i++) {
             void* ptr = _SER_LOOKUP_MEMBER(void, arrayStart, (i * innerSize));
-            ser_Error e = _ser_serializeObjByPropSpec(file, ptr, prop->inner);
+            // calling the inner works because inner parent offsets are 0 normally
+            ser_Error e = _ser_serializeObjByInner(file, ptr, prop->inner.inner);
             _SER_EXPECT_OK(e);
         }
     } else {
-        SER_ASSERT(false);
+        void* propLoc = _SER_LOOKUP_MEMBER(void, obj, prop->parentStructOffset);
+        _SER_EXPECT_OK(_ser_serializeObjByInner(file, propLoc, &prop->inner));
     }
     return SERE_OK;
 }
@@ -611,7 +659,7 @@ ser_Error _ser_serializeObjByPropSpec(FILE* file, void* obj, _ser_InnerProp* pro
 ser_Error _ser_serializeObjByDeclSpec(FILE* file, void* obj, _ser_Decl* spec) {
     if (spec->kind == SER_DK_STRUCT) {
         for (_ser_OuterProp* prop = spec->structInfo.firstProp; prop; prop = prop->next) {
-            _ser_serializeObjByPropSpec(file, obj, &prop->inner);
+            _ser_serializeObjByOuter(file, obj, prop);
         }
     } else if (spec->kind == SER_DK_ENUM) {
         _SER_WRITE_OR_FAIL(obj, sizeof(int32_t), file);
@@ -779,12 +827,12 @@ ser_Error _ser_dserDecl(_ser_DserInstance* inst) {
 
 // both of these are expecting that the decl/prop has been fully filled in for deserialization // offsets done, links completed etc.
 ser_Error _ser_readToObjFromDecl(void* obj, _ser_Decl* decl, FILE* file, BumpAlloc* arena);
-ser_Error _ser_readToObjFromProp(void* obj, _ser_InnerProp* prop, FILE* file, BumpAlloc* arena);
+ser_Error _ser_readToObjFromProp(void* obj, _ser_OuterProp* prop, FILE* file, BumpAlloc* arena);
 
 ser_Error _ser_readToObjFromDecl(void* obj, _ser_Decl* decl, FILE* file, BumpAlloc* arena) {
     if (decl->kind == SER_DK_STRUCT) {
         for (_ser_OuterProp* prop = decl->structInfo.firstProp; prop; prop = prop->next) {
-            _SER_EXPECT_OK(_ser_readToObjFromProp(obj, &prop->inner, file, arena));
+            _SER_EXPECT_OK(_ser_readToObjFromProp(obj, prop, file, arena));
         }
     } else if (decl->kind == SER_DK_ENUM) {
         // TODO: when enum reordering gets added - see if this changes at all
@@ -796,33 +844,40 @@ ser_Error _ser_readToObjFromDecl(void* obj, _ser_Decl* decl, FILE* file, BumpAll
     return SERE_OK;
 }
 
-// each prop needs to offset itself into the struct (bc array has to reference two different things)
-ser_Error _ser_readToObjFromProp(void* obj, _ser_InnerProp* prop, FILE* file, BumpAlloc* arena) {
-    void* propLoc = _SER_LOOKUP_MEMBER(void, obj, prop->parentStructOffset);
+ser_Error _ser_readToPropFromInner(void* loc, _ser_InnerProp* prop, FILE* file, BumpAlloc* arena) {
     if (prop->kind == SER_PK_CHAR) {
-        _SER_READ_OR_FAIL(propLoc, sizeof(uint8_t), file);
+        _SER_READ_OR_FAIL(loc, sizeof(uint8_t), file);
     } else if (prop->kind == SER_PK_INT) {
-        _SER_READ_OR_FAIL(propLoc, sizeof(int), file);
+        _SER_READ_OR_FAIL(loc, sizeof(int), file);
     } else if (prop->kind == SER_PK_FLOAT) {
-        _SER_READ_OR_FAIL(propLoc, sizeof(float), file);
-    } else if (prop->kind == SER_PK_ARRAY_EXTERNAL) {
+        _SER_READ_OR_FAIL(loc, sizeof(float), file);
+    } else if (prop->kind == SER_PK_DECL_REF) {
+        _SER_EXPECT_OK(_ser_readToObjFromDecl(loc, prop->declRef, file, arena));
+    } else {
+        SER_ASSERT(false);
+    }
+    // arrays of arrays shouldn't exist
+    return SERE_OK;
+}
+
+// each prop needs to offset itself into the struct (bc array has to reference two different things)
+ser_Error _ser_readToObjFromProp(void* obj, _ser_OuterProp* prop, FILE* file, BumpAlloc* arena) {
+    if (prop->inner.kind == SER_PK_ARRAY_EXTERNAL) {
         uint64_t count = 0;
         _SER_READ_VAR_OR_FAIL(uint64_t, count, file);
-        *_SER_LOOKUP_MEMBER(uint64_t, obj, prop->arrLengthParentStructOffset) = count; // TODO: type assumption will be bad at some point
-        uint64_t innerSize = _ser_sizeOfProp(prop->inner);
+        *_SER_LOOKUP_MEMBER(uint64_t, obj, prop->inner.arrLengthParentStructOffset) = count; // TODO: type assumption will be bad at some point
+        uint64_t innerSize = _ser_sizeOfProp(prop->inner.inner);
         void* array = bump_push(arena, innerSize * count);
         *_SER_LOOKUP_MEMBER(void*, obj, prop->parentStructOffset) = array;
         for (uint64_t i = 0; i < count; i++) {
             void* loc = _SER_LOOKUP_MEMBER(void*, array, i * innerSize);
-            _SER_EXPECT_OK(_ser_readToObjFromProp(loc, prop->inner, file, arena));
+            _SER_EXPECT_OK(_ser_readToPropFromInner(loc, prop->inner.inner, file, arena));
         }
-    } else if (prop->kind == SER_PK_DECL_REF) {
-        _SER_EXPECT_OK(_ser_readToObjFromDecl(obj, prop->declRef, file, arena));
     } else {
-        SER_ASSERT(false);
+        void* propLoc = _SER_LOOKUP_MEMBER(void, obj, prop->parentStructOffset);
+        _ser_readToPropFromInner(propLoc, &prop->inner, file, arena);
     }
     return SERE_OK;
-    // TODO: i don't like how many switches there are on every prop kind. its gonna be a bug at some point missing updating one
 }
 
 // split from OG readObj to make sure the file doesn't leak on an error
@@ -863,6 +918,8 @@ ser_Error _ser_readObjFromFileInner(_ser_DserInstance* inst, const char* type, v
                     _SER_EXPECT(globalProp->tagLen == fileProp->tagLen, SERE_SPEC_MISMATCH);
                     _SER_EXPECT(strncmp(globalProp->tag, fileProp->tag, globalProp->tagLen) == 0, SERE_SPEC_MISMATCH);
 
+                    fileProp->parentStructOffset = globalProp->parentStructOffset;
+
                     // make sure all inner kinds and inner info match // copy inner offsets for arrays
                     {
                         // we can assume both have correct inners because of checks from above
@@ -875,7 +932,6 @@ ser_Error _ser_readObjFromFileInner(_ser_DserInstance* inst, const char* type, v
                             } else if (globalInner->kind == SER_PK_ARRAY_EXTERNAL) {
                                 fileInner->arrLengthParentStructOffset = globalInner->arrLengthParentStructOffset;
                             }
-                            fileInner->parentStructOffset = globalInner->parentStructOffset;
 
                             globalInner = globalInner->inner;
                             fileInner = fileInner->inner;
