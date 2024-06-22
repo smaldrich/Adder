@@ -585,7 +585,7 @@ uint64_t spec ID (index)
 */
 
 typedef struct {
-    void* ptr;
+    const void* ptr;
     uint64_t objId;
 } _ser_PtrTableElem;
 
@@ -609,7 +609,7 @@ _ser_PtrTableElem* _ser_ptrTablePush(_ser_PtrTable* table) {
     return p;
 }
 
-_ser_PtrTableElem* _ser_ptrTableMatchPtr(_ser_PtrTable* table, void* ptr) {
+_ser_PtrTableElem* _ser_ptrTableMatchPtr(_ser_PtrTable* table, const void* ptr) {
     for (uint64_t i = 0; i < table->count; i++) {
         if (table->elems[i].ptr == ptr) {
             return &table->elems[i];
@@ -621,8 +621,8 @@ _ser_PtrTableElem* _ser_ptrTableMatchPtr(_ser_PtrTable* table, void* ptr) {
 // set of the value of every pointer that we want to convert into an objID
 // TODO: collect pointed at specs for optimization
 
-ser_Error _ser_ptrTableFindPtrsInDecl(_ser_Decl* spec, void* obj, _ser_PtrTable* table);
-ser_Error _ser_ptrTableFindPtrsInProp(_ser_InnerProp* spec, void* obj, void* propLoc, _ser_PtrTable* table) {
+ser_Error _ser_ptrTableFindPtrsInDecl(const _ser_Decl* spec, const void* obj, _ser_PtrTable* table);
+ser_Error _ser_ptrTableFindPtrsInProp(const _ser_InnerProp* spec, const void* obj, const void* propLoc, _ser_PtrTable* table) {
     if (spec->kind == SER_PK_PTR) {
         // don't duplicate pointers in the table, no more processing is needed here because that pointer has already been followed through
         if (_ser_ptrTableMatchPtr(table, propLoc) != NULL) {
@@ -635,11 +635,11 @@ ser_Error _ser_ptrTableFindPtrsInProp(_ser_InnerProp* spec, void* obj, void* pro
             _ser_ptrTableFindPtrsInDecl(spec->declRef, propLoc, table);
         }
     } else if (spec->kind == SER_PK_ARRAY_EXTERNAL) {
-        void* arrayStart = propLoc;
+        const void* arrayStart = propLoc;
         uint64_t count = *_SER_LOOKUP_MEMBER(uint64_t, obj, spec->arrLengthParentStructOffset);
         uint64_t innerSize = _ser_sizeOfProp(spec->inner);
         for (uint64_t i = 0; i < count; i++) {
-            void* elementPtr = _SER_LOOKUP_MEMBER(void, arrayStart, i * innerSize);
+            const void* elementPtr = _SER_LOOKUP_MEMBER(void, arrayStart, i * innerSize);
             _ser_ptrTableFindPtrsInProp(spec->inner, NULL, elementPtr, table);
         }
     }
@@ -648,17 +648,17 @@ ser_Error _ser_ptrTableFindPtrsInProp(_ser_InnerProp* spec, void* obj, void* pro
 
 // most segfault prone thing i have ever seen in my life
 // expects the entire specset that it is working on to be validated completely
-ser_Error _ser_ptrTableFindPtrsInDecl(_ser_Decl* spec, void* obj, _ser_PtrTable* table) {
+ser_Error _ser_ptrTableFindPtrsInDecl(const _ser_Decl* spec, const void* obj, _ser_PtrTable* table) {
     _SER_EXPECT(spec->kind == SER_DK_STRUCT, SERE_UNEXPECTED_KIND);
     for (_ser_OuterProp* prop = spec->structInfo.firstProp; prop; prop = prop->next) {
-        void* propLoc = _SER_LOOKUP_MEMBER(void, obj, prop->parentStructOffset);
+        const void* propLoc = _SER_LOOKUP_MEMBER(void, obj, prop->parentStructOffset);
         _SER_EXPECT_OK(_ser_ptrTableFindPtrsInProp(&prop->inner, obj, propLoc, table));
     }
     return SERE_OK;
 }
 
 // fills in the ptrTable elment on a match, increments currentObjId regardless
-void _ser_ptrTableTryFillObjId(void* obj, uint64_t* currentObjId, _ser_PtrTable* table) {
+void _ser_ptrTableTryFillObjId(const void* obj, uint64_t* currentObjId, _ser_PtrTable* table) {
     _ser_PtrTableElem* matched = _ser_ptrTableMatchPtr(table, obj);
     if (matched != NULL) {
         matched->objId = *currentObjId;
@@ -678,8 +678,7 @@ ser_Error _ser_ptrTableFindIDs(_ser_Decl* spec, void* obj, _ser_PtrTable* table,
 
     for (_ser_OuterProp* prop = spec->structInfo.firstProp; prop; prop = prop->next) {
         void* propLoc = _SER_LOOKUP_MEMBER(void, obj, prop->parentStructOffset);
-        _ser_ptrTableTryFillObjId(obj, propLoc, table);
-
+        _ser_ptrTableTryFillObjId(propLoc, currentObjId, table);
         if (prop->inner.kind == SER_PK_ARRAY_EXTERNAL) {
             void* arrayStart = *_SER_LOOKUP_MEMBER(void*, obj, prop->parentStructOffset);
             uint64_t count = *_SER_LOOKUP_MEMBER(uint64_t, obj, prop->inner.arrLengthParentStructOffset);
@@ -689,7 +688,7 @@ ser_Error _ser_ptrTableFindIDs(_ser_Decl* spec, void* obj, _ser_PtrTable* table,
             innerIsStruct = innerIsStruct && innerElemSpec->declRef->kind == SER_DK_STRUCT;
             for (uint64_t i = 0; i < count; i++) {
                 void* elemPos = _SER_LOOKUP_MEMBER(void, arrayStart, i * innerSize);
-                _ser_ptrTableTryFillObjId(obj, elemPos, table);
+                _ser_ptrTableTryFillObjId(elemPos, currentObjId, table);
                 if (innerIsStruct) { // only structs contain more things inside them that could match pointers
                     _ser_ptrTableFindIDs(prop->inner.inner->declRef, elemPos, table, currentObjId);
                 }
@@ -710,7 +709,7 @@ ser_Error _ser_serializeObjByInner(FILE* file, _ser_PtrTable* ptrTable, void* pr
     } else if (spec->kind == SER_PK_CHAR) {
         _SER_WRITE_OR_FAIL(propLoc, sizeof(char), file);
     } else if (spec->kind == SER_PK_DECL_REF) {
-        _SER_EXPECT_OK(_ser_serializeObjByDeclSpec(file, ptrTable, propLoc, spec->declRef));
+        return _ser_serializeObjByDeclSpec(file, ptrTable, propLoc, spec->declRef);
     } else if (spec->kind == SER_PK_PTR) {
         _ser_PtrTableElem* elem = _ser_ptrTableMatchPtr(ptrTable, *(void**)propLoc);
         _SER_EXPECT(elem != NULL, SERE_UNRESOLVED_PTR);
