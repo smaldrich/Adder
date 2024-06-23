@@ -24,6 +24,7 @@ typedef enum {
     SERE_SPECSET_INCORRECT_DECL_COUNT,
     SERE_SPECSET_INCORRECT_PROP_COUNT,
     SERE_DUPLICATE_DECL_TAGS,
+    SERE_DUPLICATE_ENUM_VALUE_STRS,
     SERE_DUPLICATE_PROP_TAGS,
     SERE_EMPTY_ENUM,
     SERE_EMPTY_TAG,
@@ -125,7 +126,6 @@ struct _ser_OuterProp {
     // writing to structs in the program
     uint64_t parentStructOffset;
 };
-// TODO: refactor props into inner and outer structs
 
 struct _ser_Decl {
     _ser_DeclKind kind;
@@ -282,7 +282,16 @@ ser_Error _ser_checkSpecSetDuplicatesCountsKindsInnersAndEmpties(const _ser_Spec
         } else if (decl->kind == SER_DK_ENUM) {
             _SER_EXPECT(decl->enumInfo.vals != NULL, SERE_EMPTY_ENUM);
             _SER_EXPECT(decl->enumInfo.valCount != 0, SERE_EMPTY_ENUM);
-            // TODO: check each indiv val for non null
+            for (uint64_t aIdx = 0; aIdx < decl->enumInfo.valCount; aIdx++) {
+                const char* a = decl->enumInfo.vals[aIdx];
+                _SER_EXPECT(a != NULL, SERE_EMPTY_ENUM);
+                _SER_EXPECT(strlen(a) > 0, SERE_EMPTY_ENUM);
+
+                for (uint64_t bIdx = aIdx + 1; bIdx < decl->enumInfo.valCount; bIdx++) {
+                    const char* b = decl->enumInfo.vals[aIdx];
+                    _SER_EXPECT(strcmp(a, b) != 0, SERE_DUPLICATE_ENUM_VALUE_STRS);
+                }
+            }
         } else {
             return SERE_UNEXPECTED_KIND;
         }
@@ -351,7 +360,6 @@ ser_Error _ser_lockSpecs() {
     _SER_EXPECT_OK(_ser_checkSpecSetDuplicatesCountsKindsInnersAndEmpties(&_ser_globalSpecSet));
     _SER_EXPECT_OK(_ser_patchAndCheckSpecSetDeclRefs(&_ser_globalSpecSet));
     _SER_EXPECT_OK(_ser_checkOffsetsAreSet(&_ser_globalSpecSet));
-    // TODO: non null offset sets check
     _ser_isGlobalSetLocked = true;
     return SERE_OK;
 }
@@ -1168,7 +1176,6 @@ ser_Error _ser_readObjFromFile(const char* type, void* obj, const char* path, Bu
 
     ser_Error e = _ser_readObjFromFileInner(&inst, type, obj);
 
-    // TODO: this reasource leaks on errors rn, probably should fix that
     if (inst.file != NULL) {
         fclose(inst.file);
     }
@@ -1344,12 +1351,12 @@ ser_Error _ser_test_pointerThings() {
     BumpAlloc outArena = bump_allocate(1000000, "ser test ptrThings arena");
     _ser_test_ArrayStruct outArr;
     _SER_EXPECT_OK(ser_readObj(_ser_test_ArrayStruct, &outArr, "./testing/ptrThings", &outArena));
+
     _ser_test_PtrStruct* outStructArr = outArr.elems;
     _SER_EXPECT(outStructArr[0].payload == 50, SERE_TEST_EXPECT_FAILED);
     _SER_EXPECT(outStructArr[1].payload == 60, SERE_TEST_EXPECT_FAILED);
     _SER_EXPECT(outStructArr[0].other == NULL, SERE_TEST_EXPECT_FAILED);
     _SER_EXPECT(outStructArr[1].other == &outStructArr[0], SERE_TEST_EXPECT_FAILED);
-
     return SERE_OK;
 }
 
