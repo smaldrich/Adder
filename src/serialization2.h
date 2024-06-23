@@ -1344,6 +1344,12 @@ ser_Error _ser_test_pointerThings() {
     BumpAlloc outArena = bump_allocate(1000000, "ser test ptrThings arena");
     _ser_test_ArrayStruct outArr;
     _SER_EXPECT_OK(ser_readObj(_ser_test_ArrayStruct, &outArr, "./testing/ptrThings", &outArena));
+    _ser_test_PtrStruct* outStructArr = outArr.elems;
+    _SER_EXPECT(outStructArr[0].payload == 50, SERE_TEST_EXPECT_FAILED);
+    _SER_EXPECT(outStructArr[1].payload == 60, SERE_TEST_EXPECT_FAILED);
+    _SER_EXPECT(outStructArr[0].other == NULL, SERE_TEST_EXPECT_FAILED);
+    _SER_EXPECT(outStructArr[1].other == &outStructArr[0], SERE_TEST_EXPECT_FAILED);
+
     return SERE_OK;
 }
 
