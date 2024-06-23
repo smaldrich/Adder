@@ -696,9 +696,11 @@ ser_Error _ser_ptrTableFindIDs(_ser_Decl* spec, void* obj, _ser_PtrTable* table,
             innerIsStruct = innerIsStruct && innerElemSpec->declRef->kind == SER_DK_STRUCT;
             for (uint64_t i = 0; i < count; i++) {
                 void* elemPos = _SER_LOOKUP_MEMBER(void, arrayStart, i * innerSize);
-                _ser_ptrTableTryFillObjId(elemPos, currentObjId, table);
                 if (innerIsStruct) { // only structs contain more things inside them that could match pointers
                     _ser_ptrTableFindIDs(prop->inner.inner->declRef, elemPos, table, currentObjId);
+                } else {
+                    // _ser_ptrTableFindIDs pushes its own ID, so dont do that twice here
+                    _ser_ptrTableTryFillObjId(elemPos, currentObjId, table);
                 }
             }
         }
@@ -1127,6 +1129,28 @@ ser_Error _ser_readObjFromFileInner(_ser_DserInstance* inst, const char* type, v
     _SER_EXPECT(targetSpecID == targetSpec->id, SERE_INVALID_PULL_TYPE);
     SER_ASSERT(targetSpec->kind == SER_DK_STRUCT);
     _SER_EXPECT_OK(_ser_readToObjFromDecl(obj, targetSpec, &inst->ptrTable, inst->file, inst->outArena));
+
+    // ptr table now good to go
+    for (uint64_t aIdx = 0; aIdx < inst->ptrTable.count; aIdx++) {
+        _ser_DserPtrTableElem* a = &inst->ptrTable.elems[aIdx];
+        if (!a->isPtr) {
+            continue;
+        } else if (a->ptrTargetObjId == 0) {
+            *(void**)(a->address) = NULL; // set to a null ptr if it was aiming at ID 0
+            continue;
+        }
+
+        bool fnd = false;
+        for (uint64_t bIdx = 0; bIdx < inst->ptrTable.count; bIdx++) {
+            _ser_DserPtrTableElem* b = &inst->ptrTable.elems[bIdx];
+            if (b->objId == a->ptrTargetObjId) {
+                *(void**)(a->address) = b->address;
+                fnd = true;
+                break;
+            }
+        }
+        _SER_EXPECT(fnd, SERE_UNRESOLVED_PTR);
+    }
     return SERE_OK;
 }
 
@@ -1293,9 +1317,8 @@ ser_Error _ser_test_multipleVec2RoundTrip() {
 
 typedef struct _ser_test_PtrStruct _ser_test_PtrStruct;
 struct _ser_test_PtrStruct {
-    int padding;
+    int payload;
     _ser_test_PtrStruct* other;
-    int padding2;
 };
 
 // TODO: go back n double check no fn calls are missing error expect_oks
@@ -1303,17 +1326,24 @@ struct _ser_test_PtrStruct {
 ser_Error _ser_test_pointerThings() {
     _SER_EXPECT_OK(
         ser_specStruct(_ser_test_PtrStruct,
+                       payload int
                        other ptr _ser_test_PtrStruct));
-    _SER_EXPECT_OK(ser_specStructOffsets(_ser_test_PtrStruct, other));
+    _SER_EXPECT_OK(ser_specStructOffsets(_ser_test_PtrStruct, payload, other));
     _SER_EXPECT_OK(ser_specStruct(_ser_test_ArrayStruct, elems arr _ser_test_PtrStruct));
     _SER_EXPECT_OK(ser_specStructOffsets(_ser_test_ArrayStruct, elems, count));
     _SER_EXPECT_OK(ser_lockSpecs());
 
     _ser_test_PtrStruct ptrArr[] = { 0 };
     ptrArr[0].other = NULL;
+    ptrArr[0].payload = 50;
     ptrArr[1].other = &ptrArr[0];
+    ptrArr[1].payload = 60;
     _ser_test_ArrayStruct array = (_ser_test_ArrayStruct){ .count = 2, .elems = ptrArr };
     _SER_EXPECT_OK(ser_writeObj(_ser_test_ArrayStruct, &array, "./testing/ptrThings"));
+
+    BumpAlloc outArena = bump_allocate(1000000, "ser test ptrThings arena");
+    _ser_test_ArrayStruct outArr;
+    _SER_EXPECT_OK(ser_readObj(_ser_test_ArrayStruct, &outArr, "./testing/ptrThings", &outArena));
     return SERE_OK;
 }
 
