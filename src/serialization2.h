@@ -220,6 +220,8 @@ _ser_Decl* _ser_declGetByID(_ser_SpecSet* set, uint64_t id) {
 bool _ser_isPropKindNonTerminal(_ser_PropKind k) {
     if (k == SER_PK_ARRAY_EXTERNAL) {
         return true;
+    } else if (k == SER_PK_PTR) {
+        return true;
     }
     return false;
 }
@@ -627,17 +629,21 @@ ser_Error _ser_ptrTableFindPtrsInDecl(const _ser_Decl* spec, const void* obj, _s
 ser_Error _ser_ptrTableFindPtrsInProp(const _ser_InnerProp* spec, const void* obj, const void* propLoc, _ser_PtrTable* table) {
     if (spec->kind == SER_PK_PTR) {
         // don't duplicate pointers in the table, no more processing is needed here because that pointer has already been followed through
-        if (_ser_ptrTableMatchPtr(table, propLoc) != NULL) {
+        void* ptr = *(void**)propLoc;
+        if (!ptr) {
             return SERE_OK;
         }
-        _ser_ptrTablePush(table)->ptr = propLoc;
+        if (_ser_ptrTableMatchPtr(table, ptr) != NULL) {
+            return SERE_OK;
+        }
+        _ser_ptrTablePush(table)->ptr = ptr;
         // TODO: pointer following
     } else if (spec->kind == SER_PK_DECL_REF) {
         if (spec->declRef->kind == SER_DK_STRUCT) {
             _ser_ptrTableFindPtrsInDecl(spec->declRef, propLoc, table);
         }
     } else if (spec->kind == SER_PK_ARRAY_EXTERNAL) {
-        const void* arrayStart = propLoc;
+        const void* arrayStart = *(void**)propLoc;
         uint64_t count = *_SER_LOOKUP_MEMBER(uint64_t, obj, spec->arrLengthParentStructOffset);
         uint64_t innerSize = _ser_sizeOfProp(spec->inner);
         for (uint64_t i = 0; i < count; i++) {
@@ -717,7 +723,7 @@ ser_Error _ser_serializeObjByInner(FILE* file, _ser_PtrTable* ptrTable, void* pr
         if (ptr != NULL) {
             _ser_PtrTableElem* elem = _ser_ptrTableMatchPtr(ptrTable, *(void**)propLoc);
             _SER_EXPECT(elem != NULL, SERE_UNRESOLVED_PTR);
-            _SER_EXPECT(elem->objId == 0, SERE_UNRESOLVED_PTR);
+            _SER_EXPECT(elem->objId != 0, SERE_UNRESOLVED_PTR);
             _SER_WRITE_VAR_OR_FAIL(uint64_t, elem->objId, file);
         } else {
             _SER_WRITE_VAR_OR_FAIL(uint64_t, 0, file);
@@ -756,7 +762,7 @@ ser_Error _ser_serializeObjByOuter(FILE* file, _ser_PtrTable* ptrTable, void* ob
 ser_Error _ser_serializeObjByDeclSpec(FILE* file, _ser_PtrTable* ptrTable, void* obj, _ser_Decl* spec) {
     if (spec->kind == SER_DK_STRUCT) {
         for (_ser_OuterProp* prop = spec->structInfo.firstProp; prop; prop = prop->next) {
-            _ser_serializeObjByOuter(file, ptrTable, obj, prop);
+            _SER_EXPECT_OK(_ser_serializeObjByOuter(file, ptrTable, obj, prop));
         }
     } else if (spec->kind == SER_DK_ENUM) {
         _SER_WRITE_OR_FAIL(obj, sizeof(int32_t), file);
@@ -1247,7 +1253,7 @@ typedef struct {
     char pad;
     uint64_t count;
     void* elems;
-} _ser_test_arrayStruct;
+} _ser_test_ArrayStruct;
 
 ser_Error _ser_test_multipleVec2RoundTrip() {
     _SER_EXPECT_OK(
@@ -1256,9 +1262,9 @@ ser_Error _ser_test_multipleVec2RoundTrip() {
                        Y float));
     _SER_EXPECT_OK(ser_specStructOffsets(HMM_Vec2, X, Y));
     _SER_EXPECT_OK(
-        ser_specStruct(_ser_test_arrayStruct,
+        ser_specStruct(_ser_test_ArrayStruct,
                        vecs arr HMM_Vec2));
-    _SER_EXPECT_OK(ser_specStructOffsets(_ser_test_arrayStruct, elems, count));
+    _SER_EXPECT_OK(ser_specStructOffsets(_ser_test_ArrayStruct, elems, count));
     _SER_EXPECT_OK(ser_lockSpecs());
 
     HMM_Vec2 vecs[] = {
@@ -1268,13 +1274,13 @@ ser_Error _ser_test_multipleVec2RoundTrip() {
         HMM_V2(13, 24),
         HMM_V2(69, 420)
     };
-    _ser_test_arrayStruct vecArr = { .elems = vecs, .count = 5 };
-    _SER_EXPECT_OK(ser_writeObj(_ser_test_arrayStruct, &vecArr, "./testing/v2RoundTrip"));
+    _ser_test_ArrayStruct vecArr = { .elems = vecs, .count = 5 };
+    _SER_EXPECT_OK(ser_writeObj(_ser_test_ArrayStruct, &vecArr, "./testing/v2RoundTrip"));
 
-    _ser_test_arrayStruct outArr;
+    _ser_test_ArrayStruct outArr;
     memset(&outArr, 0, sizeof(outArr));
     BumpAlloc arena = bump_allocate(1000000, "v2 round trip arena");
-    _SER_EXPECT_OK(ser_readObj(_ser_test_arrayStruct, &outArr, "./testing/v2RoundTrip", &arena));
+    _SER_EXPECT_OK(ser_readObj(_ser_test_ArrayStruct, &outArr, "./testing/v2RoundTrip", &arena));
 
     _SER_EXPECT(outArr.count == vecArr.count, SERE_TEST_EXPECT_FAILED);
     HMM_Vec2* outVecs = (HMM_Vec2*)outArr.elems;
@@ -1282,6 +1288,32 @@ ser_Error _ser_test_multipleVec2RoundTrip() {
         _SER_EXPECT(outVecs[i].X == vecs[i].X && outVecs[i].Y == vecs[i].Y, SERE_TEST_EXPECT_FAILED);
     }
     bump_free(&arena);
+    return SERE_OK;
+}
+
+typedef struct _ser_test_PtrStruct _ser_test_PtrStruct;
+struct _ser_test_PtrStruct {
+    int padding;
+    _ser_test_PtrStruct* other;
+    int padding2;
+};
+
+// TODO: go back n double check no fn calls are missing error expect_oks
+
+ser_Error _ser_test_pointerThings() {
+    _SER_EXPECT_OK(
+        ser_specStruct(_ser_test_PtrStruct,
+                       other ptr _ser_test_PtrStruct));
+    _SER_EXPECT_OK(ser_specStructOffsets(_ser_test_PtrStruct, other));
+    _SER_EXPECT_OK(ser_specStruct(_ser_test_ArrayStruct, elems arr _ser_test_PtrStruct));
+    _SER_EXPECT_OK(ser_specStructOffsets(_ser_test_ArrayStruct, elems, count));
+    _SER_EXPECT_OK(ser_lockSpecs());
+
+    _ser_test_PtrStruct ptrArr[] = { 0 };
+    ptrArr[0].other = NULL;
+    ptrArr[1].other = &ptrArr[0];
+    _ser_test_ArrayStruct array = (_ser_test_ArrayStruct){ .count = 2, .elems = ptrArr };
+    _SER_EXPECT_OK(ser_writeObj(_ser_test_ArrayStruct, &array, "./testing/ptrThings"));
     return SERE_OK;
 }
 
@@ -1373,6 +1405,7 @@ void ser_tests() {
     _ser_globalSpecSet = _ser_specSetInit("global spec set arena");
     _SER_TEST_INVOKE(_ser_test_serializeVec2);
     _SER_TEST_INVOKE(_ser_test_multipleVec2RoundTrip);
+    _SER_TEST_INVOKE(_ser_test_pointerThings);
     _SER_TEST_INVOKE(_ser_test_shortStructSpec);
     _SER_TEST_INVOKE(_ser_test_badStructOffsetsCall);
     _SER_TEST_INVOKE(_ser_test_duplicateStructProps);
