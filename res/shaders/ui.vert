@@ -8,6 +8,7 @@ out vec2 vRectHalfSize;
 uniform mat4 uVP;
 uniform vec2 uDstStart;
 uniform vec2 uDstEnd;
+uniform float uZ;
 uniform vec2 uSrcStart;
 uniform vec2 uSrcEnd;
 uniform float uSnap;
@@ -32,7 +33,8 @@ void main()
     vRectCenter = (uDstEnd + uDstStart) / 2;
     vRectHalfSize = (uDstEnd - uDstStart) / 2;
 
+    // TODO: shouldn't these be roudned instead of casted?
     vec2 snapped = vec2(int(corner.x), int(corner.y));
-    gl_Position = uVP * vec4(mix(corner, snapped, uSnap), 0, 1);
+    gl_Position = uVP * vec4(mix(corner, snapped, uSnap), uZ, 1);
 };
 

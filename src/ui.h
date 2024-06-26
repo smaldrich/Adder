@@ -72,21 +72,3 @@ void ui_boxExit() {
 }
 #define ui_defer(begin, end) for (int _i_ = ((begin), 0); !_i_; _i_ += 1, (end))
 #define ui_boxScope(b) ui_defer(ui_boxEnter(b), ui_boxExit())
-
-#include "base/testing.h"
-
-void ui_tests() {
-    test_printSectionHeader("UI");
-
-    ui_frameStart();
-    ui_Box* parent = ui_boxNew("parent");
-    ui_boxScope(parent) {
-        ui_boxNew("kid 1");
-        ui_Box* kid2 = ui_boxNew("kid 2");
-        ui_boxScope(kid2) {
-            ui_boxNew("inner kid");
-        }
-        ui_boxNew("kid 3");
-        ui_boxNew("kid 4");
-    }
-}
