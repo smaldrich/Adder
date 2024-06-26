@@ -4,10 +4,20 @@
 
 #define UI_ASSERT(expr) assert(expr)
 
+// TODO: useMem
+// TODO: new as parent
+// TODO: rendering things
+// TODO: easing functions
+// TODO: input structs
+// TODO: test shiz
+// TODO: utilities
+
 typedef struct ui_Box ui_Box;
 struct ui_Box {
     const char* tag;
     float z; // where z+ is closer to screen, z- is farther // integer gaps are between divs, decimals between children
+    HMM_Vec2 start;
+    HMM_Vec2 end;
     ui_Box* firstChild;
     ui_Box* lastChild;
     ui_Box* nextSibling;
@@ -60,6 +70,8 @@ void ui_boxExit() {
     globs.currentParentBox = globs.currentParentBox->parent;
     UI_ASSERT(globs.currentParentBox != NULL);
 }
+#define ui_defer(begin, end) for (int _i_ = ((begin), 0); !_i_; _i_ += 1, (end))
+#define ui_boxScope(b) ui_defer(ui_boxEnter(b), ui_boxExit())
 
 #include "base/testing.h"
 
@@ -68,17 +80,13 @@ void ui_tests() {
 
     ui_frameStart();
     ui_Box* parent = ui_boxNew("parent");
-    ui_boxEnter(parent);
-
-    ui_boxNew("kid 1");
-
-    ui_Box* kid2 = ui_boxNew("kid 2");
-    ui_boxEnter(kid2);
-    ui_boxNew("inner kid");
-    ui_boxExit();
-
-    ui_boxNew("kid 3");
-    ui_boxNew("kid 4");
-
-    ui_boxExit();
+    ui_boxScope(parent) {
+        ui_boxNew("kid 1");
+        ui_Box* kid2 = ui_boxNew("kid 2");
+        ui_boxScope(kid2) {
+            ui_boxNew("inner kid");
+        }
+        ui_boxNew("kid 3");
+        ui_boxNew("kid 4");
+    }
 }
