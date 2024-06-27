@@ -183,13 +183,38 @@ void ren_init() {
     bump_clear(&_ren_globs.arena);
 }
 
+// allocates and pushes to the global list of calls
+_ren_Call* _ren_pushCall() {
+    _ren_Call* out = BUMP_PUSH_NEW(&_ren_globs.arena, _ren_Call);
+    if (!_ren_globs.firstCall) {
+        _ren_globs.firstCall = out;
+        _ren_globs.lastCall = out;
+    } else {
+        _ren_globs.lastCall->next = out;
+        _ren_globs.lastCall = out;
+    }
+    return out;
+}
+
+void ren_pushCallUI(HMM_Vec2 dstStart, HMM_Vec2 dstEnd, float z, HMM_Mat4 vp, HMM_Vec4 color) {
+    _ren_Call* c = _ren_pushCall();
+    c->kind = _REN_CK_UI;
+    c->ui = (_ren_CallParamsUI){
+        .dstStart = dstStart,
+        .dstEnd = dstEnd,
+        .z = z,
+        .vp = vp,
+        .color = color,
+    };
+}
+
 void ren_flush(uint32_t screenW, uint32_t screenH, HMM_Vec4 clearColor) {
     glBindFramebuffer(GL_FRAMEBUFFER, 0); // target the screen // TODO: framebuffers
     glViewport(0, 0, screenW, screenH);
     glClearColor(clearColor.R, clearColor.G, clearColor.B, clearColor.A); // clear screen
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-    uint32_t currentKind = 0;
+    uint32_t currentKind = -1;
     for (_ren_Call* call = _ren_globs.firstCall; call; call = call->next) {
         assert(call->kind >= 0 && call->kind < _REN_CK_COUNT);
         if (call->kind != currentKind) {

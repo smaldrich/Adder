@@ -43,9 +43,12 @@ int main(int argc, char* argv[]) {
 
         int w, h;
         SDL_GL_GetDrawableSize(window, &w, &h);
-        // HMM_Vec2 screenSize = HMM_V2((float)w, (float)h);
+        HMM_Vec2 screenSize = HMM_V2((float)w, (float)h);
 
         ui_frameStart();
+
+        HMM_Mat4 vp = HMM_Orthographic_RH_NO(0, screenSize.X, screenSize.Y, 0, 0, 1000);
+        ren_pushCallUI(HMM_V2(100, 100), HMM_V2(200, 200), 0, vp, HMM_V4(0, 0, 1, 1));
         ren_flush(w, h, HMM_V4(0, 1, 0, 1));
 
         // float time = (float)SDL_GetTicks64() / 1000;
