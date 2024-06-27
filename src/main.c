@@ -61,8 +61,7 @@ int main(int argc, char* argv[]) {
 
                 ui_Box* middleBar = ui_boxNew("middleBar");
                 middleBar->color = HMM_V4(0, 0, 0, 1);
-                ui_boxSizePctParent(middleBar, 1, UI_AX_Y);
-                ui_boxCenter(middleBar, middleBar->parent, UI_AX_Y);
+                ui_boxFillParent(middleBar);
                 ui_boxSetSizeFromStartAx(middleBar, UI_AX_X, 5);
                 ui_boxAlignOuter(middleBar, middleBar->prevSibling, UI_AX_X, 1);
 
