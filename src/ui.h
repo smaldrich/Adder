@@ -43,16 +43,16 @@ ui_Box* ui_boxNew(const char* tag) {
 
     b->parent = _ui_globs.currentParentBox;
     if (_ui_globs.currentParentBox->lastChild) {
-        _ui_globs.currentParentBox->lastChild->nextSibling = b;
-        b->prevSibling = _ui_globs.currentParentBox->lastChild;
-        _ui_globs.currentParentBox->lastChild = b;
         float lastZ = b->parent->lastChild->z;
         UI_ASSERT(fmodf(lastZ, 1) < 0.9999); // TODO: test check for this one
         b->z = lastZ + 0.0001;
+        _ui_globs.currentParentBox->lastChild->nextSibling = b;
+        b->prevSibling = _ui_globs.currentParentBox->lastChild;
+        _ui_globs.currentParentBox->lastChild = b;
     } else {
+        b->z = b->parent->z + 1;
         _ui_globs.currentParentBox->firstChild = b;
         _ui_globs.currentParentBox->lastChild = b;
-        b->z = b->parent->z + 1;
     }
     return b;
 }

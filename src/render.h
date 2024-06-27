@@ -208,6 +208,23 @@ void ren_pushCallUI(HMM_Vec2 dstStart, HMM_Vec2 dstEnd, float z, HMM_Mat4 vp, HM
     };
 }
 
+void _ren_pushCallsFromUITree(ui_Box* box, HMM_Mat4 vp) {
+    for (ui_Box* b = box; b; b = b->nextSibling) {
+        ren_pushCallUI(b->start, b->end, b->z, vp, b->color);
+        if (b->firstChild) {
+            _ren_pushCallsFromUITree(b->firstChild, vp);
+        }
+    }
+}
+
+void ren_pushCallsFromUITree(ui_Box* box, HMM_Vec2 screenSize) {
+    HMM_Mat4 vp = HMM_Orthographic_RH_NO(0, screenSize.X, screenSize.Y, 0, -1000, 1000);
+    // we are using a depth test of LESS, so negative values will appear in front in NDC
+    // this VP then puts coords closer to negative values closer to + in NDC
+    // which makes the depth test work as expected // NOTE: i tried change the depth test func but it didn't work at all and I'm lazy
+    _ren_pushCallsFromUITree(box, vp);
+}
+
 void ren_flush(uint32_t screenW, uint32_t screenH, HMM_Vec4 clearColor) {
     glBindFramebuffer(GL_FRAMEBUFFER, 0); // target the screen // TODO: framebuffers
     glViewport(0, 0, screenW, screenH);
@@ -225,7 +242,7 @@ void ren_flush(uint32_t screenW, uint32_t screenH, HMM_Vec4 clearColor) {
 
         if (call->kind == _REN_CK_UI) {
             int loc = 0;
-            loc = glGetUniformLocation(shaderId, "uVP");
+            loc = glGetUniformLocation(shaderId, "uVP"); // TODO: cache uniform locs per shader
             glUniformMatrix4fv(loc, 1, false, (float*)&call->ui.vp);
             loc = glGetUniformLocation(shaderId, "uSrcStart");
             glUniform2f(loc, 0, 0);
@@ -235,6 +252,8 @@ void ren_flush(uint32_t screenW, uint32_t screenH, HMM_Vec4 clearColor) {
             glUniform2f(loc, call->ui.dstStart.X, call->ui.dstStart.Y);
             loc = glGetUniformLocation(shaderId, "uDstEnd");
             glUniform2f(loc, call->ui.dstEnd.X, call->ui.dstEnd.Y);
+            loc = glGetUniformLocation(shaderId, "uZ");
+            glUniform1f(loc, call->ui.z);
             loc = glGetUniformLocation(shaderId, "uColor");
             glUniform4f(loc, call->ui.color.R, call->ui.color.G, call->ui.color.B, call->ui.color.A);
             // loc = glGetUniformLocation(shaderId, "uSnap");

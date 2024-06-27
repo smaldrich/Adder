@@ -46,10 +46,24 @@ int main(int argc, char* argv[]) {
         HMM_Vec2 screenSize = HMM_V2((float)w, (float)h);
 
         ui_frameStart();
+        ui_Box* firstKid = ui_boxNew("first kid");
+        firstKid->color = HMM_V4(0, 0, 1, 1);
+        firstKid->start = HMM_V2(100, 100);
+        firstKid->end = HMM_V2(200, 200);
 
-        HMM_Mat4 vp = HMM_Orthographic_RH_NO(0, screenSize.X, screenSize.Y, 0, 0, 1000);
-        ren_pushCallUI(HMM_V2(100, 100), HMM_V2(200, 200), 0, vp, HMM_V4(0, 0, 1, 1));
-        ren_flush(w, h, HMM_V4(0, 1, 0, 1));
+        ui_boxScope(firstKid) {
+            ui_Box* inner = ui_boxNew("inner");
+            inner->color = HMM_V4(0, 1, 1, 1);
+            inner->start = HMM_V2(125, 125);
+            inner->end = HMM_V2(225, 225);
+            ui_Box* innerSibling = ui_boxNew("innerSibling");
+            innerSibling->color = HMM_V4(0, 0.5, 1, 1);
+            innerSibling->start = HMM_V2(150, 125);
+            innerSibling->end = HMM_V2(250, 225);
+        }
+
+        ren_pushCallsFromUITree(firstKid, screenSize);
+        ren_flush(w, h, HMM_V4(0, 0, 0, 1));
 
         // float time = (float)SDL_GetTicks64() / 1000;
         // float dt = time - prevTime;
