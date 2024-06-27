@@ -14,6 +14,12 @@
 // TODO: rounding, borders
 // TODO: textures
 
+typedef enum {
+    UI_AX_X,
+    UI_AX_Y,
+    UI_AX_COUNT
+} ui_Axis;
+
 typedef struct ui_Box ui_Box;
 struct ui_Box {
     const char* tag;
@@ -77,3 +83,98 @@ void ui_boxExit() {
 }
 #define ui_defer(begin, end) for (int _i_ = ((begin), 0); !_i_; _i_ += 1, (end))
 #define ui_boxScope(b) ui_defer(ui_boxEnter(b), ui_boxExit())
+
+void ui_boxSetStart(ui_Box* box, HMM_Vec2 newStart) {
+    box->start = newStart;
+}
+
+void ui_boxSetEnd(ui_Box* box, HMM_Vec2 newEnd) {
+    box->end = newEnd;
+}
+
+void ui_boxSetSizeFromStart(ui_Box* box, HMM_Vec2 newSize) {
+    box->end = HMM_Add(box->start, newSize);
+}
+
+void ui_boxSetSizeFromEnd(ui_Box* box, HMM_Vec2 newSize) {
+    box->start = HMM_Sub(box->end, newSize);
+}
+
+void ui_boxSetSizeFromStartAx(ui_Box* box, ui_Axis ax, float newSize) {
+    box->end.Elements[ax] = box->start.Elements[ax] + newSize;
+}
+
+void ui_boxSetSizeFromEndAx(ui_Box* box, ui_Axis ax, float newSize) {
+    box->start.Elements[ax] = box->end.Elements[ax] - newSize;
+}
+
+HMM_Vec2 ui_boxGetSize(ui_Box* box) {
+    return HMM_Sub(box->end, box->start);
+}
+
+void ui_boxMarginFromParent(ui_Box* box, float m) {
+    box->start = HMM_Add(box->parent->start, HMM_V2(m, m));
+    box->end = HMM_Sub(box->parent->end, HMM_V2(m, m));
+}
+
+void ui_boxFillParent(ui_Box* box) {
+    box->start = box->parent->start;
+    box->end = box->parent->end;
+}
+
+void ui_boxSizePctParent(ui_Box* box, float pct, ui_Axis ax) {
+    assert(ax >= 0 && ax < UI_AX_COUNT);
+    HMM_Vec2 newSize = ui_boxGetSize(box->parent);
+    newSize.Elements[ax] *= pct;
+    ui_boxSetSizeFromStart(box, newSize);
+}
+
+// TODO: unit test this
+// maintains size but moves the box to be centered with other along ax
+void ui_boxCenter(ui_Box* box, ui_Box* other, ui_Axis ax) {
+    float boxCenter = (box->start.Elements[ax] + box->end.Elements[ax]) / 2.0f;
+    float otherCenter = (other->start.Elements[ax] + other->end.Elements[ax]) / 2.0f;
+    float diff = otherCenter - boxCenter;
+    box->start.Elements[ax] += diff;
+    box->end.Elements[ax] += diff;
+}
+
+// TODO: center along axis
+
+// TODO: unit test this
+// aligns box to be immediately next to and outside of other along ax
+// dir indicates which side on ax should be aligned with, 1 is the lower/right side, -1 is the left/upper side
+void ui_boxAlignOuter(ui_Box* box, ui_Box* other, ui_Axis ax, int dir) {
+    HMM_Vec2 boxSize = ui_boxGetSize(box);
+
+    float sidePos = 0;
+    if (dir == -1) {
+        sidePos = other->start.Elements[ax];
+        box->end.Elements[ax] = sidePos;
+        ui_boxSetSizeFromEnd(box, boxSize);
+    } else if (dir == 1) {
+        sidePos = other->end.Elements[ax];
+        box->start.Elements[ax] = sidePos;
+        ui_boxSetSizeFromStart(box, boxSize);
+    } else {
+        printf("[ui_boxAlignOuter]: dir should only be -1 or 1");
+        assert(false);
+    }
+}
+
+// TODO: unit test this
+float ui_boxSizeRemainingFromStart(ui_Box* parent, ui_Axis ax) {
+    float max = 0;
+    float parentStart = parent->start.Elements[ax];
+    for (ui_Box* child = parent->firstChild; child; child = child->nextSibling) {
+        float dist = child->start.Elements[ax] - parentStart;
+        if (dist > max) {
+            max = dist;
+        }
+        dist = child->end.Elements[ax] - parentStart;
+        if (dist > max) {
+            max = dist;
+        }
+    }
+    return ui_boxGetSize(parent).Elements[ax] - max;
+}

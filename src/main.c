@@ -46,23 +46,35 @@ int main(int argc, char* argv[]) {
         HMM_Vec2 screenSize = HMM_V2((float)w, (float)h);
 
         ui_frameStart();
-        ui_Box* firstKid = ui_boxNew("first kid");
-        firstKid->color = HMM_V4(0, 0, 1, 1);
-        firstKid->start = HMM_V2(100, 100);
-        firstKid->end = HMM_V2(200, 200);
 
-        ui_boxScope(firstKid) {
-            ui_Box* inner = ui_boxNew("inner");
-            inner->color = HMM_V4(0, 1, 1, 1);
-            inner->start = HMM_V2(125, 125);
-            inner->end = HMM_V2(225, 225);
-            ui_Box* innerSibling = ui_boxNew("innerSibling");
-            innerSibling->color = HMM_V4(0, 0.5, 1, 1);
-            innerSibling->start = HMM_V2(150, 125);
-            innerSibling->end = HMM_V2(250, 225);
+        ui_Box* background = ui_boxNew("first kid");
+        background->color = HMM_V4(0, 0, 1, 1);
+        ui_boxSetSizeFromStart(background, screenSize);
+        ui_boxScope(background) {
+            ui_Box* margins = ui_boxNew("margins");
+            ui_boxMarginFromParent(margins, 15);
+            ui_boxScope(margins) {
+                ui_Box* leftPanel = ui_boxNew("leftPanel");
+                leftPanel->color = HMM_V4(0, 0.5, 1, 1);
+                ui_boxFillParent(leftPanel);
+                ui_boxSizePctParent(leftPanel, 0.4, UI_AX_X);
+
+                ui_Box* middleBar = ui_boxNew("middleBar");
+                middleBar->color = HMM_V4(0, 0, 0, 1);
+                ui_boxSizePctParent(middleBar, 1, UI_AX_Y);
+                ui_boxCenter(middleBar, middleBar->parent, UI_AX_Y);
+                ui_boxSetSizeFromStartAx(middleBar, UI_AX_X, 5);
+                ui_boxAlignOuter(middleBar, middleBar->prevSibling, UI_AX_X, 1);
+
+                ui_Box* rightPanel = ui_boxNew("rightPanel");
+                rightPanel->color = leftPanel->color;
+                float size = ui_boxSizeRemainingFromStart(rightPanel->parent, UI_AX_X);
+                ui_boxFillParent(rightPanel);
+                ui_boxSetSizeFromEndAx(rightPanel, UI_AX_X, size);
+            }
         }
 
-        ren_pushCallsFromUITree(firstKid, screenSize);
+        ren_pushCallsFromUITree(background, screenSize);
         ren_flush(w, h, HMM_V4(0, 0, 0, 1));
 
         // float time = (float)SDL_GetTicks64() / 1000;
