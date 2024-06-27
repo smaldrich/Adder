@@ -1,3 +1,4 @@
+#pragma once
 #include "HMM/HandmadeMath.h"
 #include "base/allocators.h"
 #include <memory.h>
@@ -6,11 +7,12 @@
 
 // TODO: useMem
 // TODO: new as parent
-// TODO: rendering things
 // TODO: easing functions
 // TODO: input structs
 // TODO: test shiz
 // TODO: utilities
+// TODO: rounding, borders
+// TODO: textures
 
 typedef struct ui_Box ui_Box;
 struct ui_Box {
@@ -18,6 +20,7 @@ struct ui_Box {
     float z; // where z+ is closer to screen, z- is farther // integer gaps are between divs, decimals between children
     HMM_Vec2 start;
     HMM_Vec2 end;
+    HMM_Vec4 color;
     ui_Box* firstChild;
     ui_Box* lastChild;
     ui_Box* nextSibling;
@@ -29,46 +32,48 @@ typedef struct {
     ui_Box treeParent;
     ui_Box* currentParentBox;
     BumpAlloc arena;
-} ui_Inst;
-ui_Inst globs;
+} _ui_Globs;
+static _ui_Globs _ui_globs;
 
 // TODO: formatted version
 ui_Box* ui_boxNew(const char* tag) {
-    UI_ASSERT(globs.currentParentBox != NULL);
-    ui_Box* b = BUMP_PUSH_NEW(&globs.arena, ui_Box);
+    UI_ASSERT(_ui_globs.currentParentBox != NULL);
+    ui_Box* b = BUMP_PUSH_NEW(&_ui_globs.arena, ui_Box);
     b->tag = tag; // TODO: probs copy this into the arena
 
-    b->parent = globs.currentParentBox;
-    if (globs.currentParentBox->lastChild) {
-        globs.currentParentBox->lastChild->nextSibling = b;
-        b->prevSibling = globs.currentParentBox->lastChild;
-        globs.currentParentBox->lastChild = b;
+    b->parent = _ui_globs.currentParentBox;
+    if (_ui_globs.currentParentBox->lastChild) {
+        _ui_globs.currentParentBox->lastChild->nextSibling = b;
+        b->prevSibling = _ui_globs.currentParentBox->lastChild;
+        _ui_globs.currentParentBox->lastChild = b;
         float lastZ = b->parent->lastChild->z;
         UI_ASSERT(fmodf(lastZ, 1) < 0.9999); // TODO: test check for this one
         b->z = lastZ + 0.0001;
     } else {
-        globs.currentParentBox->firstChild = b;
-        globs.currentParentBox->lastChild = b;
+        _ui_globs.currentParentBox->firstChild = b;
+        _ui_globs.currentParentBox->lastChild = b;
         b->z = b->parent->z + 1;
     }
     return b;
 }
 
 void ui_frameStart() {
-    if (!globs.arena.start) {
-        globs.arena = bump_allocate(1000000, "ui frame arena");
+    if (!_ui_globs.arena.start) {
+        _ui_globs.arena = bump_allocate(1000000, "ui frame arena");
+    } else {
+        bump_clear(&_ui_globs.arena);
     }
-    memset(&globs.treeParent, 0, sizeof(globs.treeParent));
-    globs.treeParent.tag = "__this is the global ui tree parent :)__";
-    globs.currentParentBox = &globs.treeParent;
+    memset(&_ui_globs.treeParent, 0, sizeof(_ui_globs.treeParent));
+    _ui_globs.treeParent.tag = "__this is the global ui tree parent :)__";
+    _ui_globs.currentParentBox = &_ui_globs.treeParent;
 }
 
 void ui_boxEnter(ui_Box* parent) {
-    globs.currentParentBox = parent;
+    _ui_globs.currentParentBox = parent;
 }
 void ui_boxExit() {
-    globs.currentParentBox = globs.currentParentBox->parent;
-    UI_ASSERT(globs.currentParentBox != NULL);
+    _ui_globs.currentParentBox = _ui_globs.currentParentBox->parent;
+    UI_ASSERT(_ui_globs.currentParentBox != NULL);
 }
 #define ui_defer(begin, end) for (int _i_ = ((begin), 0); !_i_; _i_ += 1, (end))
 #define ui_boxScope(b) ui_defer(ui_boxEnter(b), ui_boxExit())

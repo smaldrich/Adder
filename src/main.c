@@ -7,27 +7,7 @@
 #include "serialization2.h"
 #include "sketches.h"
 #include "ui.h"
-
-void cb_glad_debug(GLenum source, GLenum type, GLuint id, GLenum severity, GLsizei length, const char* message, const void* userParam) {
-    if (type == GL_DEBUG_TYPE_OTHER) {
-        return;
-    }
-    // hides messages talking about buffer detailed info
-    printf("[GL] %i, %s\n", type, message);
-    type = source = id = severity = length = (int)(uint64_t)userParam; // to get rid of unused arg warnings
-}
-
-void initGl() {
-    gladLoadGL();
-    glLoadIdentity();
-    glEnable(GL_DEPTH_TEST);
-    glDepthFunc(GL_LESS | GL_EQUAL);
-    glEnable(GL_BLEND);
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-    glEnable(GL_DEBUG_OUTPUT);
-    glEnable(GL_MULTISAMPLE);
-    glDebugMessageCallback(cb_glad_debug, 0);
-}
+#include "render.h"
 
 int main(int argc, char* argv[]) {
     assert(argc == 1);
@@ -48,25 +28,30 @@ int main(int argc, char* argv[]) {
     assert(context);
     SDL_Renderer* renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
     assert(renderer);
-    initGl();
+
+    ren_init();
 
     bool quit = false;
     // float prevTime = 0.0;
     while (!quit) {
-        // int w, h;
-        // SDL_GL_GetDrawableSize(window, &w, &h);
-        // HMM_Vec2 screenSize = HMM_V2((float)w, (float)h);
-
-        // float time = (float)SDL_GetTicks64() / 1000;
-        // float dt = time - prevTime;
-        // vTime = time;
-
         SDL_Event e;
         while (SDL_PollEvent(&e)) {
             if (e.type == SDL_QUIT) {
                 quit = true;
             }
         }
+
+        int w, h;
+        SDL_GL_GetDrawableSize(window, &w, &h);
+        // HMM_Vec2 screenSize = HMM_V2((float)w, (float)h);
+
+        ui_frameStart();
+        ren_flush(w, h, HMM_V4(0, 1, 0, 1));
+
+        // float time = (float)SDL_GetTicks64() / 1000;
+        // float dt = time - prevTime;
+        // vTime = time;
+
         SDL_GL_SwapWindow(window);
     }
     return 0;

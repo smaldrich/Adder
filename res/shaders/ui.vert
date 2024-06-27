@@ -33,7 +33,7 @@ void main()
     vRectCenter = (uDstEnd + uDstStart) / 2;
     vRectHalfSize = (uDstEnd - uDstStart) / 2;
 
-    // TODO: shouldn't these be roudned instead of casted?
+    // TODO: shouldn't these be rounded instead of casted?
     vec2 snapped = vec2(int(corner.x), int(corner.y));
     gl_Position = uVP * vec4(mix(corner, snapped, uSnap), uZ, 1);
 };
