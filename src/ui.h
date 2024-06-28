@@ -14,7 +14,15 @@
 // TODO: singleheader ify
 // TODO: docs pass
 // TODO: focus system
+
 // TODO: child clipping
+// w/ the layer system in place, this can probably be automatically applied
+
+// TODO: layer system
+// the idea is an enum value stored per box which determines the 'layer' of each thing under it
+// layers would be something like 'default' 'nav bar' 'popout' 'tooltip', where later layes are rendered on top
+// of earlier ones and recieve events soonest
+// layer enums would prolly just be ignored after the outermost one has been set
 
 typedef enum {
     UI_AX_X,
@@ -39,7 +47,6 @@ struct ui_Interaction {
 typedef struct _ui_Box _ui_Box;
 struct _ui_Box {
     const char* pathTag;
-    float z; // where z+ is closer to screen, z- is farther // integer gaps are between divs, decimals between children
     HMM_Vec2 start;
     HMM_Vec2 end;
     HMM_Vec4 color;
@@ -173,14 +180,10 @@ _ui_Box* ui_boxNew(const char* tag) {
 
     b->parent = _ui_globs.currentParentBox;
     if (_ui_globs.currentParentBox->lastChild) {
-        float lastZ = b->parent->lastChild->z;
-        UI_ASSERT(fmodf(lastZ, 1) < 0.9999); // TODO: test check for this one
-        b->z = lastZ + 0.0001;
         _ui_globs.currentParentBox->lastChild->nextSibling = b;
         b->prevSibling = _ui_globs.currentParentBox->lastChild;
         _ui_globs.currentParentBox->lastChild = b;
     } else {
-        b->z = b->parent->z + 1;
         _ui_globs.currentParentBox->firstChild = b;
         _ui_globs.currentParentBox->lastChild = b;
     }

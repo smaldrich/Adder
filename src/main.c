@@ -78,15 +78,6 @@ int main(int argc, char* argv[]) {
                     }
                     ui_boxFillParent(leftPanel);
                     ui_boxSizePctParent(leftPanel, *pct, UI_AX_X);
-
-                    ui_boxScope(leftPanel) {
-                        _ui_Box* blocker = ui_boxNew("blocker");
-                        ui_boxFillParent(blocker);
-                        ui_boxSizePctParent(blocker, 0.2, UI_AX_Y);
-                        ui_boxSetSizeFromStartAx(blocker, UI_AX_X, 1000);
-                        ui_boxSetColor(blocker, HMM_V4(1, 1, 1, 1));
-                        ui_boxSetInteractionOutput(blocker, NULL, UI_IF_HOVER);
-                    }
                 }
 
                 {
