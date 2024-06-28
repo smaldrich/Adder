@@ -54,10 +54,17 @@ int main(int argc, char* argv[]) {
             ui_Box* margins = ui_boxNew("margins");
             ui_boxMarginFromParent(margins, 15);
             ui_boxScope(margins) {
-                ui_Box* leftPanel = ui_boxNew("leftPanel");
-                leftPanel->color = HMM_V4(0, 0.5, 1, 1);
-                ui_boxFillParent(leftPanel);
-                ui_boxSizePctParent(leftPanel, 0.4, UI_AX_X);
+                HMM_Vec4 panelCol = HMM_V4(0, 0.5, 1, 1);
+                {
+                    ui_Box* leftPanel = ui_boxNew("leftPanel");
+                    leftPanel->color = panelCol;
+                    float* pct = UI_USE_MEM(float, "pct");
+                    if (ui_useMemIsPrevNew()) {
+                        *pct = 0.4;
+                    }
+                    ui_boxFillParent(leftPanel);
+                    ui_boxSizePctParent(leftPanel, *pct, UI_AX_X);
+                }
 
                 ui_Box* middleBar = ui_boxNew("middleBar");
                 middleBar->color = HMM_V4(0, 0, 0, 1);
@@ -65,11 +72,13 @@ int main(int argc, char* argv[]) {
                 ui_boxSetSizeFromStartAx(middleBar, UI_AX_X, 5);
                 ui_boxAlignOuter(middleBar, middleBar->prevSibling, UI_AX_X, 1);
 
-                ui_Box* rightPanel = ui_boxNew("rightPanel");
-                rightPanel->color = leftPanel->color;
-                float size = ui_boxSizeRemainingFromStart(rightPanel->parent, UI_AX_X);
-                ui_boxFillParent(rightPanel);
-                ui_boxSetSizeFromEndAx(rightPanel, UI_AX_X, size);
+                {
+                    ui_Box* rightPanel = ui_boxNew("rightPanel");
+                    rightPanel->color = panelCol;
+                    float size = ui_boxSizeRemainingFromStart(rightPanel->parent, UI_AX_X);
+                    ui_boxFillParent(rightPanel);
+                    ui_boxSetSizeFromEndAx(rightPanel, UI_AX_X, size);
+                }
             } // end margins
         } // end parent
 

@@ -47,6 +47,7 @@ typedef struct {
     ui_Box* currentParentBox;
     BumpAlloc frameArena;
     _ui_useMemAllocNode useMemAllocs[_UI_USEMEM_MAX_ALLOCS];
+    bool useMemIsLastAllocTouchedNew;
     uint64_t currentFrameIdx;
 } _ui_Globs;
 static _ui_Globs _ui_globs;
@@ -64,8 +65,13 @@ const char* _ui_concatStrToFrameArena(const char* a, const char* b) {
 // memory is automatically freed when it is not used (with the same size) for a frame
 // tag must be unique with all siblings inside the current parent box
 // TODO: invalid access unit tests
+// TODO: unit tests when input is done
 void* ui_useMem(uint64_t size, const char* tag) {
-    const char* pathStr = _ui_concatStrToFrameArena(tag, _ui_globs.currentParentBox->pathTag);
+    ui_Box* pathTarget = _ui_globs.currentParentBox;
+    if (pathTarget->lastChild) {
+        pathTarget = pathTarget->lastChild;
+    }
+    const char* pathStr = _ui_concatStrToFrameArena(tag, pathTarget->pathTag);
 
     // first check if there is a node out there that correllates with this ones tag
     _ui_useMemAllocNode* firstFree = NULL;
@@ -79,6 +85,7 @@ void* ui_useMem(uint64_t size, const char* tag) {
         } else if (strcmp(node->pathStr, pathStr) == 0) {
             UI_ASSERT(node->lastFrameTouched == _ui_globs.currentFrameIdx - 1); // if still in use, it must be exacly 1 frame old
             node->lastFrameTouched = _ui_globs.currentFrameIdx;
+            _ui_globs.useMemIsLastAllocTouchedNew = false;
             return node->alloc;
         }
     }
@@ -91,10 +98,17 @@ void* ui_useMem(uint64_t size, const char* tag) {
     firstFree->lastFrameTouched = _ui_globs.currentFrameIdx;
     firstFree->alloc = calloc(1, size);
     UI_ASSERT(firstFree->alloc);
+    _ui_globs.useMemIsLastAllocTouchedNew = true;
     return firstFree->alloc;
 }
 
+// returns whether the last returned call to ui_useMem this frame was newly allocated or persisted
+bool ui_useMemIsPrevNew() {
+    return _ui_globs.useMemIsLastAllocTouchedNew;
+}
+
 // sets the in use flag on each useMem node that has not been touched on the current frame
+// TODO: cleanup fns
 void _ui_useMemClearOld() {
     for (uint64_t i = 0; i < _UI_USEMEM_MAX_ALLOCS; i++) {
         _ui_useMemAllocNode* node = &_ui_globs.useMemAllocs[i];
@@ -108,8 +122,8 @@ void _ui_useMemClearOld() {
     }
 }
 
-// #define UI_USE_MEM(T) ((T*)ui_useMem(sizeof(T)))
-// #define UI_USE_ARRAY(T, count) ((T*)ui_useMem(sizeof(T) * (count)))
+#define UI_USE_MEM(T, tag) ((T*)ui_useMem(sizeof(T), (tag)))
+#define UI_USE_ARRAY(T, count, tag) ((T*)ui_useMem(sizeof(T) * (count), (tag)))
 
 // TODO: formatted version
 ui_Box* ui_boxNew(const char* tag) {
@@ -138,9 +152,10 @@ void ui_frameStart() {
     if (!_ui_globs.frameArena.start) {
         _ui_globs.frameArena = bump_allocate(1000000, "ui frame arena");
     } else {
-        _ui_useMemClearOld();
         bump_clear(&_ui_globs.frameArena);
     }
+    _ui_useMemClearOld();
+    _ui_globs.useMemIsLastAllocTouchedNew = false;
     _ui_globs.currentFrameIdx++;
     memset(&_ui_globs.treeParent, 0, sizeof(_ui_globs.treeParent));
     _ui_globs.treeParent.pathTag = "_";
