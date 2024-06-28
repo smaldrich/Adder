@@ -208,16 +208,21 @@ void ren_pushCallUI(HMM_Vec2 dstStart, HMM_Vec2 dstEnd, float z, HMM_Mat4 vp, HM
     };
 }
 
-void _ren_pushCallsFromUITree(ui_Box* box, HMM_Mat4 vp) {
-    for (ui_Box* b = box; b; b = b->nextSibling) {
+void _ren_pushCallsFromUITree(_ui_Box* box, HMM_Mat4 vp) {
+    // TODO: is doing this by Z value the best?
+    // first all siblings // separated to make blending work right
+    for (_ui_Box* b = box; b; b = b->nextSibling) {
         ren_pushCallUI(b->start, b->end, b->z, vp, b->color);
+    }
+    // then all children
+    for (_ui_Box* b = box; b; b = b->nextSibling) {
         if (b->firstChild) {
             _ren_pushCallsFromUITree(b->firstChild, vp);
         }
     }
 }
 
-void ren_pushCallsFromUITree(ui_Box* box, HMM_Vec2 screenSize) {
+void ren_pushCallsFromUITree(_ui_Box* box, HMM_Vec2 screenSize) {
     HMM_Mat4 vp = HMM_Orthographic_RH_NO(0, screenSize.X, screenSize.Y, 0, -1000, 1000);
     // we are using a depth test of LESS, so negative values will appear in front in NDC
     // this VP then puts coords closer to negative values closer to + in NDC

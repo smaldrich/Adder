@@ -34,11 +34,25 @@ int main(int argc, char* argv[]) {
     bool quit = false;
     // float prevTime = 0.0;
     while (!quit) {
+        // float time = (float)SDL_GetTicks64() / 1000;
+        // float dt = time - prevTime;
+
         SDL_Event e;
         while (SDL_PollEvent(&e)) {
             if (e.type == SDL_QUIT) {
                 quit = true;
             }
+        }
+
+        {
+            ui_Input input;
+            memset(&input, 0, sizeof(input));
+
+            int mx, my;
+            SDL_GetMouseState(&mx, &my);
+            input.mousePos = HMM_V2(mx, my);
+
+            ui_frameGenInteractions(input);
         }
 
         int w, h;
@@ -47,34 +61,57 @@ int main(int argc, char* argv[]) {
 
         ui_frameStart();
 
-        ui_Box* background = ui_boxNew("first kid");
-        background->color = HMM_V4(0, 0, 1, 1);
+        _ui_Box* background = ui_boxNew("first kid");
+        ui_boxSetColor(background, HMM_V4(0, 0, 1, 1));
         ui_boxSetSizeFromStart(background, screenSize);
         ui_boxScope(background) {
-            ui_Box* margins = ui_boxNew("margins");
+            _ui_Box* margins = ui_boxNew("margins");
             ui_boxMarginFromParent(margins, 15);
             ui_boxScope(margins) {
                 HMM_Vec4 panelCol = HMM_V4(0, 0.5, 1, 1);
                 {
-                    ui_Box* leftPanel = ui_boxNew("leftPanel");
-                    leftPanel->color = panelCol;
+                    _ui_Box* leftPanel = ui_boxNew("leftPanel");
+                    ui_boxSetColor(leftPanel, panelCol);
                     float* pct = UI_USE_MEM(float, "pct");
                     if (ui_useMemIsPrevNew()) {
                         *pct = 0.4;
                     }
                     ui_boxFillParent(leftPanel);
                     ui_boxSizePctParent(leftPanel, *pct, UI_AX_X);
+
+                    ui_boxScope(leftPanel) {
+                        _ui_Box* blocker = ui_boxNew("blocker");
+                        ui_boxFillParent(blocker);
+                        ui_boxSizePctParent(blocker, 0.2, UI_AX_Y);
+                        ui_boxSetSizeFromStartAx(blocker, UI_AX_X, 1000);
+                        ui_boxSetColor(blocker, HMM_V4(1, 1, 1, 1));
+                        ui_boxSetInteractionOutput(blocker, NULL, UI_IF_HOVER);
+                    }
                 }
 
-                ui_Box* middleBar = ui_boxNew("middleBar");
-                middleBar->color = HMM_V4(0, 0, 0, 1);
-                ui_boxFillParent(middleBar);
-                ui_boxSetSizeFromStartAx(middleBar, UI_AX_X, 5);
-                ui_boxAlignOuter(middleBar, middleBar->prevSibling, UI_AX_X, 1);
+                {
+                    _ui_Box* middleBar = ui_boxNew("middleBar");
+                    ui_boxFillParent(middleBar);
+                    ui_boxSetSizeFromStartAx(middleBar, UI_AX_X, 2);
+                    ui_boxAlignOuter(middleBar, middleBar->prevSibling, UI_AX_X, 1);
+                    ui_boxScope(middleBar) {
+                        _ui_Box* clickZone = ui_boxNew("clickZone");
+                        ui_boxFillParent(clickZone);
+                        ui_boxSetSizeFromStartAx(clickZone, UI_AX_X, 6);
+                        ui_boxCenter(clickZone, clickZone->parent, UI_AX_X);
+
+                        ui_Interaction* inter = UI_USE_MEM(ui_Interaction, "inter");
+                        ui_boxSetInteractionOutput(clickZone, inter, UI_IF_HOVER);
+                        float* hoverAnim = UI_USE_MEM(float, "hoverAnim");
+                        *hoverAnim = ui_easeExp(*hoverAnim, inter->hovered, 0.075);
+                        HMM_Vec4 col = HMM_LerpV4(HMM_V4(1, 1, 1, 0), *hoverAnim, HMM_V4(1, 1, 1, 1));
+                        ui_boxSetColor(clickZone, col);
+                    }
+                }
 
                 {
-                    ui_Box* rightPanel = ui_boxNew("rightPanel");
-                    rightPanel->color = panelCol;
+                    _ui_Box* rightPanel = ui_boxNew("rightPanel");
+                    ui_boxSetColor(rightPanel, panelCol);
                     float size = ui_boxSizeRemainingFromStart(rightPanel->parent, UI_AX_X);
                     ui_boxFillParent(rightPanel);
                     ui_boxSetSizeFromEndAx(rightPanel, UI_AX_X, size);
@@ -84,10 +121,6 @@ int main(int argc, char* argv[]) {
 
         ren_pushCallsFromUITree(background, screenSize);
         ren_flush(w, h, HMM_V4(0, 0, 0, 1));
-
-        // float time = (float)SDL_GetTicks64() / 1000;
-        // float dt = time - prevTime;
-        // vTime = time;
 
         SDL_GL_SwapWindow(window);
     }
