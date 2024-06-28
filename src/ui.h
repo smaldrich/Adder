@@ -5,10 +5,9 @@
 
 #define UI_ASSERT(expr) assert(expr)
 
-// TODO: useMem
 // TODO: new as parent
 // TODO: easing functions
-// TODO: input structs
+// TODO: input
 // TODO: test shiz
 // TODO: utilities
 // TODO: rounding, borders
@@ -22,7 +21,7 @@ typedef enum {
 
 typedef struct ui_Box ui_Box;
 struct ui_Box {
-    const char* tag;
+    const char* pathTag;
     float z; // where z+ is closer to screen, z- is farther // integer gaps are between divs, decimals between children
     HMM_Vec2 start;
     HMM_Vec2 end;
@@ -35,17 +34,89 @@ struct ui_Box {
 };
 
 typedef struct {
+    uint64_t lastFrameTouched;
+    uint64_t allocSize;
+    void* alloc;
+    const char* pathStr; // string of this tag + parents tag + parents parents tag all together
+    bool inUse;
+} _ui_useMemAllocNode;
+#define _UI_USEMEM_MAX_ALLOCS 8000
+
+typedef struct {
     ui_Box treeParent;
     ui_Box* currentParentBox;
-    BumpAlloc arena;
+    BumpAlloc frameArena;
+    _ui_useMemAllocNode useMemAllocs[_UI_USEMEM_MAX_ALLOCS];
+    uint64_t currentFrameIdx;
 } _ui_Globs;
 static _ui_Globs _ui_globs;
+
+const char* _ui_concatStrToFrameArena(const char* a, const char* b) {
+    uint64_t aLen = strlen(a);
+    uint64_t bLen = strlen(b);
+    char* out = BUMP_PUSH_ARR(&_ui_globs.frameArena, aLen + bLen + 1, char);
+    memcpy(out, a, aLen);
+    memcpy(out + aLen, b, bLen);
+    return out;
+}
+
+// returns an initially zeroed piece of memory that will persist between frames
+// memory is automatically freed when it is not used (with the same size) for a frame
+// tag must be unique with all siblings inside the current parent box
+// TODO: invalid access unit tests
+void* ui_useMem(uint64_t size, const char* tag) {
+    const char* pathStr = _ui_concatStrToFrameArena(tag, _ui_globs.currentParentBox->pathTag);
+
+    // first check if there is a node out there that correllates with this ones tag
+    _ui_useMemAllocNode* firstFree = NULL;
+    for (uint64_t i = 0; i < _UI_USEMEM_MAX_ALLOCS; i++) {
+        _ui_useMemAllocNode* node = &_ui_globs.useMemAllocs[i];
+        if (!node->inUse) {
+            if (!firstFree) {
+                firstFree = node;
+            }
+            continue;
+        } else if (strcmp(node->pathStr, pathStr) == 0) {
+            UI_ASSERT(node->lastFrameTouched == _ui_globs.currentFrameIdx - 1); // if still in use, it must be exacly 1 frame old
+            node->lastFrameTouched = _ui_globs.currentFrameIdx;
+            return node->alloc;
+        }
+    }
+    UI_ASSERT(firstFree != NULL);
+    // no node out there matches, we need to make a new one
+    memset(firstFree, 0, sizeof(*firstFree));
+    firstFree->inUse = true;
+    firstFree->pathStr = pathStr;
+    firstFree->allocSize = size;
+    firstFree->lastFrameTouched = _ui_globs.currentFrameIdx;
+    firstFree->alloc = calloc(1, size);
+    UI_ASSERT(firstFree->alloc);
+    return firstFree->alloc;
+}
+
+// sets the in use flag on each useMem node that has not been touched on the current frame
+void _ui_useMemClearOld() {
+    for (uint64_t i = 0; i < _UI_USEMEM_MAX_ALLOCS; i++) {
+        _ui_useMemAllocNode* node = &_ui_globs.useMemAllocs[i];
+        if (!node->inUse) {
+            continue;
+        }
+        UI_ASSERT(node->lastFrameTouched <= _ui_globs.currentFrameIdx); // just in case lol
+        if (node->lastFrameTouched < _ui_globs.currentFrameIdx) {
+            node->inUse = false;
+        }
+    }
+}
+
+// #define UI_USE_MEM(T) ((T*)ui_useMem(sizeof(T)))
+// #define UI_USE_ARRAY(T, count) ((T*)ui_useMem(sizeof(T) * (count)))
 
 // TODO: formatted version
 ui_Box* ui_boxNew(const char* tag) {
     UI_ASSERT(_ui_globs.currentParentBox != NULL);
-    ui_Box* b = BUMP_PUSH_NEW(&_ui_globs.arena, ui_Box);
-    b->tag = tag; // TODO: probs copy this into the arena
+    ui_Box* b = BUMP_PUSH_NEW(&_ui_globs.frameArena, ui_Box);
+    b->pathTag = _ui_concatStrToFrameArena(tag, _ui_globs.currentParentBox->pathTag);
+    // TODO: make sure this doesn't collide w/ any previous tags
 
     b->parent = _ui_globs.currentParentBox;
     if (_ui_globs.currentParentBox->lastChild) {
@@ -64,13 +135,15 @@ ui_Box* ui_boxNew(const char* tag) {
 }
 
 void ui_frameStart() {
-    if (!_ui_globs.arena.start) {
-        _ui_globs.arena = bump_allocate(1000000, "ui frame arena");
+    if (!_ui_globs.frameArena.start) {
+        _ui_globs.frameArena = bump_allocate(1000000, "ui frame arena");
     } else {
-        bump_clear(&_ui_globs.arena);
+        _ui_useMemClearOld();
+        bump_clear(&_ui_globs.frameArena);
     }
+    _ui_globs.currentFrameIdx++;
     memset(&_ui_globs.treeParent, 0, sizeof(_ui_globs.treeParent));
-    _ui_globs.treeParent.tag = "__this is the global ui tree parent :)__";
+    _ui_globs.treeParent.pathTag = "_";
     _ui_globs.currentParentBox = &_ui_globs.treeParent;
 }
 
@@ -139,8 +212,6 @@ void ui_boxCenter(ui_Box* box, ui_Box* other, ui_Axis ax) {
     box->end.Elements[ax] += diff;
 }
 
-// TODO: center along axis
-
 // TODO: unit test this
 // aligns box to be immediately next to and outside of other along ax
 // dir indicates which side on ax should be aligned with, 1 is the lower/right side, -1 is the left/upper side
@@ -178,3 +249,5 @@ float ui_boxSizeRemainingFromStart(ui_Box* parent, ui_Axis ax) {
     }
     return ui_boxGetSize(parent).Elements[ax] - max;
 }
+
+// TODO: clip children fn // TODO: how does this interact with rounding

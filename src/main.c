@@ -70,8 +70,8 @@ int main(int argc, char* argv[]) {
                 float size = ui_boxSizeRemainingFromStart(rightPanel->parent, UI_AX_X);
                 ui_boxFillParent(rightPanel);
                 ui_boxSetSizeFromEndAx(rightPanel, UI_AX_X, size);
-            }
-        }
+            } // end margins
+        } // end parent
 
         ren_pushCallsFromUITree(background, screenSize);
         ren_flush(w, h, HMM_V4(0, 0, 0, 1));
