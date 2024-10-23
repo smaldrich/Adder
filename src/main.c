@@ -1,17 +1,16 @@
 #define BASE_IMPL
-#include "base/allocators.h"
 #include "GLAD/include/glad/glad.h"
+#include "base/allocators.h"
 #define SDL_MAIN_HANDLED
 #include "SDL2/include/SDL2/SDL.h"
-
+#include "render.h"
 #include "serialization2.h"
 #include "sketches.h"
 #include "ui.h"
-#include "render.h"
 
 int main(int argc, char* argv[]) {
     assert(argc == 1);
-    assert(argv[0]); // to get rid of unused arg warnings
+    assert(argv[0]);  // to get rid of unused arg warnings
 
     printf("\n");
     sk_tests();
@@ -107,8 +106,8 @@ int main(int argc, char* argv[]) {
                     ui_boxFillParent(rightPanel);
                     ui_boxSetSizeFromEndAx(rightPanel, UI_AX_X, size);
                 }
-            } // end margins
-        } // end parent
+            }  // end margins
+        }  // end parent
 
         ren_pushCallsFromUITree(background, screenSize);
         ren_flush(w, h, HMM_V4(0, 0, 0, 1));

@@ -3,6 +3,7 @@
         "*.h": "c",
         "xmemory": "c",
         "xutility": "c",
-        "type_traits": "c"
+        "type_traits": "c",
+        "cstdlib": "c"
     }
 }
