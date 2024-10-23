@@ -2,17 +2,16 @@
 #include "GLAD/include/glad/glad.h"
 #include "base/allocators.h"
 #define SDL_MAIN_HANDLED
+#include "PoolAlloc.h"
 #include "SDL2/include/SDL2/SDL.h"
 #include "render.h"
 #include "serialization2.h"
 #include "sketches.h"
 #include "ui.h"
 
-int main(int argc, char* argv[]) {
-    assert(argc == 1);
-    assert(argv[0]);  // to get rid of unused arg warnings
-
+int main() {
     printf("\n");
+    _poolAllocTests();
     sk_tests();
     ser_tests();
 

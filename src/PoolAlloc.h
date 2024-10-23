@@ -1,3 +1,5 @@
+#pragma once
+
 #include <inttypes.h>
 #include <malloc.h>
 #include <memory.h>
@@ -13,7 +15,9 @@ poolAllocInit() - returns a good to used pool alloc. Dont copy or modify this. U
 poolAllocDeinit() - frees a pool + all allocations within.
 
 poolALlocAlloc() - malloc but in the pool
-
+poolALlocFree() - free but in the pool
+poolAllocPushArray() - take an array allocated in the pool, attempt to add one to it (can grow the arr)
+    doubles allocated memory on a grow
 */
 
 typedef struct PoolAllocNode PoolAllocNode;
@@ -32,7 +36,7 @@ typedef struct {
 
 PoolAlloc poolAllocInit() {
     PoolAlloc out;
-    memset(&out, sizeof(out), 0);
+    memset(&out, 0, sizeof(out));
     out.nodeCount = 16;
     out.nodes = calloc(1, out.nodeCount * sizeof(*out.nodes));
     return out;
@@ -63,8 +67,8 @@ static PoolAllocNode* _poolAllocFindAlloc(PoolAlloc* pool, void* alloc) {
 void* poolAllocAlloc(PoolAlloc* pool, int64_t size) {
     PoolAllocNode* node = NULL;
     for (int i = 0; i < pool->nodeCount; i++) {
-        PoolAllocNode* n = &pool->nodes[i];
-        if (!node->allocated) {
+        PoolAllocNode* n = &(pool->nodes[i]);
+        if (!n->allocated) {
             node = n;
             break;
         }
@@ -81,8 +85,8 @@ void* poolAllocAlloc(PoolAlloc* pool, int64_t size) {
     }
 
     node->allocated = true;
-    what happens when size is zero ? ;
-    node->allocation = malloc(size);
+    assert(size >= 0);
+    node->allocation = malloc(size + 1);  // add one so the allocation is never zero
     node->capacity = size;
     return node->allocation;
 }
@@ -106,29 +110,39 @@ void poolAllocFree(PoolAlloc* pool, void* alloc) {
     assert(node->allocated);
 
     free(node->allocation);
-    node->allocated = false;
+    memset(node, 0, sizeof(*node));
 }
 
-#define poolAllocPushArray(poolPtr, array, count, T) _poolAllocPushArray((poolPtr), (array), &(count), sizeof(T))
-void* _poolAllocPushArray(PoolAlloc* pool, void* array, int64_t* count, int64_t sizeOfElt) {
-    PoolAllocNode* node = _poolAllocFindAlloc(pool, array);
+// count and arrayPtr should be int64_t and T* respectively, they are writen to as output.
+#define poolAllocPushArray(poolPtr, arrayPtr, count, T) _poolAllocPushArray((poolPtr), (void**)(&(arrayPtr)), &(count), sizeof(T))
+void _poolAllocPushArray(PoolAlloc* pool, void** array, int64_t* count, int64_t sizeOfElt) {
+    PoolAllocNode* node = _poolAllocFindAlloc(pool, *array);
     assert(node != NULL);
     assert(node->allocated);
 
-    int64_t newSize = *count * 2 * sizeOfElt;
+    int64_t newSize = (*count * 2 + 1) * sizeOfElt;
     node->capacity = newSize;
     (*count)++;
 
     node->allocation = realloc(node->allocation, newSize);
     assert(node->allocation != NULL);
-    return node->allocation;
+
+    *array = node->allocation;  // write to the output :) // FIXME: this shit very dangerous, typecheck at least
 }
 
-void poolAllocTests() {
+void _poolAllocTests() {
     PoolAlloc p = poolAllocInit();
     PoolAlloc* pool = &p;
 
     char* myArr = poolAllocAlloc(pool, 0);
     int64_t myArrCount = 0;
-    myArr = poolAllocPushArray(pool, myArr, myArrCount, char);
+    for (int i = 0; i < 10; i++) {
+        poolAllocPushArray(pool, myArr, myArrCount, char);
+        myArr[i] = '0' + i;
+    }
+    void* alloc = poolAllocAlloc(pool, 64);
+    poolAllocAlloc(pool, 64);
+    poolAllocFree(pool, alloc);
+    poolAllocAlloc(pool, 64);
+    poolAllocDeinit(pool);
 }
