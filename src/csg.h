@@ -2,6 +2,7 @@
 
 #include <assert.h>
 #include <inttypes.h>
+#include <stdio.h>
 
 #include "HMM/HandmadeMath.h"
 #include "PoolAlloc.h"
@@ -22,6 +23,16 @@ typedef struct {
     PoolAlloc* alloc;
 } csg_Mesh;
 
+csg_Mesh csg_meshInit(PoolAlloc* alloc) {
+    csg_Mesh out;
+    memset(&out, 0, sizeof(out));
+
+    out.alloc = alloc;
+    out.verts = poolAllocAlloc(alloc, 0);
+    out.edges = poolAllocAlloc(alloc, 0);
+    return out;
+}
+
 typedef enum {
     CSG_BSPNK_INVALID,
     CSG_BSPNK_SPLIT,
@@ -29,25 +40,22 @@ typedef enum {
     CSG_BSPNK_LEAF_OUTSIDE_MESH
 } csg_BSPNodeKind;
 
-typedef enum {
-    CSG_CK_OUTSIDE,
-    CSG_CK_WITHIN,
-    CSG_CK_ON_THE_EDGE,
-} csg_ContainKind;
-
 typedef struct csg_BSPNode csg_BSPNode;
 struct csg_BSPNode {
     csg_BSPNode* outerTree;
     csg_BSPNode* innerTree;
-    HMM_Vec2 splitOrigin;
-    HMM_Vec2 splitNormal;
+    HMM_Vec2 splitNormal;  // FIXME: redundant?
     csg_BSPNodeKind kind;
 
     csg_BSPNode* nextAvailible;  // used for construction only, probs should remove for perf but who cares
+
+    HMM_Vec2 point1;  // FIXME: redundant?
+    HMM_Vec2 point2;
 };
 
 // parent assumed non-null, new nodes allocated into arena
 // takes a list of nodes with normals and origins filled out, organizes it + its children into the tree shape based on splits
+// will allocate more nodes over the course of fixing, these are put into arena
 void _csg_BSPTreeFixNode(BumpAlloc* arena, csg_BSPNode* parent, csg_BSPNode* listOfPossibleNodes) {
     csg_BSPNode* innerList = NULL;
     csg_BSPNode* outerList = NULL;
@@ -57,13 +65,25 @@ void _csg_BSPTreeFixNode(BumpAlloc* arena, csg_BSPNode* parent, csg_BSPNode* lis
             // memo this beforehand ev loop because appending to the inner/outer list overwrites the nextptr
             next = node->nextAvailible;
 
-            if (node in) {
-                node->nextAvailible = innerList;
-                innerList = node;
-            } else if (node out) {
+            float p1Dot = HMM_DotV2(HMM_SubV2(node->point1, parent->point1), node->splitNormal);
+            float p2Dot = HMM_DotV2(HMM_SubV2(node->point2, parent->point1), node->splitNormal);
+            if (p1Dot > 0 && p2Dot > 0) {
                 node->nextAvailible = outerList;
                 outerList = node;
-            } else if (split) {
+            } else if (p1Dot <= 0 && p2Dot <= 0) {
+                node->nextAvailible = innerList;
+                innerList = node;
+            } else {
+                // it spans both sides, we need one node for each side
+                csg_BSPNode* duplicate = BUMP_PUSH_NEW(arena, csg_BSPNode);
+                duplicate->splitNormal = node->splitNormal;
+                duplicate->point1 = node->point1;
+                duplicate->point2 = node->point2;
+
+                node->nextAvailible = innerList;
+                innerList = node;
+                duplicate->nextAvailible = outerList;
+                outerList = duplicate;
             }
         }
     }
@@ -74,21 +94,21 @@ void _csg_BSPTreeFixNode(BumpAlloc* arena, csg_BSPNode* parent, csg_BSPNode* lis
 
     if (parent->innerTree == NULL) {
         parent->innerTree = BUMP_PUSH_NEW(arena, csg_BSPNode);
-        parent->innerTree->kind = CSG_CK_WITHIN;
+        parent->innerTree->kind = CSG_BSPNK_LEAF_WITHIN_MESH;
     } else {
         _csg_BSPTreeFixNode(arena, parent->innerTree, innerList->nextAvailible);
     }
 
     if (parent->outerTree == NULL) {
         parent->outerTree = BUMP_PUSH_NEW(arena, csg_BSPNode);
-        parent->outerTree->kind = CSG_CK_OUTSIDE;
+        parent->outerTree->kind = CSG_BSPNK_LEAF_OUTSIDE_MESH;
     } else {
         _csg_BSPTreeFixNode(arena, parent->outerTree, innerList->nextAvailible);
     }
 }
 
 // returns the top of a bsp tree for the mesh, allocated entirely inside arena
-// Normals calculated with out being CW
+// Normals calculated with out being CW, where all normals should be pointing out
 csg_BSPNode* csg_BSPTreeFromMesh(const csg_Mesh* mesh, BumpAlloc* arena) {
     csg_BSPNode* tree = NULL;
 
@@ -103,27 +123,67 @@ csg_BSPNode* csg_BSPTreeFromMesh(const csg_Mesh* mesh, BumpAlloc* arena) {
 
         HMM_Vec2 diff = HMM_SubV2(p2, p1);
         node->splitNormal = HMM_V2(-diff.Y, diff.X);
-        node->splitOrigin = p1;
+        node->point1 = p1;
+        node->point2 = p2;
     }
 
     _csg_BSPTreeFixNode(arena, tree, tree->nextAvailible);
     return tree;
 }
 
-void csg_isPointWithinMesh(csg_Mesh* mesh, HMM_Vec2 point) {
-    for (int i = 0; i < mesh->edgeCount; i++) {
-        csg_MeshEdge e = mesh->edges[i];
-        HMM_Vec2 p1 = mesh->verts[e.aIdx];
-        HMM_Vec2 p2 = mesh->verts[e.bIdx];
-        HMM_Vec2 edgeDiff = HMM_SubV2(p2, p1);
-        HMM_Vec2 normal = HMM_Vec2(0, 0);
+bool csg_BSPContainsPoint(csg_BSPNode* tree, HMM_Vec2 point) {
+    csg_BSPNode* node = tree;
+    while (node->kind != CSG_BSPNK_LEAF_OUTSIDE_MESH && node->kind != CSG_BSPNK_LEAF_WITHIN_MESH) {
+        HMM_Vec2 diff = HMM_SubV2(point, node->point1);
+        float dot = HMM_DotV2(diff, node->splitNormal);
+        if (dot <= 0) {
+            node = node->innerTree;
+        } else {
+            node = node->outerTree;
+        }
+        assert(node != NULL);
     }
+    return (node->kind == CSG_BSPNK_LEAF_WITHIN_MESH) ? true : false;
 }
 
-void csg_difference(csg_Mesh* meshA, csg_Mesh* meshB) {
-}
+// // returns a set of points on meshA that are not in meshB
+// void csg_difference(csg_Mesh* meshA, csg_Mesh* meshB) {
+// }
 
-void csg_union(csg_Mesh* meshA, csg_Mesh* meshB) {
-    // 1: find a out B
-    // 2: find B out A
+// void csg_union(csg_Mesh* meshA, csg_Mesh* meshB) {
+//     // 1: find a out B
+//     // 2: find B out A
+//     // 3: gloopers && profit
+// }
+
+void csg_tests() {
+    BumpAlloc arena = bump_allocate(1000000, "csg test arena");
+    PoolAlloc pool = poolAllocInit();
+    PoolAlloc* p = &pool;
+
+    csg_Mesh mesh = csg_meshInit(p);
+
+    *poolAllocPushArray(p, mesh.verts, mesh.vertCount, HMM_Vec2) = HMM_V2(0, 0);
+    *poolAllocPushArray(p, mesh.verts, mesh.vertCount, HMM_Vec2) = HMM_V2(1, 0);
+    *poolAllocPushArray(p, mesh.verts, mesh.vertCount, HMM_Vec2) = HMM_V2(1, 1);
+
+    *poolAllocPushArray(p, mesh.edges, mesh.edgeCount, csg_MeshEdge) = (csg_MeshEdge){
+        .aIdx = 0,
+        .bIdx = 2,
+    };
+
+    *poolAllocPushArray(p, mesh.edges, mesh.edgeCount, csg_MeshEdge) = (csg_MeshEdge){
+        .aIdx = 2,
+        .bIdx = 1,
+    };
+
+    *poolAllocPushArray(p, mesh.edges, mesh.edgeCount, csg_MeshEdge) = (csg_MeshEdge){
+        .aIdx = 1,
+        .bIdx = 0,
+    };
+
+    csg_BSPNode* tree = csg_BSPTreeFromMesh(&mesh, &arena);
+    bool in = csg_BSPContainsPoint(tree, HMM_V2(0.5, 0.5));
+    bool out = csg_BSPContainsPoint(tree, HMM_V2(0.5, 1.0));
+    printf("in: %d, out: %d\n", in, out);
 }

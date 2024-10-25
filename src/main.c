@@ -4,6 +4,7 @@
 #define SDL_MAIN_HANDLED
 #include "PoolAlloc.h"
 #include "SDL2/include/SDL2/SDL.h"
+#include "csg.h"
 #include "render.h"
 #include "serialization2.h"
 #include "sketches.h"
@@ -14,6 +15,7 @@ int main() {
     _poolAllocTests();
     sk_tests();
     ser_tests();
+    csg_tests();
 
     assert(SDL_Init(SDL_INIT_VIDEO) == 0);
     assert(SDL_GL_LoadLibrary(NULL) == 0);

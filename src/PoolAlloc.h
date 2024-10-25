@@ -113,8 +113,9 @@ void poolAllocFree(PoolAlloc* pool, void* alloc) {
     memset(node, 0, sizeof(*node));
 }
 
-// count and arrayPtr should be int64_t and T* respectively, they are writen to as output.
-#define poolAllocPushArray(poolPtr, arrayPtr, count, T) _poolAllocPushArray((poolPtr), (void**)(&(arrayPtr)), &(count), sizeof(T))
+// count and arrayPtr should be int64_t and T* respectively, they are writen to as output, returns the addr of the new elt
+// pushes 1 elt to the array, count should be the counter for the length of the arr
+#define poolAllocPushArray(poolPtr, arrayPtr, count, T) (_poolAllocPushArray((poolPtr), (void**)(&(arrayPtr)), &(count), sizeof(T)), &arrayPtr[count - 1])
 void _poolAllocPushArray(PoolAlloc* pool, void** array, int64_t* count, int64_t sizeOfElt) {
     PoolAllocNode* node = _poolAllocFindAlloc(pool, *array);
     assert(node != NULL);
@@ -137,8 +138,7 @@ void _poolAllocTests() {
     char* myArr = poolAllocAlloc(pool, 0);
     int64_t myArrCount = 0;
     for (int i = 0; i < 10; i++) {
-        poolAllocPushArray(pool, myArr, myArrCount, char);
-        myArr[i] = '0' + i;
+        *poolAllocPushArray(pool, myArr, myArrCount, char) = '0' + i;
     }
     void* alloc = poolAllocAlloc(pool, 64);
     poolAllocAlloc(pool, 64);
