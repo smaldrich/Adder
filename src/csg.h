@@ -60,7 +60,7 @@ struct csg_BSPNode {
     csg_BSPNode* nextAvailible;  // used for construction only, probs should remove for perf but who cares
 
     HMM_Vec3 point1;  // FIXME: redundant?
-    HMM_Vec3 point2; // FIXME: space inefficent
+    HMM_Vec3 point2;  // FIXME: space inefficent
     HMM_Vec3 point3;
 };
 
@@ -79,7 +79,7 @@ void _csg_BSPTreeFixNode(BumpAlloc* arena, csg_BSPNode* parent, csg_BSPNode* lis
             float p1Dot = HMM_DotV3(HMM_SubV3(node->point1, parent->point1), parent->splitNormal);
             float p2Dot = HMM_DotV3(HMM_SubV3(node->point2, parent->point1), parent->splitNormal);
             float p3Dot = HMM_DotV3(HMM_SubV3(node->point3, parent->point1), parent->splitNormal);
-            if (p1Dot > 0 && p2Dot > 0 && p3Dot > 0) {
+            if (p1Dot >= 0 && p2Dot >= 0 && p3Dot >= 0) {
                 node->nextAvailible = outerList;
                 outerList = node;
             } else if (p1Dot <= 0 && p2Dot <= 0 && p3Dot <= 0) {
@@ -115,7 +115,7 @@ void _csg_BSPTreeFixNode(BumpAlloc* arena, csg_BSPNode* parent, csg_BSPNode* lis
         parent->outerTree = BUMP_PUSH_NEW(arena, csg_BSPNode);
         parent->outerTree->kind = CSG_BSPNK_LEAF_OUTSIDE_MESH;
     } else {
-        _csg_BSPTreeFixNode(arena, parent->outerTree, innerList->nextAvailible);
+        _csg_BSPTreeFixNode(arena, parent->outerTree, outerList->nextAvailible);
     }
 }
 
@@ -134,7 +134,7 @@ csg_BSPNode* csg_BSPTreeFromMesh(const csg_Mesh* mesh, BumpAlloc* arena) {
         node->nextAvailible = tree;
         tree = node;
 
-        node->splitNormal = HMM_Cross(HMM_SubV3(p2, p1), HMM_SubV3(p3, p1)); // itsn't  this cross prod backwards?
+        node->splitNormal = HMM_Cross(HMM_SubV3(p2, p1), HMM_SubV3(p3, p1));  // itsn't  this cross prod backwards?
         node->point1 = p1;
         node->point2 = p2;
         node->point3 = p3;
@@ -195,19 +195,50 @@ void csg_tests() {
         csg_meshPushVert(&mesh, HMM_V3(1, 1, 0));
         csg_meshPushVert(&mesh, HMM_V3(1, 0, -1));
 
-        csg_meshPushTri(&mesh, (csg_MeshTri) { .aIdx = 0, .bIdx = 1, .cIdx = 2 });
-        csg_meshPushTri(&mesh, (csg_MeshTri) { .aIdx = 0, .bIdx = 2, .cIdx = 3 });
-        csg_meshPushTri(&mesh, (csg_MeshTri) { .aIdx = 0, .bIdx = 3, .cIdx = 1 });
-        csg_meshPushTri(&mesh, (csg_MeshTri) { .aIdx = 3, .bIdx = 2, .cIdx = 1 });
+        csg_meshPushTri(&mesh, (csg_MeshTri){.aIdx = 0, .bIdx = 1, .cIdx = 2});
+        csg_meshPushTri(&mesh, (csg_MeshTri){.aIdx = 0, .bIdx = 2, .cIdx = 3});
+        csg_meshPushTri(&mesh, (csg_MeshTri){.aIdx = 0, .bIdx = 3, .cIdx = 1});
+        csg_meshPushTri(&mesh, (csg_MeshTri){.aIdx = 3, .bIdx = 2, .cIdx = 1});
 
         csg_BSPNode* tree = csg_BSPTreeFromMesh(&mesh, &arena);
-        test_printResult(csg_BSPContainsPoint(tree, HMM_V3(0.5, 0.5, 0.0)) == true, "Triangle contains pt");
-        test_printResult(csg_BSPContainsPoint(tree, HMM_V3(0.5, 1.0, 0.5)) == false, "Triangle doesn't contain pt");
-        test_printResult(csg_BSPContainsPoint(tree, HMM_V3(0, 0, 0)) == true, "Triangle contains edge pt");
-        test_printResult(csg_BSPContainsPoint(tree, HMM_V3(1, 0, -1)) == true, "Triangle contains edge pt 2");
-        test_printResult(csg_BSPContainsPoint(tree, HMM_V3(-1, 0, -1)) == false, "Triangle doesn't contain point 2");
-        test_printResult(csg_BSPContainsPoint(tree, HMM_V3(3, 3, 3)) == false, "Triangle doesn't contain point 3");
-        test_printResult(csg_BSPContainsPoint(tree, HMM_V3(INFINITY, NAN, NAN)) == false, "Triangle doesn't contain invalid floats");
+        test_printResult(csg_BSPContainsPoint(tree, HMM_V3(0.5, 0.5, 0.0)) == true, "Tetra contains pt");
+        test_printResult(csg_BSPContainsPoint(tree, HMM_V3(0.5, 1.0, 0.5)) == false, "Tetra doesn't contain pt");
+        test_printResult(csg_BSPContainsPoint(tree, HMM_V3(0, 0, 0)) == true, "Tetra contains edge pt");
+        test_printResult(csg_BSPContainsPoint(tree, HMM_V3(1, 0, -1)) == true, "Tetra contains edge pt 2");
+        test_printResult(csg_BSPContainsPoint(tree, HMM_V3(-1, 0, -1)) == false, "Tetra doesn't contain point 2");
+        test_printResult(csg_BSPContainsPoint(tree, HMM_V3(3, 3, 3)) == false, "Tetra doesn't contain point 3");
+        test_printResult(csg_BSPContainsPoint(tree, HMM_V3(INFINITY, NAN, NAN)) == false, "Tetra doesn't contain invalid floats");
+    }
+
+    bump_clear(&arena);
+
+    {
+        csg_Mesh mesh = csg_meshInit(p);
+        csg_meshPushVert(&mesh, HMM_V3(-0.5, 0, 0));
+        csg_meshPushVert(&mesh, HMM_V3(0, 1, 0));
+        csg_meshPushVert(&mesh, HMM_V3(0.5, 0, 0));
+        csg_meshPushVert(&mesh, HMM_V3(0, -1, -1));
+        csg_meshPushVert(&mesh, HMM_V3(0, -1, 1));
+
+        // top faces
+        csg_meshPushTri(&mesh, (csg_MeshTri){.aIdx = 1, .bIdx = 2, .cIdx = 3});
+        csg_meshPushTri(&mesh, (csg_MeshTri){.aIdx = 1, .bIdx = 4, .cIdx = 2});
+        csg_meshPushTri(&mesh, (csg_MeshTri){.aIdx = 1, .bIdx = 3, .cIdx = 0});
+        csg_meshPushTri(&mesh, (csg_MeshTri){.aIdx = 1, .bIdx = 0, .cIdx = 4});
+
+        // bottom faces
+        csg_meshPushTri(&mesh, (csg_MeshTri){.aIdx = 0, .bIdx = 3, .cIdx = 2});
+        csg_meshPushTri(&mesh, (csg_MeshTri){.aIdx = 0, .bIdx = 2, .cIdx = 4});
+
+        csg_BSPNode* tree = csg_BSPTreeFromMesh(&mesh, &arena);
+
+        test_printResult(csg_BSPContainsPoint(tree, HMM_V3(0, 0, 0)) == true, "horn contain test 1");
+        test_printResult(csg_BSPContainsPoint(tree, HMM_V3(0, 10, 0)) == false, "horn contain test 2");
+        test_printResult(csg_BSPContainsPoint(tree, HMM_V3(0, 0, -0.1)) == true, "horn contain test 3");
+        test_printResult(csg_BSPContainsPoint(tree, HMM_V3(-0.5, 0, 0)) == true, "horn contain test 4");
+        test_printResult(csg_BSPContainsPoint(tree, HMM_V3(0, -1, -1)) == true, "horn contain test 5");
+        test_printResult(csg_BSPContainsPoint(tree, HMM_V3(-1, -1, -1)) == false, "horn contain test 6");
+        test_printResult(csg_BSPContainsPoint(tree, HMM_V3(0, -0.5, 0)) == false, "horn contain test 7");
     }
 
     bump_free(&arena);
