@@ -12,14 +12,15 @@
 typedef struct {
     int64_t aIdx;
     int64_t bIdx;
-} csg_MeshEdge;
+    int64_t cIdx;
+} csg_MeshTri;
 
 typedef struct {
     int64_t vertCount;
-    HMM_Vec2* verts;
+    HMM_Vec3* verts;
 
-    int64_t edgeCount;
-    csg_MeshEdge* edges;
+    int64_t triCount;
+    csg_MeshTri* tris;
 
     PoolAlloc* alloc;
 } csg_Mesh;
@@ -30,8 +31,16 @@ csg_Mesh csg_meshInit(PoolAlloc* alloc) {
 
     out.alloc = alloc;
     out.verts = poolAllocAlloc(alloc, 0);
-    out.edges = poolAllocAlloc(alloc, 0);
+    out.tris = poolAllocAlloc(alloc, 0);
     return out;
+}
+
+void csg_meshPushVert(csg_Mesh* mesh, HMM_Vec3 vert) {
+    *poolAllocPushArray(mesh->alloc, mesh->verts, mesh->vertCount, HMM_Vec3) = vert;
+}
+
+void csg_meshPushTri(csg_Mesh* mesh, csg_MeshTri tri) {
+    *poolAllocPushArray(mesh->alloc, mesh->tris, mesh->triCount, csg_MeshTri) = tri;
 }
 
 typedef enum {
@@ -45,13 +54,14 @@ typedef struct csg_BSPNode csg_BSPNode;
 struct csg_BSPNode {
     csg_BSPNode* outerTree;
     csg_BSPNode* innerTree;
-    HMM_Vec2 splitNormal;  // FIXME: redundant?
+    HMM_Vec3 splitNormal;  // FIXME: redundant?
     csg_BSPNodeKind kind;
 
     csg_BSPNode* nextAvailible;  // used for construction only, probs should remove for perf but who cares
 
-    HMM_Vec2 point1;  // FIXME: redundant?
-    HMM_Vec2 point2;
+    HMM_Vec3 point1;  // FIXME: redundant?
+    HMM_Vec3 point2; // FIXME: space inefficent
+    HMM_Vec3 point3;
 };
 
 // parent assumed non-null, new nodes allocated into arena
@@ -66,12 +76,13 @@ void _csg_BSPTreeFixNode(BumpAlloc* arena, csg_BSPNode* parent, csg_BSPNode* lis
             // memo this beforehand ev loop because appending to the inner/outer list overwrites the nextptr
             next = node->nextAvailible;
 
-            float p1Dot = HMM_DotV2(HMM_SubV2(node->point1, parent->point1), parent->splitNormal);
-            float p2Dot = HMM_DotV2(HMM_SubV2(node->point2, parent->point1), parent->splitNormal);
-            if (p1Dot > 0 && p2Dot > 0) {
+            float p1Dot = HMM_DotV3(HMM_SubV3(node->point1, parent->point1), parent->splitNormal);
+            float p2Dot = HMM_DotV3(HMM_SubV3(node->point2, parent->point1), parent->splitNormal);
+            float p3Dot = HMM_DotV3(HMM_SubV3(node->point3, parent->point1), parent->splitNormal);
+            if (p1Dot > 0 && p2Dot > 0 && p3Dot > 0) {
                 node->nextAvailible = outerList;
                 outerList = node;
-            } else if (p1Dot <= 0 && p2Dot <= 0) {
+            } else if (p1Dot <= 0 && p2Dot <= 0 && p3Dot <= 0) {
                 node->nextAvailible = innerList;
                 innerList = node;
             } else {
@@ -113,30 +124,31 @@ void _csg_BSPTreeFixNode(BumpAlloc* arena, csg_BSPNode* parent, csg_BSPNode* lis
 csg_BSPNode* csg_BSPTreeFromMesh(const csg_Mesh* mesh, BumpAlloc* arena) {
     csg_BSPNode* tree = NULL;
 
-    for (int64_t i = 0; i < mesh->edgeCount; i++) {
-        const csg_MeshEdge* edge = &mesh->edges[i];
-        HMM_Vec2 p1 = mesh->verts[edge->aIdx];
-        HMM_Vec2 p2 = mesh->verts[edge->bIdx];
+    for (int64_t i = 0; i < mesh->triCount; i++) {
+        const csg_MeshTri* tri = &mesh->tris[i];
+        HMM_Vec3 p1 = mesh->verts[tri->aIdx];
+        HMM_Vec3 p2 = mesh->verts[tri->bIdx];
+        HMM_Vec3 p3 = mesh->verts[tri->cIdx];
 
         csg_BSPNode* node = BUMP_PUSH_NEW(arena, csg_BSPNode);
         node->nextAvailible = tree;
         tree = node;
 
-        HMM_Vec2 diff = HMM_SubV2(p2, p1);
-        node->splitNormal = HMM_V2(-diff.Y, diff.X);
+        node->splitNormal = HMM_Cross(HMM_SubV3(p2, p1), HMM_SubV3(p3, p1)); // itsn't  this cross prod backwards?
         node->point1 = p1;
         node->point2 = p2;
+        node->point3 = p3;
     }
 
     _csg_BSPTreeFixNode(arena, tree, tree->nextAvailible);
     return tree;
 }
 
-bool csg_BSPContainsPoint(csg_BSPNode* tree, HMM_Vec2 point) {
+bool csg_BSPContainsPoint(csg_BSPNode* tree, HMM_Vec3 point) {
     csg_BSPNode* node = tree;
     while (node->kind != CSG_BSPNK_LEAF_OUTSIDE_MESH && node->kind != CSG_BSPNK_LEAF_WITHIN_MESH) {
-        HMM_Vec2 diff = HMM_SubV2(point, node->point1);
-        float dot = HMM_DotV2(diff, node->splitNormal);
+        HMM_Vec3 diff = HMM_SubV3(point, node->point1);
+        float dot = HMM_DotV3(diff, node->splitNormal);
         if (dot <= 0) {
             node = node->innerTree;
         } else {
@@ -149,7 +161,18 @@ bool csg_BSPContainsPoint(csg_BSPNode* tree, HMM_Vec2 point) {
 
 // // returns a set of points on meshA that are not in meshB
 // void csg_difference(csg_Mesh* meshA, csg_Mesh* meshB) {
+//     for (int64_t i = 0; i < meshA->vertCount; i++) {
+//     }
 // }
+
+/*
+mesh ops:
+push new vert
+push new tri
+split tri
+edges/tris per vert
+glue meshes
+*/
 
 // void csg_union(csg_Mesh* meshA, csg_Mesh* meshB) {
 //     // 1: find a out B
@@ -167,32 +190,24 @@ void csg_tests() {
     {
         csg_Mesh mesh = csg_meshInit(p);
 
-        *poolAllocPushArray(p, mesh.verts, mesh.vertCount, HMM_Vec2) = HMM_V2(0, 0);
-        *poolAllocPushArray(p, mesh.verts, mesh.vertCount, HMM_Vec2) = HMM_V2(1, 0);
-        *poolAllocPushArray(p, mesh.verts, mesh.vertCount, HMM_Vec2) = HMM_V2(1, 1);
+        csg_meshPushVert(&mesh, HMM_V3(0, 0, 0));
+        csg_meshPushVert(&mesh, HMM_V3(1, 0, 0));
+        csg_meshPushVert(&mesh, HMM_V3(1, 1, 0));
+        csg_meshPushVert(&mesh, HMM_V3(1, 0, -1));
 
-        *poolAllocPushArray(p, mesh.edges, mesh.edgeCount, csg_MeshEdge) = (csg_MeshEdge){
-            .aIdx = 0,
-            .bIdx = 2,
-        };
-
-        *poolAllocPushArray(p, mesh.edges, mesh.edgeCount, csg_MeshEdge) = (csg_MeshEdge){
-            .aIdx = 2,
-            .bIdx = 1,
-        };
-
-        *poolAllocPushArray(p, mesh.edges, mesh.edgeCount, csg_MeshEdge) = (csg_MeshEdge){
-            .aIdx = 1,
-            .bIdx = 0,
-        };
+        csg_meshPushTri(&mesh, (csg_MeshTri) { .aIdx = 0, .bIdx = 1, .cIdx = 2 });
+        csg_meshPushTri(&mesh, (csg_MeshTri) { .aIdx = 0, .bIdx = 2, .cIdx = 3 });
+        csg_meshPushTri(&mesh, (csg_MeshTri) { .aIdx = 0, .bIdx = 3, .cIdx = 1 });
+        csg_meshPushTri(&mesh, (csg_MeshTri) { .aIdx = 3, .bIdx = 2, .cIdx = 1 });
 
         csg_BSPNode* tree = csg_BSPTreeFromMesh(&mesh, &arena);
-        test_printResult(csg_BSPContainsPoint(tree, HMM_V2(0.5, 0.5)) == true, "Triangle contains pt");
-        test_printResult(csg_BSPContainsPoint(tree, HMM_V2(0.5, 1.0)) == false, "Triangle doesn't contain pt");
-        test_printResult(csg_BSPContainsPoint(tree, HMM_V2(0, 0)) == true, "Triangle contains edge pt");
-        test_printResult(csg_BSPContainsPoint(tree, HMM_V2(1, 0)) == true, "Triangle contains edge pt 2");
-        test_printResult(csg_BSPContainsPoint(tree, HMM_V2(-1, 0)) == false, "Triangle doesn't contain point 2");
-        test_printResult(csg_BSPContainsPoint(tree, HMM_V2(INFINITY, NAN)) == false, "Triangle doesn't contain invalid floats");
+        test_printResult(csg_BSPContainsPoint(tree, HMM_V3(0.5, 0.5, 0.0)) == true, "Triangle contains pt");
+        test_printResult(csg_BSPContainsPoint(tree, HMM_V3(0.5, 1.0, 0.5)) == false, "Triangle doesn't contain pt");
+        test_printResult(csg_BSPContainsPoint(tree, HMM_V3(0, 0, 0)) == true, "Triangle contains edge pt");
+        test_printResult(csg_BSPContainsPoint(tree, HMM_V3(1, 0, -1)) == true, "Triangle contains edge pt 2");
+        test_printResult(csg_BSPContainsPoint(tree, HMM_V3(-1, 0, -1)) == false, "Triangle doesn't contain point 2");
+        test_printResult(csg_BSPContainsPoint(tree, HMM_V3(3, 3, 3)) == false, "Triangle doesn't contain point 3");
+        test_printResult(csg_BSPContainsPoint(tree, HMM_V3(INFINITY, NAN, NAN)) == false, "Triangle doesn't contain invalid floats");
     }
 
     bump_free(&arena);
