@@ -7,6 +7,7 @@
 #include "HMM/HandmadeMath.h"
 #include "PoolAlloc.h"
 #include "base/allocators.h"
+#include "base/testing.h"
 
 typedef struct {
     int64_t aIdx;
@@ -65,8 +66,8 @@ void _csg_BSPTreeFixNode(BumpAlloc* arena, csg_BSPNode* parent, csg_BSPNode* lis
             // memo this beforehand ev loop because appending to the inner/outer list overwrites the nextptr
             next = node->nextAvailible;
 
-            float p1Dot = HMM_DotV2(HMM_SubV2(node->point1, parent->point1), node->splitNormal);
-            float p2Dot = HMM_DotV2(HMM_SubV2(node->point2, parent->point1), node->splitNormal);
+            float p1Dot = HMM_DotV2(HMM_SubV2(node->point1, parent->point1), parent->splitNormal);
+            float p2Dot = HMM_DotV2(HMM_SubV2(node->point2, parent->point1), parent->splitNormal);
             if (p1Dot > 0 && p2Dot > 0) {
                 node->nextAvailible = outerList;
                 outerList = node;
@@ -157,33 +158,43 @@ bool csg_BSPContainsPoint(csg_BSPNode* tree, HMM_Vec2 point) {
 // }
 
 void csg_tests() {
+    test_printSectionHeader("csg");
+
     BumpAlloc arena = bump_allocate(1000000, "csg test arena");
     PoolAlloc pool = poolAllocInit();
     PoolAlloc* p = &pool;
 
-    csg_Mesh mesh = csg_meshInit(p);
+    {
+        csg_Mesh mesh = csg_meshInit(p);
 
-    *poolAllocPushArray(p, mesh.verts, mesh.vertCount, HMM_Vec2) = HMM_V2(0, 0);
-    *poolAllocPushArray(p, mesh.verts, mesh.vertCount, HMM_Vec2) = HMM_V2(1, 0);
-    *poolAllocPushArray(p, mesh.verts, mesh.vertCount, HMM_Vec2) = HMM_V2(1, 1);
+        *poolAllocPushArray(p, mesh.verts, mesh.vertCount, HMM_Vec2) = HMM_V2(0, 0);
+        *poolAllocPushArray(p, mesh.verts, mesh.vertCount, HMM_Vec2) = HMM_V2(1, 0);
+        *poolAllocPushArray(p, mesh.verts, mesh.vertCount, HMM_Vec2) = HMM_V2(1, 1);
 
-    *poolAllocPushArray(p, mesh.edges, mesh.edgeCount, csg_MeshEdge) = (csg_MeshEdge){
-        .aIdx = 0,
-        .bIdx = 2,
-    };
+        *poolAllocPushArray(p, mesh.edges, mesh.edgeCount, csg_MeshEdge) = (csg_MeshEdge){
+            .aIdx = 0,
+            .bIdx = 2,
+        };
 
-    *poolAllocPushArray(p, mesh.edges, mesh.edgeCount, csg_MeshEdge) = (csg_MeshEdge){
-        .aIdx = 2,
-        .bIdx = 1,
-    };
+        *poolAllocPushArray(p, mesh.edges, mesh.edgeCount, csg_MeshEdge) = (csg_MeshEdge){
+            .aIdx = 2,
+            .bIdx = 1,
+        };
 
-    *poolAllocPushArray(p, mesh.edges, mesh.edgeCount, csg_MeshEdge) = (csg_MeshEdge){
-        .aIdx = 1,
-        .bIdx = 0,
-    };
+        *poolAllocPushArray(p, mesh.edges, mesh.edgeCount, csg_MeshEdge) = (csg_MeshEdge){
+            .aIdx = 1,
+            .bIdx = 0,
+        };
 
-    csg_BSPNode* tree = csg_BSPTreeFromMesh(&mesh, &arena);
-    bool in = csg_BSPContainsPoint(tree, HMM_V2(0.5, 0.5));
-    bool out = csg_BSPContainsPoint(tree, HMM_V2(0.5, 1.0));
-    printf("in: %d, out: %d\n", in, out);
+        csg_BSPNode* tree = csg_BSPTreeFromMesh(&mesh, &arena);
+        test_printResult(csg_BSPContainsPoint(tree, HMM_V2(0.5, 0.5)) == true, "Triangle contains pt");
+        test_printResult(csg_BSPContainsPoint(tree, HMM_V2(0.5, 1.0)) == false, "Triangle doesn't contain pt");
+        test_printResult(csg_BSPContainsPoint(tree, HMM_V2(0, 0)) == true, "Triangle contains edge pt");
+        test_printResult(csg_BSPContainsPoint(tree, HMM_V2(1, 0)) == true, "Triangle contains edge pt 2");
+        test_printResult(csg_BSPContainsPoint(tree, HMM_V2(-1, 0)) == false, "Triangle doesn't contain point 2");
+        test_printResult(csg_BSPContainsPoint(tree, HMM_V2(INFINITY, NAN)) == false, "Triangle doesn't contain invalid floats");
+    }
+
+    bump_free(&arena);
+    poolAllocDeinit(p);
 }
