@@ -10,9 +10,14 @@
 #include "base/testing.h"
 
 typedef struct {
-    int64_t aIdx;
-    int64_t bIdx;
-    int64_t cIdx;
+    union {
+        struct {
+            int64_t aIdx;
+            int64_t bIdx;
+            int64_t cIdx;
+        };
+        int64_t elems[3];
+    };
 } csg_MeshTri;
 
 typedef struct {
@@ -119,25 +124,28 @@ void _csg_BSPTreeFixNode(BumpAlloc* arena, csg_BSPNode* parent, csg_BSPNode* lis
     }
 }
 
+HMM_Vec3 csg_meshTriNormal(csg_MeshTri tri, const csg_Mesh* mesh) {
+    HMM_Vec3 p1 = mesh->verts[tri.aIdx];
+    HMM_Vec3 p2 = mesh->verts[tri.bIdx];
+    HMM_Vec3 p3 = mesh->verts[tri.cIdx];
+    return HMM_Cross(HMM_SubV3(p2, p1), HMM_SubV3(p3, p1));  // isn't this backwards?
+}
+
 // returns the top of a bsp tree for the mesh, allocated entirely inside arena
 // Normals calculated with out being CW, where all normals should be pointing out
 csg_BSPNode* csg_BSPTreeFromMesh(const csg_Mesh* mesh, BumpAlloc* arena) {
     csg_BSPNode* tree = NULL;
 
     for (int64_t i = 0; i < mesh->triCount; i++) {
-        const csg_MeshTri* tri = &mesh->tris[i];
-        HMM_Vec3 p1 = mesh->verts[tri->aIdx];
-        HMM_Vec3 p2 = mesh->verts[tri->bIdx];
-        HMM_Vec3 p3 = mesh->verts[tri->cIdx];
-
         csg_BSPNode* node = BUMP_PUSH_NEW(arena, csg_BSPNode);
         node->nextAvailible = tree;
         tree = node;
 
-        node->splitNormal = HMM_Cross(HMM_SubV3(p2, p1), HMM_SubV3(p3, p1));  // itsn't  this cross prod backwards?
-        node->point1 = p1;
-        node->point2 = p2;
-        node->point3 = p3;
+        const csg_MeshTri* tri = &mesh->tris[i];
+        node->splitNormal = csg_meshTriNormal(*tri, mesh);
+        node->point1 = mesh->verts[tri->aIdx];
+        node->point2 = mesh->verts[tri->bIdx];
+        node->point3 = mesh->verts[tri->cIdx];
     }
 
     _csg_BSPTreeFixNode(arena, tree, tree->nextAvailible);
@@ -159,26 +167,152 @@ bool csg_BSPContainsPoint(csg_BSPNode* tree, HMM_Vec3 point) {
     return (node->kind == CSG_BSPNK_LEAF_WITHIN_MESH) ? true : false;
 }
 
-// // returns a set of points on meshA that are not in meshB
-// void csg_difference(csg_Mesh* meshA, csg_Mesh* meshB) {
-//     for (int64_t i = 0; i < meshA->vertCount; i++) {
-//     }
-// }
+typedef struct csg_VertLoopNode csg_VertLoopNode;
+typedef struct csg_VertLoopNode {
+    csg_VertLoopNode* next;
+    HMM_Vec3 vert;
+};
+
+typedef struct csg_VertLoop csg_VertLoop;
+struct csg_VertLoop {
+    csg_VertLoop* nextLoop;
+    csg_VertLoopNode* firstNode;
+};
 
 /*
-mesh ops:
-push new vert
-push new tri
-split tri
-edges/tris per vert
-glue meshes
+DT for a halfedge mesh
+
+array of halfedge*, indicies line up with vert indicies
+arena of halfedges, where each has a twin, next, and vert*
+
+// how the fuck is this supposed to work mid-triangulation??
+
 */
 
-// void csg_union(csg_Mesh* meshA, csg_Mesh* meshB) {
-//     // 1: find a out B
-//     // 2: find B out A
-//     // 3: gloopers && profit
-// }
+void csg_meshToVertLoops(csg_Mesh* mesh, BumpAlloc* arena, csg_VertLoop* outLoops, int64_t* outLoopCount) {
+    for (int64_t i = 0; i < mesh->triCount; i++) {
+        csg_VertLoop* loop = BUMP_PUSH_NEW(arena, csg_VertLoop);
+        for (int j = 2; j >= 0; j--) {
+            csg_VertLoopNode* newNode = BUMP_PUSH_NEW(arena, csg_VertLoopNode);
+            newNode->vert = mesh->verts[mesh->tris[i].elems[j]];
+            newNode->next = loop;
+            loop = newNode;
+        }
+    }
+}
+
+#define CSG_EPSILON 0.0001
+
+bool csg_floatZero(float a) {
+    return fabsf(a) < CSG_EPSILON;
+}
+
+bool csg_floatEqual(float a, float b) {
+    return csg_floatZero(a - b);
+}
+
+bool _csg_areAllPointsOfATrangleOnOneSideOfAPlane(HMM_Vec3 p1, HMM_Vec3 p2, HMM_Vec3 p3, HMM_Vec3 planeNormal, HMM_Vec3 planeStart) {
+    // compute the side of all of As points relative to B
+    // if all are on the same side, then there can't be an overlap
+    HMM_Vec3* pts[] = {&p1, &p2, &p3};
+
+    int firstPointSide = 0;
+    bool onePointOnDiffSide = false;
+    for (int i = 0; i < 3; i++) {
+        float dot = HMM_Dot(HMM_SubV3(*pts[i], planeStart), planeNormal);
+        if (csg_floatZero(dot)) {
+            dot = 0;
+        } else {
+            dot /= fabsf(dot);
+        }
+
+        if (firstPointSide == 0) {
+            firstPointSide = (int)dot;
+        } else {
+            if ((int)dot != firstPointSide) {
+                return false;
+            }
+        }
+    }
+    // FIXME: coplanar check
+    assert(firstPointSide != 0);
+
+    return true;
+}
+
+void csg_triangleLineIntersection(HMM_Vec3 p0, HMM_Vec3 p1, HMM_Vec3 p2, HMM_Vec3 lineDir, HMM_Vec3 lineOrigin) {
+}
+
+void csg_splitTriangle(csg_Mesh* mesh, int64_t triIdx, csg_MeshTri cutter, const csg_Mesh* cutterMesh) {
+    HMM_Vec3 aNormal = csg_meshTriNormal(mesh->tris[triIdx], mesh);
+    HMM_Vec3 bNormal = csg_meshTriNormal(cutter, cutterMesh);
+
+    HMM_Vec3 a0 = mesh->verts[mesh->tris[triIdx].aIdx];
+    HMM_Vec3 a1 = mesh->verts[mesh->tris[triIdx].bIdx];
+    HMM_Vec3 a2 = mesh->verts[mesh->tris[triIdx].cIdx];
+
+    HMM_Vec3 b0 = cutterMesh->verts[cutter.aIdx];
+    HMM_Vec3 b1 = cutterMesh->verts[cutter.bIdx];
+    HMM_Vec3 b2 = cutterMesh->verts[cutter.cIdx];
+
+    bool aPointsTrivial = _csg_areAllPointsOfATrangleOnOneSideOfAPlane(a0, a1, a2, bNormal, b0);
+    if (aPointsTrivial) {
+        return;
+    }
+    bool bPointsTrivial = _csg_areAllPointsOfATrangleOnOneSideOfAPlane(b0, b1, b2, aNormal, a0);
+    if (bPointsTrivial) {
+        return;
+    }
+
+    HMM_Vec3 intersectionLineDir = HMM_Cross(aNormal, bNormal);
+
+    float t1Min = ;
+    float t1Max = ;
+    float t2Min = ;
+    float t2Max = ;
+
+    // if no overlap on the intersection axis, there is no split and we can just return
+    if (!(t1Min < t2Max && t1Max > t2Min)) {
+        return;
+    }
+}
+
+void csg_difference(csg_Mesh* a, csg_Mesh* b, BumpAlloc* arena) {
+    /*
+    collect all points of A outside B
+    get every single edge loop colliding w/ b, fix to not
+    get every single edgeloop of B colliding w/ A,
+    */
+
+    /*
+    find all edgeloops of A that intersect B
+    iteratively split tris in A against those from B
+    find all edgeloops of B that intersect A
+    iteratively split tris in B against those from A
+
+    fix normals
+    glue
+    done
+
+    ideally done??
+    */
+
+    {
+        // FIXME: might be benficial to make a half-edge first, then do this op over each vertex instead of each tri
+        csg_BSPNode* bspTree = csg_BSPTreeFromMesh(a, arena);
+        for (int64_t i = 0; i < a->triCount; i++) {
+            csg_MeshTri* tri = &a->tris[i];
+            for (int64_t vertIdx = 0; vertIdx < 3; vertIdx++) {
+                HMM_Vec3 vert = a->verts[tri->elems[vertIdx]];
+                if (!csg_BSPContainsPoint(bspTree, vert)) {
+                    continue;
+                }
+
+                // split this one
+            }  // end vertex loop
+        }  // end triangle loop for A
+    }
+}  // end csg_difference
 
 void csg_tests() {
     test_printSectionHeader("csg");
