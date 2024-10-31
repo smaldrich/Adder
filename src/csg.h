@@ -177,20 +177,31 @@ bool csg_floatEqual(float a, float b) {
     return csg_floatZero(a - b);
 }
 
-// outClasses should be an array of len 3, outputs of 1 are outside the plane, -1 inside, and 0 are on.
-void _csg_classifyTriPtsOnPlane(const HMM_Vec3* pts, int* outClasses, HMM_Vec3 planeNormal, HMM_Vec3 planeStart) {
+typedef enum {
+    CSG_PPR_WITHIN,
+    CSG_PPR_OUTSIDE,
+    CSG_PPR_COPLANAR,
+} csg_PointPlaneRelation;
+
+// assumes three points in the pts array and the outClasses array sorry not sorry
+void _csg_classifyTrianglePoints(HMM_Vec3* pts, csg_PointPlaneRelation* outClasses, HMM_Vec3 planeNormal, HMM_Vec3 planeStart) {
+    int firstPointSide = 0;
+    bool onePointOnDiffSide = false;
     for (int i = 0; i < 3; i++) {
         float dot = HMM_Dot(HMM_SubV3(pts[i], planeStart), planeNormal);
         if (csg_floatZero(dot)) {
-            dot = 0;
-        } else {
-            dot /= fabsf(dot);
+            outClasses[i] = CSG_PPR_COPLANAR;
         }
-        outClasses[i] = (int)dot;
+        outClasses[i] = dot > 0 ? CSG_PPR_OUTSIDE : CSG_PPR_WITHIN;
     }
+    return true;
 }
 
-void csg_triangleLineIntersection(HMM_Vec3 p0, HMM_Vec3 p1, HMM_Vec3 p2, HMM_Vec3 lineDir, HMM_Vec3 lineOrigin) {
+HMM_Vec3 csg_planeLineIntersection(HMM_Vec3 planeOrigin, HMM_Vec3 planeNormal, HMM_Vec3 lineOrigin, HMM_Vec3 lineDir) {
+    float t = HMM_Dot(HMM_SubV3(planeOrigin, lineOrigin), planeNormal);
+    t /= HMM_DotV3(lineDir, planeNormal);
+    assert(isfinite(t));  // FIXME: is this enough? no. Do I care? also no. // intersection/coplanar checks beforehand should cover any non-intersection || parallel cases
+    return HMM_AddV3(HMM_MulV3F(lineDir, t), lineOrigin);
 }
 
 void csg_splitTriangle(csg_Mesh* mesh, int64_t triIdx, csg_MeshTri cutter, const csg_Mesh* cutterMesh) {
@@ -208,16 +219,31 @@ void csg_splitTriangle(csg_Mesh* mesh, int64_t triIdx, csg_MeshTri cutter, const
     HMM_Vec3 aNormal = csg_meshTriNormal(mesh->tris[triIdx], mesh);
     HMM_Vec3 bNormal = csg_meshTriNormal(cutter, cutterMesh);
 
-    HMM_Vec3 aFacing[3];
-    HMM_Vec3 bFacing[3];
-    _csg_classifyTriPtsOnPlane(aPts, aFacing, aNormal, bPts[0]);
-    _csg_classifyTriPtsOnPlane(bPts, bFacing, bNormal, aPts[0]);
+    HMM_Vec3 aPts[3] = {
+        mesh->verts[mesh->tris[triIdx].aIdx],
+        mesh->verts[mesh->tris[triIdx].bIdx],
+        mesh->verts[mesh->tris[triIdx].cIdx],
+    };
+    HMM_Vec3 bPts[3] = {
+        cutterMesh->verts[cutter.aIdx],
+        cutterMesh->verts[cutter.bIdx],
+        cutterMesh->verts[cutter.cIdx],
+    };
 
-    HMM_Vec3 intersectionLineDir = HMM_Cross(aNormal, bNormal);
+    csg_PointPlaneRelation aPointClasses[3];
+    _csg_classifyTrianglePoints(aPts, aPointClasses, bNormal, bPts[0]);
 
-    // if no overlap on the intersection axis, there is no split and we can just return
-    if (!(t1Min < t2Max && t1Max > t2Min)) {
+    if (aPointClasses[0] == CSG_PPR_OUTSIDE &&
+        aPointClasses[1] == CSG_PPR_OUTSIDE &&
+        aPointClasses[2] == CSG_PPR_OUTSIDE) {
         return;
+    } else if (aPointClasses[0] == CSG_PPR_WITHIN &&
+               aPointClasses[1] == CSG_PPR_WITHIN &&
+               aPointClasses[2] == CSG_PPR_WITHIN) {
+        return;
+    } else {
+        HMM_Vec3 intersection1 = csg_planeLineIntersection(bPts[0], bNormal, );
+        HMM_Vec3 intersection2 = csg_planeLineIntersection(bPts[0], bNormal, );
     }
 }
 
