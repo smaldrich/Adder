@@ -205,42 +205,39 @@ bool csg_BSPContainsPoint(csg_BSPNode* tree, HMM_Vec3 point) {
     return (node->kind == CSG_BSPNK_LEAF_WITHIN_MESH) ? true : false;
 }
 
-typedef struct csg_VertLoopNode csg_VertLoopNode;
-typedef struct csg_VertLoopNode {
-    csg_VertLoopNode* next;
-    HMM_Vec3 vert;
-};
+#define CSG_EPSILON 0.0001
 
-typedef struct csg_VertLoop csg_VertLoop;
-struct csg_VertLoop {
-    csg_VertLoop* nextLoop;
-    csg_VertLoopNode* firstNode;
-};
-
-/*
-DT for a halfedge mesh
-
-array of halfedge*, indicies line up with vert indicies
-arena of halfedges, where each has a twin, next, and vert*
-
-// how the fuck is this supposed to work mid-triangulation??
-
-*/
-
-void csg_meshToVertLoops(csg_Mesh* mesh, BumpAlloc* arena, csg_VertLoop* outLoops, int64_t* outLoopCount) {
-    for (int64_t i = 0; i < mesh->triCount; i++) {
-        csg_VertLoop* loop = BUMP_PUSH_NEW(arena, csg_VertLoop);
-        for (int j = 2; j >= 0; j--) {
-            csg_VertLoopNode* newNode = BUMP_PUSH_NEW(arena, csg_VertLoopNode);
-            newNode->vert = mesh->verts[mesh->tris[i].elems[j]];
-            newNode->next = loop;
-            loop = newNode;
-        }
-    }
+bool csg_floatZero(float a) {
+    return fabsf(a) < CSG_EPSILON;
 }
+
+bool csg_floatEqual(float a, float b) {
+    return csg_floatZero(a - b);
+}
+
+typedef enum {
+    CSG_PPR_WITHIN,
+    CSG_PPR_OUTSIDE,
+    CSG_PPR_COPLANAR,
+} csg_PointPlaneRelation;
+
+// assumes three points in the pts array and the outClasses array sorry not sorry
+void _csg_classifyTrianglePoints(HMM_Vec3* pts, csg_PointPlaneRelation* outClasses, HMM_Vec3 planeNormal, HMM_Vec3 planeStart) {
+    int firstPointSide = 0;
+    bool onePointOnDiffSide = false;
+    for (int i = 0; i < 3; i++) {
+        float dot = HMM_Dot(HMM_SubV3(pts[i], planeStart), planeNormal);
+        if (csg_floatZero(dot)) {
+            outClasses[i] = CSG_PPR_COPLANAR;
+        }
+        outClasses[i] = dot > 0 ? CSG_PPR_OUTSIDE : CSG_PPR_WITHIN;
+    }
+    return true;
+}
+
 // returns a T value along the line such that ((t*lineDir) + lineOrigin) = the point of intersection
 // done this way so that bounds checking can be done after the return
-float csg_planeLineIntersection(HMM_Vec3 planeOrigin, HMM_Vec3 planeNormal, HMM_Vec3 lineOrigin, HMM_Vec3 lineDir) {
+csg_planeLineIntersection(HMM_Vec3 planeOrigin, HMM_Vec3 planeNormal, HMM_Vec3 lineOrigin, HMM_Vec3 lineDir) {
     float t = HMM_Dot(HMM_SubV3(planeOrigin, lineOrigin), planeNormal);
     t /= HMM_DotV3(lineDir, planeNormal);
     assert(isfinite(t));  // FIXME: is this enough? no. Do I care? also no. // intersection/coplanar checks beforehand should cover any non-intersection || parallel cases
