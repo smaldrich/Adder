@@ -69,6 +69,39 @@ struct csg_BSPNode {
     HMM_Vec3 point3;
 };
 
+typedef enum {
+    CSG_PR_COPLANAR,
+    CSG_PR_WITHIN,
+    CSG_PR_OUTSIDE,
+    CSG_PR_SPANNING,
+} csg_PlaneRelation;
+
+#define CSG_EPSILON 0.0001
+
+bool csg_floatZero(float a) {
+    return fabsf(a) < CSG_EPSILON;
+}
+
+bool csg_floatEqual(float a, float b) {
+    return csg_floatZero(a - b);
+}
+
+// assumes three points in the pts array and the outClasses array sorry not sorry
+csg_PlaneRelation _csg_classifyTrianglePoints(HMM_Vec3* pts, HMM_Vec3 planeNormal, HMM_Vec3 planeStart) {
+    int firstPointSide = 0;
+    bool onePointOnDiffSide = false;
+    csg_PlaneRelation finalRel = 0;
+    for (int i = 0; i < 3; i++) {
+        float dot = HMM_Dot(HMM_SubV3(pts[i], planeStart), planeNormal);
+        if (csg_floatZero(dot)) {
+            finalRel |= CSG_PR_COPLANAR;
+        } else {
+            finalRel |= dot > 0 ? CSG_PR_OUTSIDE : CSG_PR_WITHIN;
+        }
+    }
+    return finalRel;
+}
+
 // parent assumed non-null, new nodes allocated into arena
 // takes a list of nodes with normals and origins filled out, organizes it + its children into the tree shape based on splits
 // will allocate more nodes over the course of fixing, these are put into arena
@@ -81,17 +114,21 @@ void _csg_BSPTreeFixNode(BumpAlloc* arena, csg_BSPNode* parent, csg_BSPNode* lis
             // memo this beforehand ev loop because appending to the inner/outer list overwrites the nextptr
             next = node->nextAvailible;
 
-            float p1Dot = HMM_DotV3(HMM_SubV3(node->point1, parent->point1), parent->splitNormal);
-            float p2Dot = HMM_DotV3(HMM_SubV3(node->point2, parent->point1), parent->splitNormal);
-            float p3Dot = HMM_DotV3(HMM_SubV3(node->point3, parent->point1), parent->splitNormal);
-            if (p1Dot >= 0 && p2Dot >= 0 && p3Dot >= 0) {
+            HMM_Vec3 pts[3] = {
+                node->point1,
+                node->point2,
+                node->point3,
+            };
+
+            csg_PlaneRelation rel = _csg_classifyTrianglePoints(pts, parent->splitNormal, parent->point1);
+            if (rel == CSG_PR_OUTSIDE) {
                 node->nextAvailible = outerList;
                 outerList = node;
-            } else if (p1Dot <= 0 && p2Dot <= 0 && p3Dot <= 0) {
+            } else if (rel == CSG_PR_WITHIN) {
                 node->nextAvailible = innerList;
                 innerList = node;
             } else {
-                // it spans both sides, we need one node for each side
+                // it spans both sides, we need one node for each side // FIXME: does this need to be split too?
                 csg_BSPNode* duplicate = BUMP_PUSH_NEW(arena, csg_BSPNode);
                 duplicate->splitNormal = node->splitNormal;
                 duplicate->point1 = node->point1;
@@ -128,7 +165,8 @@ HMM_Vec3 csg_meshTriNormal(csg_MeshTri tri, const csg_Mesh* mesh) {
     HMM_Vec3 p1 = mesh->verts[tri.aIdx];
     HMM_Vec3 p2 = mesh->verts[tri.bIdx];
     HMM_Vec3 p3 = mesh->verts[tri.cIdx];
-    return HMM_Cross(HMM_SubV3(p2, p1), HMM_SubV3(p3, p1));  // isn't this backwards?
+    HMM_Vec3 n = HMM_Cross(HMM_SubV3(p2, p1), HMM_SubV3(p3, p1));  // isn't this backwards?
+    return HMM_NormV3(n);
 }
 
 // returns the top of a bsp tree for the mesh, allocated entirely inside arena
@@ -200,112 +238,72 @@ void csg_meshToVertLoops(csg_Mesh* mesh, BumpAlloc* arena, csg_VertLoop* outLoop
         }
     }
 }
-
-#define CSG_EPSILON 0.0001
-
-bool csg_floatZero(float a) {
-    return fabsf(a) < CSG_EPSILON;
-}
-
-bool csg_floatEqual(float a, float b) {
-    return csg_floatZero(a - b);
-}
-
-typedef enum {
-    CSG_PPR_WITHIN,
-    CSG_PPR_OUTSIDE,
-    CSG_PPR_COPLANAR,
-} csg_PointPlaneRelation;
-
-// assumes three points in the pts array and the outClasses array sorry not sorry
-void _csg_classifyTrianglePoints(HMM_Vec3* pts, csg_PointPlaneRelation* outClasses, HMM_Vec3 planeNormal, HMM_Vec3 planeStart) {
-    int firstPointSide = 0;
-    bool onePointOnDiffSide = false;
-    for (int i = 0; i < 3; i++) {
-        float dot = HMM_Dot(HMM_SubV3(pts[i], planeStart), planeNormal);
-        if (csg_floatZero(dot)) {
-            outClasses[i] = CSG_PPR_COPLANAR;
-        }
-        outClasses[i] = dot > 0 ? CSG_PPR_OUTSIDE : CSG_PPR_WITHIN;
-    }
-    return true;
-}
-
-HMM_Vec3 csg_planeLineIntersection(HMM_Vec3 planeOrigin, HMM_Vec3 planeNormal, HMM_Vec3 lineOrigin, HMM_Vec3 lineDir) {
+// returns a T value along the line such that ((t*lineDir) + lineOrigin) = the point of intersection
+// done this way so that bounds checking can be done after the return
+float csg_planeLineIntersection(HMM_Vec3 planeOrigin, HMM_Vec3 planeNormal, HMM_Vec3 lineOrigin, HMM_Vec3 lineDir) {
     float t = HMM_Dot(HMM_SubV3(planeOrigin, lineOrigin), planeNormal);
     t /= HMM_DotV3(lineDir, planeNormal);
     assert(isfinite(t));  // FIXME: is this enough? no. Do I care? also no. // intersection/coplanar checks beforehand should cover any non-intersection || parallel cases
-    return HMM_AddV3(HMM_MulV3F(lineDir, t), lineOrigin);
+    return t;
 }
 
-void csg_splitTriangle(csg_Mesh* mesh, int64_t triIdx, csg_MeshTri cutter, const csg_Mesh* cutterMesh) {
-    HMM_Vec3 aNormal = csg_meshTriNormal(mesh->tris[triIdx], mesh);
-    HMM_Vec3 bNormal = csg_meshTriNormal(cutter, cutterMesh);
+void csg_splitTriangle(csg_Mesh* mesh, csg_MeshTri* tri, const csg_MeshTri* cutter, const csg_Mesh* cutterMesh) {
+    HMM_Vec3 bNormal = csg_meshTriNormal(*cutter, cutterMesh);
+    HMM_Vec3 b0 = cutterMesh->verts[cutter->aIdx];
 
     HMM_Vec3 aPts[3] = {
-        mesh->verts[mesh->tris[triIdx].aIdx],
-        mesh->verts[mesh->tris[triIdx].bIdx],
-        mesh->verts[mesh->tris[triIdx].cIdx],
-    };
-    HMM_Vec3 bPts[3] = {
-        cutterMesh->verts[cutter.aIdx],
-        cutterMesh->verts[cutter.bIdx],
-        cutterMesh->verts[cutter.cIdx],
+        mesh->verts[tri->aIdx],
+        mesh->verts[tri->bIdx],
+        mesh->verts[tri->cIdx],
     };
 
-    csg_PointPlaneRelation aPointClasses[3];
-    _csg_classifyTrianglePoints(aPts, aPointClasses, bNormal, bPts[0]);
+    csg_PlaneRelation rel = _csg_classifyTrianglePoints(aPts, bNormal, b0);
 
-    if (aPointClasses[0] == CSG_PPR_OUTSIDE &&
-        aPointClasses[1] == CSG_PPR_OUTSIDE &&
-        aPointClasses[2] == CSG_PPR_OUTSIDE) {
+    if (rel == CSG_PR_OUTSIDE) {
         return;
-    } else if (aPointClasses[0] == CSG_PPR_WITHIN &&
-               aPointClasses[1] == CSG_PPR_WITHIN &&
-               aPointClasses[2] == CSG_PPR_WITHIN) {
+    } else if (rel == CSG_PR_WITHIN) {
         return;
     } else {
-        HMM_Vec3 intersection1 = csg_planeLineIntersection(bPts[0], bNormal, );
-        HMM_Vec3 intersection2 = csg_planeLineIntersection(bPts[0], bNormal, );
-    }
+        int64_t vertLoopIndexes[5] = {0, 0, 0, 0, 0};
+        int64_t vertCount = 0;
+
+        for (int i = 0; i < 3; i++) {
+            HMM_Vec3 pt = aPts[i];
+            HMM_Vec3 nextPt = aPts[(i + 1) % 3];
+            HMM_Vec3 direction = HMM_NormV3(HMM_SubV3(nextPt, pt));
+            float t = csg_planeLineIntersection(b0, bNormal, pt, direction);
+            if (t < 0) {
+                continue;
+            } else if (t * t > HMM_LenSqr())
+
+                assert(vertCount < 5);
+            csg_meshPushVert(mesh, intersection);
+            vertCount++;
+        }
+        assert(vertCount == 5);
+
+        csg_MeshTri t = (csg_MeshTri){
+            .aIdx = vertLoopIndexes[0],
+            .bIdx = vertLoopIndexes[1],
+            .cIdx = vertLoopIndexes[2],
+        };
+        *tri = t;
+
+        t = (csg_MeshTri){
+            .aIdx = vertLoopIndexes[2],
+            .bIdx = vertLoopIndexes[3],
+            .cIdx = vertLoopIndexes[4],
+        };
+        csg_meshPushTri(mesh, t);
+
+        t = (csg_MeshTri){
+            .aIdx = vertLoopIndexes[4],
+            .bIdx = vertLoopIndexes[0],
+            .cIdx = vertLoopIndexes[2],
+        };
+        csg_meshPushTri(mesh, t);
+    }  // end spanning check
 }
-
-void csg_difference(csg_Mesh* a, csg_Mesh* b, BumpAlloc* arena) {
-    /*
-    collect all points of A outside B
-    get every single edge loop colliding w/ b, fix to not
-    get every single edgeloop of B colliding w/ A,
-    */
-
-    /*
-    find all edgeloops of A that intersect B
-    iteratively split tris in A against those from B
-    find all edgeloops of B that intersect A
-    iteratively split tris in B against those from A
-
-    fix normals
-    glue
-    done
-
-    ideally done??
-    */
-
-    {
-        // FIXME: might be benficial to make a half-edge first, then do this op over each vertex instead of each tri
-        csg_BSPNode* bspTree = csg_BSPTreeFromMesh(a, arena);
-        for (int64_t i = 0; i < a->triCount; i++) {
-            csg_MeshTri* tri = &a->tris[i];
-            for (int64_t vertIdx = 0; vertIdx < 3; vertIdx++) {
-                HMM_Vec3 vert = a->verts[tri->elems[vertIdx]];
-                if (!csg_BSPContainsPoint(bspTree, vert)) {
-                    continue;
-                }
-
-                // split this one
-            }  // end vertex loop
-        }  // end triangle loop for A
-    }
-}  // end csg_difference
 
 void csg_tests() {
     test_printSectionHeader("csg");
