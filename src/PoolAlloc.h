@@ -42,13 +42,18 @@ PoolAlloc poolAllocInit() {
     return out;
 }
 
-void poolAllocDeinit(PoolAlloc* pool) {
+void poolAllocClear(PoolAlloc* pool) {
     for (int i = 0; i < pool->nodeCount; i++) {
         PoolAllocNode* node = &pool->nodes[i];
         if (node->allocated) {
             free(node->allocation);
         }
+        memset(node, 0, sizeof(*node));
     }
+}
+
+void poolAllocDeinit(PoolAlloc* pool) {
+    poolAllocClear(pool);
     free(pool->nodes);
     memset(pool, 0, sizeof(*pool));
 }

@@ -205,13 +205,16 @@ bool csg_BSPContainsPoint(csg_BSPNode* tree, HMM_Vec3 point) {
 
 // returns a T value along the line such that ((t*lineDir) + lineOrigin) = the point of intersection
 // done this way so that bounds checking can be done after the return
-float csg_planeLineIntersection(HMM_Vec3 planeOrigin, HMM_Vec3 planeNormal, HMM_Vec3 lineOrigin, HMM_Vec3 lineDir) {
+// false retur nvalue indicates no intersection between the plane and line
+// outT assumed non-null, written for output
+bool csg_planeLineIntersection(HMM_Vec3 planeOrigin, HMM_Vec3 planeNormal, HMM_Vec3 lineOrigin, HMM_Vec3 lineDir, float* outT) {
     float t = HMM_Dot(HMM_SubV3(planeOrigin, lineOrigin), planeNormal);
     t /= HMM_DotV3(lineDir, planeNormal);
-    assert(isfinite(t));  // FIXME: is this enough? no. Do I care? also no. // intersection/coplanar checks beforehand should cover any non-intersection || parallel cases
-    return t;
+    *outT = t;
+    return isfinite(t);
 }
 
+// normals of the outtris should be the same as the original
 void csg_splitTriangle(csg_Mesh* mesh, csg_MeshTri* tri, const csg_MeshTri* cutter, const csg_Mesh* cutterMesh) {
     HMM_Vec3 bNormal = csg_meshTriNormal(*cutter, cutterMesh);
     HMM_Vec3 b0 = cutterMesh->verts[cutter->aIdx];
@@ -234,22 +237,31 @@ void csg_splitTriangle(csg_Mesh* mesh, csg_MeshTri* tri, const csg_MeshTri* cutt
 
         for (int i = 0; i < 3; i++) {
             HMM_Vec3 pt = aPts[i];
+            vertLoopIndexes[vertCount] = tri->elems[i];
+            assert(vertCount < 5);
+            vertCount++;
+
             HMM_Vec3 nextPt = aPts[(i + 1) % 3];
             HMM_Vec3 diff = HMM_SubV3(nextPt, pt);
             HMM_Vec3 direction = HMM_NormV3(diff);
-            float t = csg_planeLineIntersection(b0, bNormal, pt, direction);
-            if (t < 0) {
+            float t = 0;
+            bool intersectExists = csg_planeLineIntersection(b0, bNormal, pt, direction, &t);
+            if (!intersectExists) {
+                continue;
+            } else if (t < 0) {
                 continue;
             } else if ((t * t) > HMM_LenSqr(diff)) {
                 continue;
             }
 
             assert(vertCount < 5);
-            vertCount++;
             HMM_Vec3 intersection = HMM_AddV3(HMM_MulV3F(direction, t), pt);
+            vertLoopIndexes[vertCount] = mesh->vertCount; // point the verttex to the end of the arr, where the new one gets pushed
             csg_meshPushVert(mesh, intersection);
+            vertCount++;
         }
-        assert(vertCount == 5);
+        assert(vertCount == 5); // FIXME: what happens when one point is coplanar and it gets marked as spanning? i.e. should be only 4 points here and this'll fire
+        // just add a switch and a second prebaked triangulation routine
 
         csg_MeshTri t = (csg_MeshTri){
             .aIdx = vertLoopIndexes[0],
@@ -305,6 +317,7 @@ void csg_tests() {
     }
 
     bump_clear(&arena);
+    poolAllocClear(p);
 
     {
         csg_Mesh mesh = csg_meshInit(p);
@@ -333,6 +346,25 @@ void csg_tests() {
         test_printResult(csg_BSPContainsPoint(tree, HMM_V3(0, -1, -1)) == true, "horn contain test 5");
         test_printResult(csg_BSPContainsPoint(tree, HMM_V3(-1, -1, -1)) == false, "horn contain test 6");
         test_printResult(csg_BSPContainsPoint(tree, HMM_V3(0, -0.5, 0)) == false, "horn contain test 7");
+    }
+
+    bump_clear(&arena);
+    poolAllocClear(p);
+
+    {
+        csg_Mesh mesh = csg_meshInit(p);
+        csg_meshPushVert(&mesh, HMM_V3(1, 0, 0));
+        csg_meshPushVert(&mesh, HMM_V3(-1, 0, 0));
+        csg_meshPushVert(&mesh, HMM_V3(0, 1, 0));
+        csg_meshPushTri(&mesh, (csg_MeshTri) { .aIdx = 0, .bIdx = 1, .cIdx = 2 });
+
+        csg_meshPushVert(&mesh, HMM_V3(1, 0.5, -1));
+        csg_meshPushVert(&mesh, HMM_V3(0, 0.5, 1));
+        csg_meshPushVert(&mesh, HMM_V3(-1, 0.5, -1));
+        csg_meshPushTri(&mesh, (csg_MeshTri) { .aIdx = 3, .bIdx = 4, .cIdx = 5 });
+
+        csg_splitTriangle(&mesh, &(mesh.tris[0]), &(mesh.tris[1]), &mesh);
+        csg_splitTriangle(&mesh, &(mesh.tris[1]), &(mesh.tris[0]), &mesh);
     }
 
     bump_free(&arena);
