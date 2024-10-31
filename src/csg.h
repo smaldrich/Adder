@@ -167,40 +167,6 @@ bool csg_BSPContainsPoint(csg_BSPNode* tree, HMM_Vec3 point) {
     return (node->kind == CSG_BSPNK_LEAF_WITHIN_MESH) ? true : false;
 }
 
-typedef struct csg_VertLoopNode csg_VertLoopNode;
-typedef struct csg_VertLoopNode {
-    csg_VertLoopNode* next;
-    HMM_Vec3 vert;
-};
-
-typedef struct csg_VertLoop csg_VertLoop;
-struct csg_VertLoop {
-    csg_VertLoop* nextLoop;
-    csg_VertLoopNode* firstNode;
-};
-
-/*
-DT for a halfedge mesh
-
-array of halfedge*, indicies line up with vert indicies
-arena of halfedges, where each has a twin, next, and vert*
-
-// how the fuck is this supposed to work mid-triangulation??
-
-*/
-
-void csg_meshToVertLoops(csg_Mesh* mesh, BumpAlloc* arena, csg_VertLoop* outLoops, int64_t* outLoopCount) {
-    for (int64_t i = 0; i < mesh->triCount; i++) {
-        csg_VertLoop* loop = BUMP_PUSH_NEW(arena, csg_VertLoop);
-        for (int j = 2; j >= 0; j--) {
-            csg_VertLoopNode* newNode = BUMP_PUSH_NEW(arena, csg_VertLoopNode);
-            newNode->vert = mesh->verts[mesh->tris[i].elems[j]];
-            newNode->next = loop;
-            loop = newNode;
-        }
-    }
-}
-
 #define CSG_EPSILON 0.0001
 
 bool csg_floatZero(float a) {
@@ -211,65 +177,43 @@ bool csg_floatEqual(float a, float b) {
     return csg_floatZero(a - b);
 }
 
-bool _csg_areAllPointsOfATrangleOnOneSideOfAPlane(HMM_Vec3 p1, HMM_Vec3 p2, HMM_Vec3 p3, HMM_Vec3 planeNormal, HMM_Vec3 planeStart) {
-    // compute the side of all of As points relative to B
-    // if all are on the same side, then there can't be an overlap
-    HMM_Vec3* pts[] = {&p1, &p2, &p3};
-
-    int firstPointSide = 0;
-    bool onePointOnDiffSide = false;
+// outClasses should be an array of len 3, outputs of 1 are outside the plane, -1 inside, and 0 are on.
+void _csg_classifyTriPtsOnPlane(const HMM_Vec3* pts, int* outClasses, HMM_Vec3 planeNormal, HMM_Vec3 planeStart) {
     for (int i = 0; i < 3; i++) {
-        float dot = HMM_Dot(HMM_SubV3(*pts[i], planeStart), planeNormal);
+        float dot = HMM_Dot(HMM_SubV3(pts[i], planeStart), planeNormal);
         if (csg_floatZero(dot)) {
             dot = 0;
         } else {
             dot /= fabsf(dot);
         }
-
-        if (firstPointSide == 0) {
-            firstPointSide = (int)dot;
-        } else {
-            if ((int)dot != firstPointSide) {
-                return false;
-            }
-        }
+        outClasses[i] = (int)dot;
     }
-    // FIXME: coplanar check
-    assert(firstPointSide != 0);
-
-    return true;
 }
 
 void csg_triangleLineIntersection(HMM_Vec3 p0, HMM_Vec3 p1, HMM_Vec3 p2, HMM_Vec3 lineDir, HMM_Vec3 lineOrigin) {
 }
 
 void csg_splitTriangle(csg_Mesh* mesh, int64_t triIdx, csg_MeshTri cutter, const csg_Mesh* cutterMesh) {
+    HMM_Vec3 aPts[3] = {
+        mesh->verts[mesh->tris[triIdx].aIdx],
+        mesh->verts[mesh->tris[triIdx].bIdx],
+        mesh->verts[mesh->tris[triIdx].cIdx],
+    };
+    HMM_Vec3 bPts[3] = {
+        cutterMesh->verts[cutter.aIdx],
+        cutterMesh->verts[cutter.bIdx],
+        cutterMesh->verts[cutter.cIdx],
+    };
+
     HMM_Vec3 aNormal = csg_meshTriNormal(mesh->tris[triIdx], mesh);
     HMM_Vec3 bNormal = csg_meshTriNormal(cutter, cutterMesh);
 
-    HMM_Vec3 a0 = mesh->verts[mesh->tris[triIdx].aIdx];
-    HMM_Vec3 a1 = mesh->verts[mesh->tris[triIdx].bIdx];
-    HMM_Vec3 a2 = mesh->verts[mesh->tris[triIdx].cIdx];
-
-    HMM_Vec3 b0 = cutterMesh->verts[cutter.aIdx];
-    HMM_Vec3 b1 = cutterMesh->verts[cutter.bIdx];
-    HMM_Vec3 b2 = cutterMesh->verts[cutter.cIdx];
-
-    bool aPointsTrivial = _csg_areAllPointsOfATrangleOnOneSideOfAPlane(a0, a1, a2, bNormal, b0);
-    if (aPointsTrivial) {
-        return;
-    }
-    bool bPointsTrivial = _csg_areAllPointsOfATrangleOnOneSideOfAPlane(b0, b1, b2, aNormal, a0);
-    if (bPointsTrivial) {
-        return;
-    }
+    HMM_Vec3 aFacing[3];
+    HMM_Vec3 bFacing[3];
+    _csg_classifyTriPtsOnPlane(aPts, aFacing, aNormal, bPts[0]);
+    _csg_classifyTriPtsOnPlane(bPts, bFacing, bNormal, aPts[0]);
 
     HMM_Vec3 intersectionLineDir = HMM_Cross(aNormal, bNormal);
-
-    float t1Min = ;
-    float t1Max = ;
-    float t2Min = ;
-    float t2Max = ;
 
     // if no overlap on the intersection axis, there is no split and we can just return
     if (!(t1Min < t2Max && t1Max > t2Min)) {
@@ -329,10 +273,10 @@ void csg_tests() {
         csg_meshPushVert(&mesh, HMM_V3(1, 1, 0));
         csg_meshPushVert(&mesh, HMM_V3(1, 0, -1));
 
-        csg_meshPushTri(&mesh, (csg_MeshTri){.aIdx = 0, .bIdx = 1, .cIdx = 2});
-        csg_meshPushTri(&mesh, (csg_MeshTri){.aIdx = 0, .bIdx = 2, .cIdx = 3});
-        csg_meshPushTri(&mesh, (csg_MeshTri){.aIdx = 0, .bIdx = 3, .cIdx = 1});
-        csg_meshPushTri(&mesh, (csg_MeshTri){.aIdx = 3, .bIdx = 2, .cIdx = 1});
+        csg_meshPushTri(&mesh, (csg_MeshTri) { .aIdx = 0, .bIdx = 1, .cIdx = 2 });
+        csg_meshPushTri(&mesh, (csg_MeshTri) { .aIdx = 0, .bIdx = 2, .cIdx = 3 });
+        csg_meshPushTri(&mesh, (csg_MeshTri) { .aIdx = 0, .bIdx = 3, .cIdx = 1 });
+        csg_meshPushTri(&mesh, (csg_MeshTri) { .aIdx = 3, .bIdx = 2, .cIdx = 1 });
 
         csg_BSPNode* tree = csg_BSPTreeFromMesh(&mesh, &arena);
         test_printResult(csg_BSPContainsPoint(tree, HMM_V3(0.5, 0.5, 0.0)) == true, "Tetra contains pt");
@@ -355,14 +299,14 @@ void csg_tests() {
         csg_meshPushVert(&mesh, HMM_V3(0, -1, 1));
 
         // top faces
-        csg_meshPushTri(&mesh, (csg_MeshTri){.aIdx = 1, .bIdx = 2, .cIdx = 3});
-        csg_meshPushTri(&mesh, (csg_MeshTri){.aIdx = 1, .bIdx = 4, .cIdx = 2});
-        csg_meshPushTri(&mesh, (csg_MeshTri){.aIdx = 1, .bIdx = 3, .cIdx = 0});
-        csg_meshPushTri(&mesh, (csg_MeshTri){.aIdx = 1, .bIdx = 0, .cIdx = 4});
+        csg_meshPushTri(&mesh, (csg_MeshTri) { .aIdx = 1, .bIdx = 2, .cIdx = 3 });
+        csg_meshPushTri(&mesh, (csg_MeshTri) { .aIdx = 1, .bIdx = 4, .cIdx = 2 });
+        csg_meshPushTri(&mesh, (csg_MeshTri) { .aIdx = 1, .bIdx = 3, .cIdx = 0 });
+        csg_meshPushTri(&mesh, (csg_MeshTri) { .aIdx = 1, .bIdx = 0, .cIdx = 4 });
 
         // bottom faces
-        csg_meshPushTri(&mesh, (csg_MeshTri){.aIdx = 0, .bIdx = 3, .cIdx = 2});
-        csg_meshPushTri(&mesh, (csg_MeshTri){.aIdx = 0, .bIdx = 2, .cIdx = 4});
+        csg_meshPushTri(&mesh, (csg_MeshTri) { .aIdx = 0, .bIdx = 3, .cIdx = 2 });
+        csg_meshPushTri(&mesh, (csg_MeshTri) { .aIdx = 0, .bIdx = 2, .cIdx = 4 });
 
         csg_BSPNode* tree = csg_BSPTreeFromMesh(&mesh, &arena);
 
