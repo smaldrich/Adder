@@ -88,8 +88,6 @@ bool csg_floatEqual(float a, float b) {
 
 // assumes three points in the pts array and the outClasses array sorry not sorry
 csg_PlaneRelation _csg_classifyTrianglePoints(HMM_Vec3* pts, HMM_Vec3 planeNormal, HMM_Vec3 planeStart) {
-    int firstPointSide = 0;
-    bool onePointOnDiffSide = false;
     csg_PlaneRelation finalRel = 0;
     for (int i = 0; i < 3; i++) {
         float dot = HMM_Dot(HMM_SubV3(pts[i], planeStart), planeNormal);
@@ -205,39 +203,9 @@ bool csg_BSPContainsPoint(csg_BSPNode* tree, HMM_Vec3 point) {
     return (node->kind == CSG_BSPNK_LEAF_WITHIN_MESH) ? true : false;
 }
 
-#define CSG_EPSILON 0.0001
-
-bool csg_floatZero(float a) {
-    return fabsf(a) < CSG_EPSILON;
-}
-
-bool csg_floatEqual(float a, float b) {
-    return csg_floatZero(a - b);
-}
-
-typedef enum {
-    CSG_PPR_WITHIN,
-    CSG_PPR_OUTSIDE,
-    CSG_PPR_COPLANAR,
-} csg_PointPlaneRelation;
-
-// assumes three points in the pts array and the outClasses array sorry not sorry
-void _csg_classifyTrianglePoints(HMM_Vec3* pts, csg_PointPlaneRelation* outClasses, HMM_Vec3 planeNormal, HMM_Vec3 planeStart) {
-    int firstPointSide = 0;
-    bool onePointOnDiffSide = false;
-    for (int i = 0; i < 3; i++) {
-        float dot = HMM_Dot(HMM_SubV3(pts[i], planeStart), planeNormal);
-        if (csg_floatZero(dot)) {
-            outClasses[i] = CSG_PPR_COPLANAR;
-        }
-        outClasses[i] = dot > 0 ? CSG_PPR_OUTSIDE : CSG_PPR_WITHIN;
-    }
-    return true;
-}
-
 // returns a T value along the line such that ((t*lineDir) + lineOrigin) = the point of intersection
 // done this way so that bounds checking can be done after the return
-csg_planeLineIntersection(HMM_Vec3 planeOrigin, HMM_Vec3 planeNormal, HMM_Vec3 lineOrigin, HMM_Vec3 lineDir) {
+float csg_planeLineIntersection(HMM_Vec3 planeOrigin, HMM_Vec3 planeNormal, HMM_Vec3 lineOrigin, HMM_Vec3 lineDir) {
     float t = HMM_Dot(HMM_SubV3(planeOrigin, lineOrigin), planeNormal);
     t /= HMM_DotV3(lineDir, planeNormal);
     assert(isfinite(t));  // FIXME: is this enough? no. Do I care? also no. // intersection/coplanar checks beforehand should cover any non-intersection || parallel cases
@@ -261,21 +229,25 @@ void csg_splitTriangle(csg_Mesh* mesh, csg_MeshTri* tri, const csg_MeshTri* cutt
     } else if (rel == CSG_PR_WITHIN) {
         return;
     } else {
-        int64_t vertLoopIndexes[5] = {0, 0, 0, 0, 0};
+        int64_t vertLoopIndexes[5] = { 0, 0, 0, 0, 0 };
         int64_t vertCount = 0;
 
         for (int i = 0; i < 3; i++) {
             HMM_Vec3 pt = aPts[i];
             HMM_Vec3 nextPt = aPts[(i + 1) % 3];
-            HMM_Vec3 direction = HMM_NormV3(HMM_SubV3(nextPt, pt));
+            HMM_Vec3 diff = HMM_SubV3(nextPt, pt);
+            HMM_Vec3 direction = HMM_NormV3(diff);
             float t = csg_planeLineIntersection(b0, bNormal, pt, direction);
             if (t < 0) {
                 continue;
-            } else if (t * t > HMM_LenSqr())
+            } else if ((t * t) > HMM_LenSqr(diff)) {
+                continue;
+            }
 
-                assert(vertCount < 5);
-            csg_meshPushVert(mesh, intersection);
+            assert(vertCount < 5);
             vertCount++;
+            HMM_Vec3 intersection = HMM_AddV3(HMM_MulV3F(direction, t), pt);
+            csg_meshPushVert(mesh, intersection);
         }
         assert(vertCount == 5);
 
@@ -317,10 +289,10 @@ void csg_tests() {
         csg_meshPushVert(&mesh, HMM_V3(1, 1, 0));
         csg_meshPushVert(&mesh, HMM_V3(1, 0, -1));
 
-        csg_meshPushTri(&mesh, (csg_MeshTri){.aIdx = 0, .bIdx = 1, .cIdx = 2});
-        csg_meshPushTri(&mesh, (csg_MeshTri){.aIdx = 0, .bIdx = 2, .cIdx = 3});
-        csg_meshPushTri(&mesh, (csg_MeshTri){.aIdx = 0, .bIdx = 3, .cIdx = 1});
-        csg_meshPushTri(&mesh, (csg_MeshTri){.aIdx = 3, .bIdx = 2, .cIdx = 1});
+        csg_meshPushTri(&mesh, (csg_MeshTri) { .aIdx = 0, .bIdx = 1, .cIdx = 2 });
+        csg_meshPushTri(&mesh, (csg_MeshTri) { .aIdx = 0, .bIdx = 2, .cIdx = 3 });
+        csg_meshPushTri(&mesh, (csg_MeshTri) { .aIdx = 0, .bIdx = 3, .cIdx = 1 });
+        csg_meshPushTri(&mesh, (csg_MeshTri) { .aIdx = 3, .bIdx = 2, .cIdx = 1 });
 
         csg_BSPNode* tree = csg_BSPTreeFromMesh(&mesh, &arena);
         test_printResult(csg_BSPContainsPoint(tree, HMM_V3(0.5, 0.5, 0.0)) == true, "Tetra contains pt");
@@ -343,14 +315,14 @@ void csg_tests() {
         csg_meshPushVert(&mesh, HMM_V3(0, -1, 1));
 
         // top faces
-        csg_meshPushTri(&mesh, (csg_MeshTri){.aIdx = 1, .bIdx = 2, .cIdx = 3});
-        csg_meshPushTri(&mesh, (csg_MeshTri){.aIdx = 1, .bIdx = 4, .cIdx = 2});
-        csg_meshPushTri(&mesh, (csg_MeshTri){.aIdx = 1, .bIdx = 3, .cIdx = 0});
-        csg_meshPushTri(&mesh, (csg_MeshTri){.aIdx = 1, .bIdx = 0, .cIdx = 4});
+        csg_meshPushTri(&mesh, (csg_MeshTri) { .aIdx = 1, .bIdx = 2, .cIdx = 3 });
+        csg_meshPushTri(&mesh, (csg_MeshTri) { .aIdx = 1, .bIdx = 4, .cIdx = 2 });
+        csg_meshPushTri(&mesh, (csg_MeshTri) { .aIdx = 1, .bIdx = 3, .cIdx = 0 });
+        csg_meshPushTri(&mesh, (csg_MeshTri) { .aIdx = 1, .bIdx = 0, .cIdx = 4 });
 
         // bottom faces
-        csg_meshPushTri(&mesh, (csg_MeshTri){.aIdx = 0, .bIdx = 3, .cIdx = 2});
-        csg_meshPushTri(&mesh, (csg_MeshTri){.aIdx = 0, .bIdx = 2, .cIdx = 4});
+        csg_meshPushTri(&mesh, (csg_MeshTri) { .aIdx = 0, .bIdx = 3, .cIdx = 2 });
+        csg_meshPushTri(&mesh, (csg_MeshTri) { .aIdx = 0, .bIdx = 2, .cIdx = 4 });
 
         csg_BSPNode* tree = csg_BSPTreeFromMesh(&mesh, &arena);
 
