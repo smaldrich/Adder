@@ -211,69 +211,62 @@ bool csg_floatEqual(float a, float b) {
     return csg_floatZero(a - b);
 }
 
-bool _csg_areAllPointsOfATrangleOnOneSideOfAPlane(HMM_Vec3 p1, HMM_Vec3 p2, HMM_Vec3 p3, HMM_Vec3 planeNormal, HMM_Vec3 planeStart) {
-    // compute the side of all of As points relative to B
-    // if all are on the same side, then there can't be an overlap
-    HMM_Vec3* pts[] = {&p1, &p2, &p3};
+typedef enum {
+    CSG_PPR_WITHIN,
+    CSG_PPR_OUTSIDE,
+    CSG_PPR_COPLANAR,
+} csg_PointPlaneRelation;
 
+// assumes three points in the pts array and the outClasses array sorry not sorry
+void _csg_classifyTrianglePoints(HMM_Vec3* pts, csg_PointPlaneRelation* outClasses, HMM_Vec3 planeNormal, HMM_Vec3 planeStart) {
     int firstPointSide = 0;
     bool onePointOnDiffSide = false;
     for (int i = 0; i < 3; i++) {
-        float dot = HMM_Dot(HMM_SubV3(*pts[i], planeStart), planeNormal);
+        float dot = HMM_Dot(HMM_SubV3(pts[i], planeStart), planeNormal);
         if (csg_floatZero(dot)) {
-            dot = 0;
-        } else {
-            dot /= fabsf(dot);
+            outClasses[i] = CSG_PPR_COPLANAR;
         }
-
-        if (firstPointSide == 0) {
-            firstPointSide = (int)dot;
-        } else {
-            if ((int)dot != firstPointSide) {
-                return false;
-            }
-        }
+        outClasses[i] = dot > 0 ? CSG_PPR_OUTSIDE : CSG_PPR_WITHIN;
     }
-    // FIXME: coplanar check
-    assert(firstPointSide != 0);
-
     return true;
 }
 
-void csg_triangleLineIntersection(HMM_Vec3 p0, HMM_Vec3 p1, HMM_Vec3 p2, HMM_Vec3 lineDir, HMM_Vec3 lineOrigin) {
+HMM_Vec3 csg_planeLineIntersection(HMM_Vec3 planeOrigin, HMM_Vec3 planeNormal, HMM_Vec3 lineOrigin, HMM_Vec3 lineDir) {
+    float t = HMM_Dot(HMM_SubV3(planeOrigin, lineOrigin), planeNormal);
+    t /= HMM_DotV3(lineDir, planeNormal);
+    assert(isfinite(t));  // FIXME: is this enough? no. Do I care? also no. // intersection/coplanar checks beforehand should cover any non-intersection || parallel cases
+    return HMM_AddV3(HMM_MulV3F(lineDir, t), lineOrigin);
 }
 
 void csg_splitTriangle(csg_Mesh* mesh, int64_t triIdx, csg_MeshTri cutter, const csg_Mesh* cutterMesh) {
     HMM_Vec3 aNormal = csg_meshTriNormal(mesh->tris[triIdx], mesh);
     HMM_Vec3 bNormal = csg_meshTriNormal(cutter, cutterMesh);
 
-    HMM_Vec3 a0 = mesh->verts[mesh->tris[triIdx].aIdx];
-    HMM_Vec3 a1 = mesh->verts[mesh->tris[triIdx].bIdx];
-    HMM_Vec3 a2 = mesh->verts[mesh->tris[triIdx].cIdx];
+    HMM_Vec3 aPts[3] = {
+        mesh->verts[mesh->tris[triIdx].aIdx],
+        mesh->verts[mesh->tris[triIdx].bIdx],
+        mesh->verts[mesh->tris[triIdx].cIdx],
+    };
+    HMM_Vec3 bPts[3] = {
+        cutterMesh->verts[cutter.aIdx],
+        cutterMesh->verts[cutter.bIdx],
+        cutterMesh->verts[cutter.cIdx],
+    };
 
-    HMM_Vec3 b0 = cutterMesh->verts[cutter.aIdx];
-    HMM_Vec3 b1 = cutterMesh->verts[cutter.bIdx];
-    HMM_Vec3 b2 = cutterMesh->verts[cutter.cIdx];
+    csg_PointPlaneRelation aPointClasses[3];
+    _csg_classifyTrianglePoints(aPts, aPointClasses, bNormal, bPts[0]);
 
-    bool aPointsTrivial = _csg_areAllPointsOfATrangleOnOneSideOfAPlane(a0, a1, a2, bNormal, b0);
-    if (aPointsTrivial) {
+    if (aPointClasses[0] == CSG_PPR_OUTSIDE &&
+        aPointClasses[1] == CSG_PPR_OUTSIDE &&
+        aPointClasses[2] == CSG_PPR_OUTSIDE) {
         return;
-    }
-    bool bPointsTrivial = _csg_areAllPointsOfATrangleOnOneSideOfAPlane(b0, b1, b2, aNormal, a0);
-    if (bPointsTrivial) {
+    } else if (aPointClasses[0] == CSG_PPR_WITHIN &&
+               aPointClasses[1] == CSG_PPR_WITHIN &&
+               aPointClasses[2] == CSG_PPR_WITHIN) {
         return;
-    }
-
-    HMM_Vec3 intersectionLineDir = HMM_Cross(aNormal, bNormal);
-
-    float t1Min = ;
-    float t1Max = ;
-    float t2Min = ;
-    float t2Max = ;
-
-    // if no overlap on the intersection axis, there is no split and we can just return
-    if (!(t1Min < t2Max && t1Max > t2Min)) {
-        return;
+    } else {
+        HMM_Vec3 intersection1 = csg_planeLineIntersection(bPts[0], bNormal, );
+        HMM_Vec3 intersection2 = csg_planeLineIntersection(bPts[0], bNormal, );
     }
 }
 
