@@ -290,7 +290,7 @@ void _csg_triSplit(csg_TriListNode* tri, BumpAlloc* arena, csg_TriListNode** out
         // just add a switch and a second prebaked triangulation routine
 
         // rotate points so that the verts can be triangulated consistantly
-        // the main problem if you don't do this is that the triangulation doesn't end
+        // problem if you don't do this is that the triangulation doesn't end
         // up going across the cut line
         HMM_Vec3 rotatedVerts[5] = {0};
         for (int i = 0; i < 5; i++) {
@@ -454,7 +454,6 @@ void csg_tests() {
             .point3 = t1->c,
         };
         _csg_triSplit(t0, &arena, &outList, &inList, &cutter);
-        printf("all gucci\n");
     }
 
     bump_free(&arena);
