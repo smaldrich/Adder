@@ -59,7 +59,6 @@ typedef struct csg_BSPNode csg_BSPNode;
 struct csg_BSPNode {
     csg_BSPNode* outerTree;
     csg_BSPNode* innerTree;
-    HMM_Vec3 splitNormal;  // FIXME: redundant?
     csg_BSPNodeKind kind;
 
     csg_BSPNode* nextAvailible;  // used for construction only, probs should remove for perf but who cares
@@ -86,7 +85,7 @@ bool csg_floatEqual(float a, float b) {
     return csg_floatZero(a - b);
 }
 
-// assumes three points in the pts array and the outClasses array sorry not sorry
+// assumes three points in the pts array sorry not sorry
 csg_PlaneRelation _csg_classifyTrianglePoints(HMM_Vec3* pts, HMM_Vec3 planeNormal, HMM_Vec3 planeStart) {
     csg_PlaneRelation finalRel = 0;
     for (int i = 0; i < 3; i++) {
@@ -159,11 +158,8 @@ void _csg_BSPTreeFixNode(BumpAlloc* arena, csg_BSPNode* parent, csg_BSPNode* lis
     }
 }
 
-HMM_Vec3 csg_meshTriNormal(csg_MeshTri tri, const csg_Mesh* mesh) {
-    HMM_Vec3 p1 = mesh->verts[tri.aIdx];
-    HMM_Vec3 p2 = mesh->verts[tri.bIdx];
-    HMM_Vec3 p3 = mesh->verts[tri.cIdx];
-    HMM_Vec3 n = HMM_Cross(HMM_SubV3(p2, p1), HMM_SubV3(p3, p1));  // isn't this backwards?
+HMM_Vec3 csg_TriNormal(HMM_Vec3 a, HMM_Vec3 b, HMM_Vec3 c) {
+    HMM_Vec3 n = HMM_Cross(HMM_SubV3(b, a), HMM_SubV3(c, a));  // isn't this backwards?
     return HMM_NormV3(n);
 }
 
@@ -178,7 +174,6 @@ csg_BSPNode* csg_BSPTreeFromMesh(const csg_Mesh* mesh, BumpAlloc* arena) {
         tree = node;
 
         const csg_MeshTri* tri = &mesh->tris[i];
-        node->splitNormal = csg_meshTriNormal(*tri, mesh);
         node->point1 = mesh->verts[tri->aIdx];
         node->point2 = mesh->verts[tri->bIdx];
         node->point3 = mesh->verts[tri->cIdx];
@@ -192,7 +187,7 @@ bool csg_BSPContainsPoint(csg_BSPNode* tree, HMM_Vec3 point) {
     csg_BSPNode* node = tree;
     while (node->kind != CSG_BSPNK_LEAF_OUTSIDE_MESH && node->kind != CSG_BSPNK_LEAF_WITHIN_MESH) {
         HMM_Vec3 diff = HMM_SubV3(point, node->point1);
-        float dot = HMM_DotV3(diff, node->splitNormal);
+        float dot = HMM_DotV3(diff, csg_TriNormal(node->point1, node->point2, node->point3));
         if (dot <= 0) {
             node = node->innerTree;
         } else {
@@ -214,38 +209,52 @@ bool csg_planeLineIntersection(HMM_Vec3 planeOrigin, HMM_Vec3 planeNormal, HMM_V
     return isfinite(t);
 }
 
-// normals of the outtris should be the same as the original
-void csg_splitTriangle(csg_Mesh* mesh, csg_MeshTri* tri, const csg_MeshTri* cutter, const csg_Mesh* cutterMesh) {
-    HMM_Vec3 bNormal = csg_meshTriNormal(*cutter, cutterMesh);
-    HMM_Vec3 b0 = cutterMesh->verts[cutter->aIdx];
-
-    HMM_Vec3 aPts[3] = {
-        mesh->verts[tri->aIdx],
-        mesh->verts[tri->bIdx],
-        mesh->verts[tri->cIdx],
+typedef struct csg_TriListNode csg_TriListNode;
+struct csg_TriListNode {
+    csg_TriListNode* next;
+    union {
+        struct {
+            HMM_Vec3 a;
+            HMM_Vec3 b;
+            HMM_Vec3 c;
+        };
+        HMM_Vec3 elems[3];
     };
+};
 
-    csg_PlaneRelation rel = _csg_classifyTrianglePoints(aPts, bNormal, b0);
+// FIXME: how do coplanar things factor into this?
+// FIXME: full coplanar testing
+// FIXME: point deduplication of some kind
+void csg_splitTriangle(csg_TriListNode* tri, BumpAlloc* arena, csg_TriListNode** outOutsideList, csg_TriListNode** outInsideList, csg_BSPNode* cutter) {
+    HMM_Vec3 cutNormal = csg_TriNormal(cutter->point1, cutter->point2, cutter->point3);
 
-    if (rel == CSG_PR_OUTSIDE) {
-        return;
+    csg_PlaneRelation rel = _csg_classifyTrianglePoints(tri->elems, cutNormal, cutter->point1);
+
+    if (rel == CSG_PR_COPLANAR) {
+        assert(false);
+    } else if (rel == CSG_PR_OUTSIDE) {
+        tri->next = *outOutsideList;
+        (*outOutsideList) = tri;
     } else if (rel == CSG_PR_WITHIN) {
-        return;
+        tri->next = *outInsideList;
+        (*outInsideList) = tri;
     } else {
-        int64_t vertLoopIndexes[5] = { 0, 0, 0, 0, 0 };
-        int64_t vertCount = 0;
+        HMM_Vec3 verts[5] = { 0 };
+        int vertCount = 0;
+        int firstIntersectionIdx = 0;
 
+        // collect all of the verts that need to exist by intersecting each line in the tri
         for (int i = 0; i < 3; i++) {
-            HMM_Vec3 pt = aPts[i];
-            vertLoopIndexes[vertCount] = tri->elems[i];
+            HMM_Vec3 pt = tri->elems[i];
+            verts[vertCount] = pt;
             assert(vertCount < 5);
             vertCount++;
 
-            HMM_Vec3 nextPt = aPts[(i + 1) % 3];
+            HMM_Vec3 nextPt = tri->elems[(i + 1) % 3];
             HMM_Vec3 diff = HMM_SubV3(nextPt, pt);
             HMM_Vec3 direction = HMM_NormV3(diff);
             float t = 0;
-            bool intersectExists = csg_planeLineIntersection(b0, bNormal, pt, direction, &t);
+            bool intersectExists = csg_planeLineIntersection(cutter->point1, cutNormal, pt, direction, &t);
             if (!intersectExists) {
                 continue;
             } else if (t < 0) {
@@ -256,33 +265,39 @@ void csg_splitTriangle(csg_Mesh* mesh, csg_MeshTri* tri, const csg_MeshTri* cutt
 
             assert(vertCount < 5);
             HMM_Vec3 intersection = HMM_AddV3(HMM_MulV3F(direction, t), pt);
-            vertLoopIndexes[vertCount] = mesh->vertCount; // point the verttex to the end of the arr, where the new one gets pushed
-            csg_meshPushVert(mesh, intersection);
+            firstIntersectionIdx = vertCount;
+            verts[vertCount] = intersection;
             vertCount++;
         }
         assert(vertCount == 5); // FIXME: what happens when one point is coplanar and it gets marked as spanning? i.e. should be only 4 points here and this'll fire
         // just add a switch and a second prebaked triangulation routine
 
-        csg_MeshTri t = (csg_MeshTri){
-            .aIdx = vertLoopIndexes[0],
-            .bIdx = vertLoopIndexes[1],
-            .cIdx = vertLoopIndexes[2],
-        };
-        *tri = t;
+        // rotate so that the verts can be triangulated consistantly
+        HMM_Vec3 rotatedVerts[5] = { 0 };
+        for (int i = 0; i < 5; i++) {
+            rotatedVerts[i] = verts[(i + firstIntersectionIdx) % 5];
+        }
 
-        t = (csg_MeshTri){
-            .aIdx = vertLoopIndexes[2],
-            .bIdx = vertLoopIndexes[3],
-            .cIdx = vertLoopIndexes[4],
+        csg_TriListNode* t1 = BUMP_PUSH_NEW(arena, csg_TriListNode);
+        *t1 = (csg_TriListNode){
+            .a = rotatedVerts[0],
+            .b = rotatedVerts[1],
+            .c = rotatedVerts[2]
         };
-        csg_meshPushTri(mesh, t);
 
-        t = (csg_MeshTri){
-            .aIdx = vertLoopIndexes[4],
-            .bIdx = vertLoopIndexes[0],
-            .cIdx = vertLoopIndexes[2],
+        csg_TriListNode* t2 = BUMP_PUSH_NEW(arena, csg_TriListNode);
+        *t2 = (csg_TriListNode){
+            .a = rotatedVerts[2],
+            .b = rotatedVerts[3],
+            .c = rotatedVerts[4]
         };
-        csg_meshPushTri(mesh, t);
+
+        csg_TriListNode* t3 = BUMP_PUSH_NEW(arena, csg_TriListNode);
+        *t3 = (csg_TriListNode){
+            .a = rotatedVerts[4],
+            .b = rotatedVerts[0],
+            .c = rotatedVerts[2]
+        };
     }  // end spanning check
 }
 
