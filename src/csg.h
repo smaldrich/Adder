@@ -256,7 +256,7 @@ void _csg_triSplit(csg_TriListNode* tri, BumpAlloc* arena, csg_TriListNode** out
     } else {
         HMM_Vec3 verts[5] = {0};
         int vertCount = 0;
-        int firstIntersectionIdx = 0;
+        int firstIntersectionIdx = -1;
 
         // collect all of the verts that need to exist by intersecting each line in the tri
         for (int i = 0; i < 3; i++) {
@@ -280,7 +280,9 @@ void _csg_triSplit(csg_TriListNode* tri, BumpAlloc* arena, csg_TriListNode** out
 
             assert(vertCount < 5);
             HMM_Vec3 intersection = HMM_AddV3(HMM_MulV3F(direction, t), pt);
-            firstIntersectionIdx = vertCount;
+            if (firstIntersectionIdx == -1) {
+                firstIntersectionIdx = vertCount;
+            }
             verts[vertCount] = intersection;
             vertCount++;
         }
@@ -425,6 +427,34 @@ void csg_tests() {
         test_printResult(csg_BSPContainsPoint(tree, HMM_V3(0, -1, -1)) == true, "horn contain test 5");
         test_printResult(csg_BSPContainsPoint(tree, HMM_V3(-1, -1, -1)) == false, "horn contain test 6");
         test_printResult(csg_BSPContainsPoint(tree, HMM_V3(0, -0.5, 0)) == false, "horn contain test 7");
+    }
+
+    bump_clear(&arena);
+    poolAllocClear(&pool);
+
+    {
+        csg_TriListNode* t0 = BUMP_PUSH_NEW(&arena, csg_TriListNode);
+        *t0 = (csg_TriListNode){
+            .a = HMM_V3(-1, 0, 0),
+            .b = HMM_V3(0, 1, 0),
+            .c = HMM_V3(1, 0, 0),
+        };
+        csg_TriListNode* t1 = BUMP_PUSH_NEW(&arena, csg_TriListNode);
+        *t1 = (csg_TriListNode){
+            .a = HMM_V3(-1, 0.5, 1),
+            .b = HMM_V3(1, 0.5, 1),
+            .c = HMM_V3(0, 0.5, -1),
+        };
+
+        csg_TriListNode* outList = NULL;
+        csg_TriListNode* inList = NULL;
+        csg_BSPNode cutter = (csg_BSPNode){
+            .point1 = t1->a,
+            .point2 = t1->b,
+            .point3 = t1->c,
+        };
+        _csg_triSplit(t0, &arena, &outList, &inList, &cutter);
+        printf("all gucci\n");
     }
 
     bump_free(&arena);
