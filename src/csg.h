@@ -355,6 +355,25 @@ csg_TriListNode* csg_bspClipTris(csg_TriListNode* meshTris, csg_BSPNode* tree, B
     return outside;
 }
 
+void csg_triListToSTL(csg_TriListNode* tris, const char* path) {
+    FILE* f = fopen(path, "w");
+    fprintf(f, "solid object\n");
+
+    for (csg_TriListNode* tri = tris; tri; tri = tri->next) {
+        HMM_Vec3 normal = csg_triNormal(tri->a, tri->b, tri->c);
+        fprintf(f, "facet normal %f %f %f\n", normal.X, normal.Y, normal.Z);
+        fprintf(f, "outer loop\n");
+        fprintf(f, "vertex %f %f %f\n", tri->a.X, tri->a.Y, tri->a.Z);
+        fprintf(f, "vertex %f %f %f\n", tri->b.X, tri->b.Y, tri->b.Z);
+        fprintf(f, "vertex %f %f %f\n", tri->c.X, tri->c.Y, tri->c.Z);
+        fprintf(f, "endloop\n");
+        fprintf(f, "endfacet\n");
+    }
+
+    fprintf(f, "endsolid object\n");
+    fclose(f);
+}
+
 void csg_tests() {
     test_printSectionHeader("csg");
 
@@ -414,6 +433,9 @@ void csg_tests() {
         test_printResult(csg_BSPContainsPoint(tree, HMM_V3(0, -1, -1)) == true, "horn contain test 5");
         test_printResult(csg_BSPContainsPoint(tree, HMM_V3(-1, -1, -1)) == false, "horn contain test 6");
         test_printResult(csg_BSPContainsPoint(tree, HMM_V3(0, -0.5, 0)) == false, "horn contain test 7");
+
+        csg_TriListNode* tris = csg_meshToTriList(&mesh, &arena);
+        csg_triListToSTL(tris, "testing/object.stl");
     }
 
     bump_clear(&arena);
