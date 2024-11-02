@@ -9,27 +9,6 @@
 #include "base/allocators.h"
 #include "base/testing.h"
 
-typedef struct {
-    union {
-        struct {
-            int64_t aIdx;
-            int64_t bIdx;
-            int64_t cIdx;
-        };
-        int64_t elems[3];
-    };
-} csg_MeshTri;
-
-typedef struct {
-    int64_t vertCount;
-    HMM_Vec3* verts;
-
-    int64_t triCount;
-    csg_MeshTri* tris;
-
-    PoolAlloc* alloc;
-} csg_Mesh;
-
 typedef struct csg_TriListNode csg_TriListNode;
 struct csg_TriListNode {
     csg_TriListNode* next;
@@ -71,27 +50,22 @@ bool csg_floatZero(float a) {
 bool csg_floatEqual(float a, float b) {
     return csg_floatZero(a - b);
 }
-csg_Mesh csg_meshInit(PoolAlloc* alloc) {
-    csg_Mesh out;
-    memset(&out, 0, sizeof(out));
-
-    out.alloc = alloc;
-    out.verts = poolAllocAlloc(alloc, 0);
-    out.tris = poolAllocAlloc(alloc, 0);
-    return out;
-}
-
-void csg_meshPushVert(csg_Mesh* mesh, HMM_Vec3 vert) {
-    *poolAllocPushArray(mesh->alloc, mesh->verts, mesh->vertCount, HMM_Vec3) = vert;
-}
-
-void csg_meshPushTri(csg_Mesh* mesh, csg_MeshTri tri) {
-    *poolAllocPushArray(mesh->alloc, mesh->tris, mesh->triCount, csg_MeshTri) = tri;
-}
 
 HMM_Vec3 csg_triNormal(HMM_Vec3 a, HMM_Vec3 b, HMM_Vec3 c) {
     HMM_Vec3 n = HMM_Cross(HMM_SubV3(b, a), HMM_SubV3(c, a));  // isn't this backwards?
     return HMM_NormV3(n);
+}
+
+csg_TriListNode* csg_triListPush(BumpAlloc* arena, csg_TriListNode** listHead, HMM_Vec3 a, HMM_Vec3 b, HMM_Vec3 c) {
+    csg_TriListNode* new = BUMP_PUSH_NEW(arena, csg_TriListNode);
+    *new = (csg_TriListNode){
+        .a = a,
+        .b = b,
+        .c = c,
+        .next = *listHead,
+    };
+    *listHead = new;
+    return new;
 }
 
 // assumes three points in the pts array sorry not sorry
@@ -161,20 +135,19 @@ void _csg_BSPTreeFixNode(BumpAlloc* arena, csg_BSPNode* parent, csg_BSPNode* lis
     }
 }
 
-// returns the top of a bsp tree for the mesh, allocated entirely inside arena
+// returns the top of a bsp tree for the list of tris, allocated entirely inside arena
 // Normals calculated with out being CW, where all normals should be pointing out
-csg_BSPNode* csg_meshToBSP(const csg_Mesh* mesh, BumpAlloc* arena) {
+csg_BSPNode* csg_triListToBSP(const csg_TriListNode* tris, BumpAlloc* arena) {
     csg_BSPNode* tree = NULL;
 
-    for (int64_t i = 0; i < mesh->triCount; i++) {
+    for (const csg_TriListNode* tri = tris; tri; tri = tri->next) {
         csg_BSPNode* node = BUMP_PUSH_NEW(arena, csg_BSPNode);
         node->nextAvailible = tree;
         tree = node;
 
-        const csg_MeshTri* tri = &mesh->tris[i];
-        node->point1 = mesh->verts[tri->aIdx];
-        node->point2 = mesh->verts[tri->bIdx];
-        node->point3 = mesh->verts[tri->cIdx];
+        node->point1 = tri->a;
+        node->point2 = tri->b;
+        node->point3 = tri->c;
     }
 
     _csg_BSPTreeFixNode(arena, tree, tree->nextAvailible);
@@ -210,20 +183,6 @@ bool csg_planeLineIntersection(HMM_Vec3 planeOrigin, HMM_Vec3 planeNormal, HMM_V
     t /= HMM_DotV3(lineDir, planeNormal);
     *outT = t;
     return isfinite(t);
-}
-
-csg_TriListNode* csg_meshToTriList(const csg_Mesh* mesh, BumpAlloc* outArena) {
-    csg_TriListNode* out = NULL;
-    for (int64_t i = 0; i < mesh->triCount; i++) {
-        csg_TriListNode* new = BUMP_PUSH_NEW(outArena, csg_TriListNode);
-        csg_MeshTri* tri = &(mesh->tris[i]);
-        new->a = mesh->verts[tri->aIdx];
-        new->b = mesh->verts[tri->bIdx];
-        new->c = mesh->verts[tri->cIdx];
-        new->next = out;
-        out = new;
-    }
-    return out;
 }
 
 // FIXME: how do coplanar things factor into this?
@@ -355,7 +314,7 @@ csg_TriListNode* csg_bspClipTris(csg_TriListNode* meshTris, csg_BSPNode* tree, B
     return outside;
 }
 
-void csg_triListToSTL(csg_TriListNode* tris, const char* path) {
+void csg_triListToSTLFile(csg_TriListNode* tris, const char* path) {
     FILE* f = fopen(path, "w");
     fprintf(f, "solid object\n");
 
@@ -381,19 +340,20 @@ void csg_tests() {
     PoolAlloc pool = poolAllocInit();
 
     {
-        csg_Mesh mesh = csg_meshInit(&pool);
+        HMM_Vec3 verts[] = {
+            HMM_V3(0, 0, 0),
+            HMM_V3(1, 0, 0),
+            HMM_V3(1, 1, 0),
+            HMM_V3(1, 0, -1),
+        };
 
-        csg_meshPushVert(&mesh, HMM_V3(0, 0, 0));
-        csg_meshPushVert(&mesh, HMM_V3(1, 0, 0));
-        csg_meshPushVert(&mesh, HMM_V3(1, 1, 0));
-        csg_meshPushVert(&mesh, HMM_V3(1, 0, -1));
+        csg_TriListNode* list = NULL;
+        csg_triListPush(&arena, &list, verts[0], verts[1], verts[2]);
+        csg_triListPush(&arena, &list, verts[0], verts[2], verts[3]);
+        csg_triListPush(&arena, &list, verts[0], verts[3], verts[1]);
+        csg_triListPush(&arena, &list, verts[3], verts[2], verts[1]);
 
-        csg_meshPushTri(&mesh, (csg_MeshTri) { .aIdx = 0, .bIdx = 1, .cIdx = 2 });
-        csg_meshPushTri(&mesh, (csg_MeshTri) { .aIdx = 0, .bIdx = 2, .cIdx = 3 });
-        csg_meshPushTri(&mesh, (csg_MeshTri) { .aIdx = 0, .bIdx = 3, .cIdx = 1 });
-        csg_meshPushTri(&mesh, (csg_MeshTri) { .aIdx = 3, .bIdx = 2, .cIdx = 1 });
-
-        csg_BSPNode* tree = csg_meshToBSP(&mesh, &arena);
+        csg_BSPNode* tree = csg_triListToBSP(list, &arena);
         test_printResult(csg_BSPContainsPoint(tree, HMM_V3(0.5, 0.5, 0.0)) == true, "Tetra contains pt");
         test_printResult(csg_BSPContainsPoint(tree, HMM_V3(0.5, 1.0, 0.5)) == false, "Tetra doesn't contain pt");
         test_printResult(csg_BSPContainsPoint(tree, HMM_V3(0, 0, 0)) == true, "Tetra contains edge pt");
@@ -407,24 +367,27 @@ void csg_tests() {
     poolAllocClear(&pool);
 
     {
-        csg_Mesh mesh = csg_meshInit(&pool);
-        csg_meshPushVert(&mesh, HMM_V3(-0.5, 0, 0));
-        csg_meshPushVert(&mesh, HMM_V3(0, 1, 0));
-        csg_meshPushVert(&mesh, HMM_V3(0.5, 0, 0));
-        csg_meshPushVert(&mesh, HMM_V3(0, -1, -1));
-        csg_meshPushVert(&mesh, HMM_V3(0, -1, 1));
+        HMM_Vec3 verts[] = {
+            HMM_V3(-0.5, 0, 0),
+            HMM_V3(0, 1, 0),
+            HMM_V3(0.5, 0, 0),
+            HMM_V3(0, -1, -1),
+            HMM_V3(0, -1, 1),
+        };
 
+        csg_TriListNode* list = NULL;
         // top faces
-        csg_meshPushTri(&mesh, (csg_MeshTri) { .aIdx = 1, .bIdx = 2, .cIdx = 3 });
-        csg_meshPushTri(&mesh, (csg_MeshTri) { .aIdx = 1, .bIdx = 4, .cIdx = 2 });
-        csg_meshPushTri(&mesh, (csg_MeshTri) { .aIdx = 1, .bIdx = 3, .cIdx = 0 });
-        csg_meshPushTri(&mesh, (csg_MeshTri) { .aIdx = 1, .bIdx = 0, .cIdx = 4 });
+        csg_triListPush(&arena, &list, verts[1], verts[2], verts[3]);
+        csg_triListPush(&arena, &list, verts[1], verts[4], verts[2]);
+        csg_triListPush(&arena, &list, verts[1], verts[3], verts[0]);
+        csg_triListPush(&arena, &list, verts[1], verts[0], verts[4]);
 
         // bottom faces
-        csg_meshPushTri(&mesh, (csg_MeshTri) { .aIdx = 0, .bIdx = 3, .cIdx = 2 });
-        csg_meshPushTri(&mesh, (csg_MeshTri) { .aIdx = 0, .bIdx = 2, .cIdx = 4 });
+        csg_triListPush(&arena, &list, verts[0], verts[3], verts[2]);
+        csg_triListPush(&arena, &list, verts[0], verts[2], verts[4]);
+        csg_triListToSTLFile(list, "testing/object.stl");
 
-        csg_BSPNode* tree = csg_meshToBSP(&mesh, &arena);
+        csg_BSPNode* tree = csg_triListToBSP(list, &arena);
 
         test_printResult(csg_BSPContainsPoint(tree, HMM_V3(0, 0, 0)) == true, "horn contain test 1");
         test_printResult(csg_BSPContainsPoint(tree, HMM_V3(0, 10, 0)) == false, "horn contain test 2");
@@ -434,8 +397,6 @@ void csg_tests() {
         test_printResult(csg_BSPContainsPoint(tree, HMM_V3(-1, -1, -1)) == false, "horn contain test 6");
         test_printResult(csg_BSPContainsPoint(tree, HMM_V3(0, -0.5, 0)) == false, "horn contain test 7");
 
-        csg_TriListNode* tris = csg_meshToTriList(&mesh, &arena);
-        csg_triListToSTL(tris, "testing/object.stl");
     }
 
     bump_clear(&arena);
