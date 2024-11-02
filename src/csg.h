@@ -43,18 +43,10 @@ struct csg_TriListNode {
     };
 };
 
-typedef enum {
-    CSG_BSPNK_INVALID,
-    CSG_BSPNK_SPLIT,
-    CSG_BSPNK_LEAF_WITHIN_MESH,
-    CSG_BSPNK_LEAF_OUTSIDE_MESH
-} csg_BSPNodeKind;
-
 typedef struct csg_BSPNode csg_BSPNode;
 struct csg_BSPNode {
     csg_BSPNode* outerTree;
     csg_BSPNode* innerTree;
-    csg_BSPNodeKind kind;
 
     csg_BSPNode* nextAvailible;  // used for construction only, probs should remove for perf but who cares
 
@@ -159,19 +151,12 @@ void _csg_BSPTreeFixNode(BumpAlloc* arena, csg_BSPNode* parent, csg_BSPNode* lis
 
     parent->innerTree = innerList;
     parent->outerTree = outerList;
-    parent->kind = CSG_BSPNK_SPLIT;
 
-    if (parent->innerTree == NULL) {
-        parent->innerTree = BUMP_PUSH_NEW(arena, csg_BSPNode);
-        parent->innerTree->kind = CSG_BSPNK_LEAF_WITHIN_MESH;
-    } else {
+    if (parent->innerTree != NULL) {
         _csg_BSPTreeFixNode(arena, parent->innerTree, innerList->nextAvailible);
     }
 
-    if (parent->outerTree == NULL) {
-        parent->outerTree = BUMP_PUSH_NEW(arena, csg_BSPNode);
-        parent->outerTree->kind = CSG_BSPNK_LEAF_OUTSIDE_MESH;
-    } else {
+    if (parent->outerTree != NULL) {
         _csg_BSPTreeFixNode(arena, parent->outerTree, outerList->nextAvailible);
     }
 }
@@ -198,17 +183,22 @@ csg_BSPNode* csg_meshToBSP(const csg_Mesh* mesh, BumpAlloc* arena) {
 
 bool csg_BSPContainsPoint(csg_BSPNode* tree, HMM_Vec3 point) {
     csg_BSPNode* node = tree;
-    while (node->kind != CSG_BSPNK_LEAF_OUTSIDE_MESH && node->kind != CSG_BSPNK_LEAF_WITHIN_MESH) {
+    while (true) { // FIXME: failsafe here :)
         HMM_Vec3 diff = HMM_SubV3(point, node->point1);
         float dot = HMM_DotV3(diff, csg_triNormal(node->point1, node->point2, node->point3));
         if (dot <= 0) {
             node = node->innerTree;
+            if (node == NULL) {
+                return true;
+            }
         } else {
             node = node->outerTree;
+            if (node == NULL) {
+                return false;
+            }
         }
-        assert(node != NULL);
     }
-    return (node->kind == CSG_BSPNK_LEAF_WITHIN_MESH) ? true : false;
+    assert(false);
 }
 
 // returns a T value along the line such that ((t*lineDir) + lineOrigin) = the point of intersection
@@ -254,7 +244,7 @@ void _csg_triSplit(csg_TriListNode* tri, BumpAlloc* arena, csg_TriListNode** out
         tri->next = *outInsideList;
         (*outInsideList) = tri;
     } else {
-        HMM_Vec3 verts[5] = {0};
+        HMM_Vec3 verts[5] = { 0 };
         int vertCount = 0;
         int firstIntersectionIdx = -1;
 
@@ -292,7 +282,7 @@ void _csg_triSplit(csg_TriListNode* tri, BumpAlloc* arena, csg_TriListNode** out
         // rotate points so that the verts can be triangulated consistantly
         // problem if you don't do this is that the triangulation doesn't end
         // up going across the cut line
-        HMM_Vec3 rotatedVerts[5] = {0};
+        HMM_Vec3 rotatedVerts[5] = { 0 };
         for (int i = 0; i < 5; i++) {
             rotatedVerts[i] = verts[(i + firstIntersectionIdx) % 5];
         }
@@ -351,16 +341,13 @@ csg_TriListNode* csg_bspClipTris(csg_TriListNode* meshTris, csg_BSPNode* tree, B
         }
     }
 
-    if (tree->kind == CSG_BSPNK_SPLIT) {
-        if (tree->innerTree != NULL) {
-            inside = csg_bspClipTris(inside, tree->innerTree, arena);
-        }
+    if (tree->innerTree != NULL) {
+        inside = csg_bspClipTris(inside, tree->innerTree, arena);
+    }
 
-        if (tree->outerTree != NULL) {
-            outside = csg_bspClipTris(outside, tree->outerTree, arena);
-        }
-    } else if (tree->kind == CSG_BSPNK_LEAF_WITHIN_MESH) {
-        // FIXME: remove leaf nodes from the damn bsp tree
+    if (tree->outerTree != NULL) {
+        outside = csg_bspClipTris(outside, tree->outerTree, arena);
+    } else {
         inside = NULL;
     }
 
@@ -382,10 +369,10 @@ void csg_tests() {
         csg_meshPushVert(&mesh, HMM_V3(1, 1, 0));
         csg_meshPushVert(&mesh, HMM_V3(1, 0, -1));
 
-        csg_meshPushTri(&mesh, (csg_MeshTri){.aIdx = 0, .bIdx = 1, .cIdx = 2});
-        csg_meshPushTri(&mesh, (csg_MeshTri){.aIdx = 0, .bIdx = 2, .cIdx = 3});
-        csg_meshPushTri(&mesh, (csg_MeshTri){.aIdx = 0, .bIdx = 3, .cIdx = 1});
-        csg_meshPushTri(&mesh, (csg_MeshTri){.aIdx = 3, .bIdx = 2, .cIdx = 1});
+        csg_meshPushTri(&mesh, (csg_MeshTri) { .aIdx = 0, .bIdx = 1, .cIdx = 2 });
+        csg_meshPushTri(&mesh, (csg_MeshTri) { .aIdx = 0, .bIdx = 2, .cIdx = 3 });
+        csg_meshPushTri(&mesh, (csg_MeshTri) { .aIdx = 0, .bIdx = 3, .cIdx = 1 });
+        csg_meshPushTri(&mesh, (csg_MeshTri) { .aIdx = 3, .bIdx = 2, .cIdx = 1 });
 
         csg_BSPNode* tree = csg_meshToBSP(&mesh, &arena);
         test_printResult(csg_BSPContainsPoint(tree, HMM_V3(0.5, 0.5, 0.0)) == true, "Tetra contains pt");
@@ -409,14 +396,14 @@ void csg_tests() {
         csg_meshPushVert(&mesh, HMM_V3(0, -1, 1));
 
         // top faces
-        csg_meshPushTri(&mesh, (csg_MeshTri){.aIdx = 1, .bIdx = 2, .cIdx = 3});
-        csg_meshPushTri(&mesh, (csg_MeshTri){.aIdx = 1, .bIdx = 4, .cIdx = 2});
-        csg_meshPushTri(&mesh, (csg_MeshTri){.aIdx = 1, .bIdx = 3, .cIdx = 0});
-        csg_meshPushTri(&mesh, (csg_MeshTri){.aIdx = 1, .bIdx = 0, .cIdx = 4});
+        csg_meshPushTri(&mesh, (csg_MeshTri) { .aIdx = 1, .bIdx = 2, .cIdx = 3 });
+        csg_meshPushTri(&mesh, (csg_MeshTri) { .aIdx = 1, .bIdx = 4, .cIdx = 2 });
+        csg_meshPushTri(&mesh, (csg_MeshTri) { .aIdx = 1, .bIdx = 3, .cIdx = 0 });
+        csg_meshPushTri(&mesh, (csg_MeshTri) { .aIdx = 1, .bIdx = 0, .cIdx = 4 });
 
         // bottom faces
-        csg_meshPushTri(&mesh, (csg_MeshTri){.aIdx = 0, .bIdx = 3, .cIdx = 2});
-        csg_meshPushTri(&mesh, (csg_MeshTri){.aIdx = 0, .bIdx = 2, .cIdx = 4});
+        csg_meshPushTri(&mesh, (csg_MeshTri) { .aIdx = 0, .bIdx = 3, .cIdx = 2 });
+        csg_meshPushTri(&mesh, (csg_MeshTri) { .aIdx = 0, .bIdx = 2, .cIdx = 4 });
 
         csg_BSPNode* tree = csg_meshToBSP(&mesh, &arena);
 
