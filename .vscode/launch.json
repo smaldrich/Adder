@@ -18,6 +18,22 @@
                     "description": "Enable pretty-printing for gdb",
                     "text": "-enable-pretty-printing",
                     "ignoreFailures": true
+                },
+                // see https://stackoverflow.com/questions/68359330/gdb-mingw-doesnt-break-on-failed-asserts-vscode-config
+                {
+                    "text": "set breakpoint pending on",
+                    "description": "Ensures that a breakpoint for abort will be set!",
+                    "ignoreFailures": true
+                },
+                {
+                    "text": "break abort",
+                    "description": "Breaks on failed asserts",
+                    "ignoreFailures": true
+                },
+                {
+                    "text": "set breakpoint pending auto",
+                    "description": "Setting back to default behaviour",
+                    "ignoreFailures": true
                 }
             ]
         }

@@ -68,6 +68,25 @@ csg_TriListNode* csg_triListPush(BumpAlloc* arena, csg_TriListNode** listHead, H
     return new;
 }
 
+void csg_triListToSTLFile(csg_TriListNode* tris, const char* path) {
+    FILE* f = fopen(path, "w");
+    fprintf(f, "solid object\n");
+
+    for (csg_TriListNode* tri = tris; tri; tri = tri->next) {
+        HMM_Vec3 normal = csg_triNormal(tri->a, tri->b, tri->c);
+        fprintf(f, "facet normal %f %f %f\n", normal.X, normal.Y, normal.Z);
+        fprintf(f, "outer loop\n");
+        fprintf(f, "vertex %f %f %f\n", tri->a.X, tri->a.Y, tri->a.Z);
+        fprintf(f, "vertex %f %f %f\n", tri->b.X, tri->b.Y, tri->b.Z);
+        fprintf(f, "vertex %f %f %f\n", tri->c.X, tri->c.Y, tri->c.Z);
+        fprintf(f, "endloop\n");
+        fprintf(f, "endfacet\n");
+    }
+
+    fprintf(f, "endsolid object\n");
+    fclose(f);
+}
+
 // assumes three points in the pts array sorry not sorry
 csg_PlaneRelation _csg_triClassify(HMM_Vec3* pts, HMM_Vec3 planeNormal, HMM_Vec3 planeStart) {
     csg_PlaneRelation finalRel = 0;
@@ -221,7 +240,9 @@ void _csg_triSplit(csg_TriListNode* tri, BumpAlloc* arena, csg_TriListNode** out
             bool intersectExists = csg_planeLineIntersection(cutter->point1, cutNormal, pt, direction, &t);
             if (!intersectExists) {
                 continue;
-            } else if (t < 0) {
+            } else if (csg_floatEqual(t * t, HMM_LenSqr(diff))) {
+                continue;
+            } else if (t < 0 || csg_floatZero(t)) {
                 continue;
             } else if ((t * t) > HMM_LenSqr(diff)) {
                 continue;
@@ -229,57 +250,122 @@ void _csg_triSplit(csg_TriListNode* tri, BumpAlloc* arena, csg_TriListNode** out
 
             assert(vertCount < 5);
             HMM_Vec3 intersection = HMM_AddV3(HMM_MulV3F(direction, t), pt);
-            if (firstIntersectionIdx == -1) {
+            if (firstIntersectionIdx == -1 ||
+                (firstIntersectionIdx == 1 && vertCount == 4)) {
+                // perhaps the worst hack I have performed to date.
+                // In order to triangulate a vert loop properly, we are picking an 'origin'
+                // for the verts, so that when they get triangulated below, it can happen using a consistant
+                // method. The point is to rotate one vert to be idx 0, then triangulate normally from there.
+                // because we are splitting one triangle, and it isn't split down the middle, it has to fit one
+                // of three cases below. Where nums are vert nums (in the tri) (pre rotate) and pipes are the cuts.
+                //     2         2         1
+                //    |         | |         |
+                //   0 | 3     0   4     0 | 3
+                // based on the triangulation below, in every case except one the origin will be the smallest
+                // cut to work properly. That one case is tri no. 1 in the diagram, for which we need to
+                // select the second cut as the origin. sorry not sorry. couldn't think of a better way to do
+                // this while maintaining triangulation throughout the clip. VertCount is being checked for 4
+                // because it is incremented after this. sorry again.
                 firstIntersectionIdx = vertCount;
             }
             verts[vertCount] = intersection;
             vertCount++;
         }
-        assert(vertCount == 5);  // FIXME: what happens when one point is coplanar and it gets marked as spanning? i.e. should be only 4 points here and this'll fire
         // just add a switch and a second prebaked triangulation routine
 
         // rotate points so that the verts can be triangulated consistantly
         // problem if you don't do this is that the triangulation doesn't end
-        // up going across the cut line
+        // up going across the cut line or will create zero-width tris
         HMM_Vec3 rotatedVerts[5] = { 0 };
-        for (int i = 0; i < 5; i++) {
-            rotatedVerts[i] = verts[(i + firstIntersectionIdx) % 5];
+        for (int i = 0; i < vertCount; i++) {
+            rotatedVerts[i] = verts[(i + firstIntersectionIdx) % vertCount];
         }
 
-        bool t1Outside = HMM_DotV3(HMM_SubV3(rotatedVerts[1], cutter->point1), cutNormal) > 0;
-        csg_TriListNode* t1 = BUMP_PUSH_NEW(arena, csg_TriListNode);
-        *t1 = (csg_TriListNode){
-            .a = rotatedVerts[0],
-            .b = rotatedVerts[1],
-            .c = rotatedVerts[2],
-        };
+        if (vertCount == 5) {
+            bool t1Outside = HMM_DotV3(HMM_SubV3(rotatedVerts[1], cutter->point1), cutNormal) > 0;
+            csg_TriListNode* t1 = BUMP_PUSH_NEW(arena, csg_TriListNode);
+            *t1 = (csg_TriListNode){
+                .a = rotatedVerts[0],
+                .b = rotatedVerts[1],
+                .c = rotatedVerts[2],
+            };
 
-        // bigs
-        csg_TriListNode* t2 = BUMP_PUSH_NEW(arena, csg_TriListNode);
-        *t2 = (csg_TriListNode){
-            .a = rotatedVerts[2],
-            .b = rotatedVerts[3],
-            .c = rotatedVerts[4],
-        };
+            csg_TriListNode* t2 = BUMP_PUSH_NEW(arena, csg_TriListNode);
+            *t2 = (csg_TriListNode){
+                .a = rotatedVerts[2],
+                .b = rotatedVerts[3],
+                .c = rotatedVerts[4],
+            };
 
-        csg_TriListNode* t3 = BUMP_PUSH_NEW(arena, csg_TriListNode);
-        *t3 = (csg_TriListNode){
-            .a = rotatedVerts[4],
-            .b = rotatedVerts[0],
-            .c = rotatedVerts[2],
-        };
+            csg_TriListNode* t3 = BUMP_PUSH_NEW(arena, csg_TriListNode);
+            *t3 = (csg_TriListNode){
+                .a = rotatedVerts[4],
+                .b = rotatedVerts[0],
+                .c = rotatedVerts[2],
+            };
 
-        csg_TriListNode** t1List = t1Outside ? outOutsideList : outInsideList;
-        csg_TriListNode** t2and3List = t1Outside ? outInsideList : outOutsideList;
+            // {
+            //     csg_TriListNode c = (csg_TriListNode){
+            //         .a = cutter->point1,
+            //         .b = cutter->point2,
+            //         .c = cutter->point3,
+            //     };
+            //     csg_triListToSTLFile(&c, bump_formatStr(arena, "testing/%dCutter.stl", splitIter));
+            //     csg_TriListNode i = (csg_TriListNode){
+            //         .a = tri->a,
+            //         .b = tri->b,
+            //         .c = tri->c,
+            //     };
+            //     csg_triListToSTLFile(&i, bump_formatStr(arena, "testing/%dInitial.stl", splitIter));
 
-        t1->next = *t1List;
-        *t1List = t1;
+            //     csg_triListToSTLFile(t1, bump_formatStr(arena, "testing/%dFirst.stl", splitIter));
+            //     csg_triListToSTLFile(t2, bump_formatStr(arena, "testing/%dSecond.stl", splitIter));
+            //     csg_triListToSTLFile(t3, bump_formatStr(arena, "testing/%dThird.stl", splitIter));
 
-        t2->next = *t2and3List;
-        *t2and3List = t2;
+            //     splitIter++;
+            // }
 
-        t3->next = *t2and3List;
-        *t2and3List = t3;
+            csg_TriListNode** t1List = t1Outside ? outOutsideList : outInsideList;
+            csg_TriListNode** t2and3List = t1Outside ? outInsideList : outOutsideList;
+
+            t1->next = *t1List;
+            *t1List = t1;
+
+            t2->next = *t2and3List;
+            *t2and3List = t2;
+
+            t3->next = *t2and3List;
+            *t2and3List = t3;
+            return;
+        } // end 5 vert-check
+        else if (vertCount == 4) {
+            csg_TriListNode* t1 = BUMP_PUSH_NEW(arena, csg_TriListNode);
+            *t1 = (csg_TriListNode){
+                .a = rotatedVerts[0],
+                .b = rotatedVerts[1],
+                .c = rotatedVerts[2],
+            };
+
+            csg_TriListNode* t2 = BUMP_PUSH_NEW(arena, csg_TriListNode);
+            *t2 = (csg_TriListNode){
+                .a = rotatedVerts[2],
+                .b = rotatedVerts[3],
+                .c = rotatedVerts[0],
+            };
+
+            // t1B should never be colinear with the cut plane so long as rotation has been done correctly
+            bool t1Outside = HMM_DotV3(HMM_SubV3(t1->b, cutter->point1), cutNormal) > 0;
+            csg_TriListNode** t1List = t1Outside ? outOutsideList : outInsideList;
+            csg_TriListNode** t2List = t1Outside ? outInsideList : outInsideList;
+            t1->next = *t1List;
+            *t1List = t1;
+            t2->next = *t2List;
+            *t2List = t2;
+        } else {
+            // anything greater than 5 should be impossible, anything less than 4 should have been put on
+            // one side, not marked spanning
+            assert(false);
+        }
     }  // end spanning check
 }
 
@@ -310,27 +396,43 @@ csg_TriListNode* csg_bspClipTris(csg_TriListNode* meshTris, csg_BSPNode* tree, B
         inside = NULL;
     }
 
-    outsideLast->next = inside;
+    if (outsideLast != NULL) {
+        outsideLast->next = inside;
+    }
     return outside;
 }
 
-void csg_triListToSTLFile(csg_TriListNode* tris, const char* path) {
-    FILE* f = fopen(path, "w");
-    fprintf(f, "solid object\n");
+// FIXME: this is horrible
+csg_TriListNode* csg_cube(HMM_Vec3 origin, HMM_Vec3 halfSize, BumpAlloc* arena) {
+    csg_TriListNode* list = NULL;
 
-    for (csg_TriListNode* tri = tris; tri; tri = tri->next) {
-        HMM_Vec3 normal = csg_triNormal(tri->a, tri->b, tri->c);
-        fprintf(f, "facet normal %f %f %f\n", normal.X, normal.Y, normal.Z);
-        fprintf(f, "outer loop\n");
-        fprintf(f, "vertex %f %f %f\n", tri->a.X, tri->a.Y, tri->a.Z);
-        fprintf(f, "vertex %f %f %f\n", tri->b.X, tri->b.Y, tri->b.Z);
-        fprintf(f, "vertex %f %f %f\n", tri->c.X, tri->c.Y, tri->c.Z);
-        fprintf(f, "endloop\n");
-        fprintf(f, "endfacet\n");
+    HMM_Vec3 v[] = {
+        HMM_V3(-1, -1, 1),
+        HMM_V3(1, -1, 1),
+        HMM_V3(1, -1, -1),
+        HMM_V3(-1, -1, -1),
+        HMM_V3(-1, 1, 1),
+        HMM_V3(1, 1, 1),
+        HMM_V3(1, 1, -1),
+        HMM_V3(-1, 1, -1),
+    };
+    for (uint64_t i = 0; i < sizeof(v) / sizeof(HMM_Vec3); i++) {
+        v[i] = HMM_AddV3(HMM_MulV3(v[i], halfSize), origin);
     }
 
-    fprintf(f, "endsolid object\n");
-    fclose(f);
+    csg_triListPush(arena, &list, v[0], v[2], v[1]);
+    csg_triListPush(arena, &list, v[0], v[3], v[2]);
+    csg_triListPush(arena, &list, v[7], v[6], v[2]);
+    csg_triListPush(arena, &list, v[7], v[2], v[3]);
+    csg_triListPush(arena, &list, v[6], v[5], v[1]);
+    csg_triListPush(arena, &list, v[6], v[1], v[2]);
+    csg_triListPush(arena, &list, v[5], v[4], v[0]);
+    csg_triListPush(arena, &list, v[5], v[0], v[1]);
+    csg_triListPush(arena, &list, v[4], v[7], v[3]);
+    csg_triListPush(arena, &list, v[4], v[3], v[0]);
+    csg_triListPush(arena, &list, v[4], v[5], v[6]);
+    csg_triListPush(arena, &list, v[4], v[6], v[7]);
+    return list;
 }
 
 void csg_tests() {
@@ -396,34 +498,24 @@ void csg_tests() {
         test_printResult(csg_BSPContainsPoint(tree, HMM_V3(0, -1, -1)) == true, "horn contain test 5");
         test_printResult(csg_BSPContainsPoint(tree, HMM_V3(-1, -1, -1)) == false, "horn contain test 6");
         test_printResult(csg_BSPContainsPoint(tree, HMM_V3(0, -0.5, 0)) == false, "horn contain test 7");
-
     }
 
     bump_clear(&arena);
     poolAllocClear(&pool);
 
     {
-        csg_TriListNode* t0 = BUMP_PUSH_NEW(&arena, csg_TriListNode);
-        *t0 = (csg_TriListNode){
-            .a = HMM_V3(-1, 0, 0),
-            .b = HMM_V3(0, 1, 0),
-            .c = HMM_V3(1, 0, 0),
-        };
-        csg_TriListNode* t1 = BUMP_PUSH_NEW(&arena, csg_TriListNode);
-        *t1 = (csg_TriListNode){
-            .a = HMM_V3(-1, 0.5, 1),
-            .b = HMM_V3(1, 0.5, 1),
-            .c = HMM_V3(0, 0.5, -1),
-        };
+        csg_TriListNode* cubeA = csg_cube(HMM_V3(0, 0, 0), HMM_V3(0.5, 0.5, 0.5), &arena);
+        csg_TriListNode* cubeB = csg_cube(HMM_V3(0.5, 0.5, 0.5), HMM_V3(0.5, 0.5, 0.5), &arena);
+        // csg_TriListNode* cubeB = csg_cube(HMM_V3(0.3, 0.2, 0.4), HMM_V3(0.5, 0.5, 0.5), &arena);
 
-        csg_TriListNode* outList = NULL;
-        csg_TriListNode* inList = NULL;
-        csg_BSPNode cutter = (csg_BSPNode){
-            .point1 = t1->a,
-            .point2 = t1->b,
-            .point3 = t1->c,
-        };
-        _csg_triSplit(t0, &arena, &outList, &inList, &cutter);
+        csg_BSPNode* treeB = csg_triListToBSP(cubeB, &arena);
+        csg_TriListNode* fin = csg_bspClipTris(cubeA, treeB, &arena);
+
+        // csg_TriListNode* bLast = cubeB;
+        // for (;bLast->next != NULL; bLast = bLast->next);
+        // bLast->next = cubeA;
+
+        csg_triListToSTLFile(fin, "testing/cube.stl");
     }
 
     bump_free(&arena);

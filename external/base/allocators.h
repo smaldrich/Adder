@@ -35,6 +35,8 @@ void bump_clear(BumpAlloc* a);
 // [bump] is expected to be a pointer
 #define BUMP_PUSH_ARR(bump, count, type) (type*)(bump_push(bump, sizeof(type) * (count)))
 
+char* bump_formatStr(BumpAlloc* arena, const char* fmt, ...);
+
 #ifdef BASE_IMPL
 
 #include <assert.h>
@@ -42,6 +44,7 @@ void bump_clear(BumpAlloc* a);
 #include <memory.h>
 #include <stdio.h>
 #include <string.h>
+#include <stdarg.h>
 
 BumpAlloc bump_init(int64_t size, void* memory, const char* name) {
     BumpAlloc a;
@@ -90,6 +93,18 @@ void bump_pop(BumpAlloc* a, int64_t size) {
 void bump_clear(BumpAlloc* a) {
     a->end = a->start;
     memset(a->start, 0, a->reserved);
+}
+
+char* bump_formatStr(BumpAlloc* arena, const char* fmt, ...) {
+    va_list args;
+    va_start(args, fmt);
+
+    uint64_t len = vsnprintf(NULL, 0, fmt, args);
+    char* out = BUMP_PUSH_ARR(arena, len + 1, char);
+    vsprintf_s(out, len + 1, fmt, args);
+
+    va_end(args);
+    return out;
 }
 
 #endif
