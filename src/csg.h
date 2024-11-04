@@ -74,7 +74,7 @@ void csg_triListPush(csg_TriList* list, csg_TriListNode* node) {
     list->first = node;
 }
 
-// destructive to node->next in listA
+// destructive to node->next in listA, both ptrs can be null
 csg_TriList* csg_triListJoin(csg_TriList* listA, csg_TriList* listB) {
     if (listA->last != NULL) {
         listA->last->next = listB->first;
@@ -377,7 +377,7 @@ void _csg_triSplit(csg_TriListNode* tri, BumpAlloc* arena, csg_TriList* outOutsi
 
 // clips all tris in meshTris that are inside of tree, returns a LL of the new tris, destructive to the original
 // everything allocated to arena
-static int iter = 0;
+// static int iter = 0;
 csg_TriList* csg_bspClipTrisWithin(csg_TriList* meshTris, csg_BSPNode* tree, BumpAlloc* arena) {
     csg_TriList inside = csg_triListInit();
     csg_TriList outside = csg_triListInit();
@@ -388,20 +388,20 @@ csg_TriList* csg_bspClipTrisWithin(csg_TriList* meshTris, csg_BSPNode* tree, Bum
         _csg_triSplit(tri, arena, &outside, &inside, tree);
     }
 
-    int iterForThis = iter;
-    {
-        iter++;
-        csg_TriList cutter = csg_triListInit();
-        csg_triListPushNew(arena, &cutter, tree->point1, tree->point2, tree->point3);
-        csg_triListToSTLFile(&cutter, bump_formatStr(arena, "testing/%dCutter.stl", iterForThis));
+    // int iterForThis = iter;
+    // {
+    //     iter++;
+    //     csg_TriList cutter = csg_triListInit();
+    //     csg_triListPushNew(arena, &cutter, tree->point1, tree->point2, tree->point3);
+    //     csg_triListToSTLFile(&cutter, bump_formatStr(arena, "testing/%dCutter.stl", iterForThis));
 
-        if (inside.first != NULL) {
-            csg_triListToSTLFile(&inside, bump_formatStr(arena, "testing/%dIn.stl", iterForThis));
-        }
-        if (outside.first != NULL) {
-            csg_triListToSTLFile(&outside, bump_formatStr(arena, "testing/%dOut.stl", iterForThis));
-        }
-    }
+    //     if (inside.first != NULL) {
+    //         csg_triListToSTLFile(&inside, bump_formatStr(arena, "testing/%dIn.stl", iterForThis));
+    //     }
+    //     if (outside.first != NULL) {
+    //         csg_triListToSTLFile(&outside, bump_formatStr(arena, "testing/%dOut.stl", iterForThis));
+    //     }
+    // }
 
 
     if (tree->innerTree != NULL) {
@@ -415,13 +415,15 @@ csg_TriList* csg_bspClipTrisWithin(csg_TriList* meshTris, csg_BSPNode* tree, Bum
         outside = *csg_bspClipTrisWithin(&outside, tree->outerTree, arena);
     }
 
-    csg_TriList* out = csg_triListJoin(&inside, &outside);
-    csg_triListToSTLFile(out, bump_formatStr(arena, "testing/%dReturned.stl", iterForThis));
+    csg_TriList* out = BUMP_PUSH_NEW(arena, csg_TriList);
+    *out = *csg_triListJoin(&inside, &outside);
+    // csg_triListToSTLFile(out, bump_formatStr(arena, "testing/%dReturned.stl", iterForThis));
     return out;
 }
 
 // FIXME: this is horrible
-csg_TriList csg_cube(HMM_Vec3 origin, HMM_Vec3 halfSize, BumpAlloc* arena) {
+// 2 width cube, centered on the origin
+csg_TriList csg_cube(BumpAlloc* arena) {
     csg_TriList list = csg_triListInit();
 
     HMM_Vec3 v[] = {
@@ -434,10 +436,6 @@ csg_TriList csg_cube(HMM_Vec3 origin, HMM_Vec3 halfSize, BumpAlloc* arena) {
         HMM_V3(1, 1, -1),
         HMM_V3(-1, 1, -1),
     };
-    for (uint64_t i = 0; i < sizeof(v) / sizeof(HMM_Vec3); i++) {
-        v[i] = HMM_AddV3(HMM_MulV3(v[i], halfSize), origin);
-    }
-
     csg_triListPushNew(arena, &list, v[0], v[2], v[1]);
     csg_triListPushNew(arena, &list, v[0], v[3], v[2]);
     csg_triListPushNew(arena, &list, v[7], v[6], v[2]);
@@ -522,11 +520,17 @@ void csg_tests() {
     poolAllocClear(&pool);
 
     {
-        csg_TriList cubeA = csg_cube(HMM_V3(0, 0, 0), HMM_V3(0.5, 0.5, 0.5), &arena);
-        csg_TriList cubeB = csg_cube(HMM_V3(0.5, 0.5, 0.5), HMM_V3(0.5, 0.5, 0.5), &arena);
+        csg_TriList cubeA = csg_cube(&arena);
+        csg_TriList cubeB = csg_cube(&arena);
+        csg_triListTransform(&cubeB, HMM_Rotate_RH(30, HMM_V3(1, 1, 1)));
+        csg_triListTransform(&cubeB, HMM_Translate(HMM_V3(1, 1, 1)));
+
+        csg_BSPNode* treeA = csg_triListToBSP(&cubeA, &arena);
         csg_BSPNode* treeB = csg_triListToBSP(&cubeB, &arena);
-        csg_TriList* fin = csg_bspClipTrisWithin(&cubeA, treeB, &arena);
-        csg_triListToSTLFile(fin, "testing/cube.stl");
+
+        csg_TriList* aClipped = csg_bspClipTrisWithin(&cubeA, treeB, &arena);
+        csg_TriList* bClipped = csg_bspClipTrisWithin(&cubeB, treeA, &arena);
+        csg_triListToSTLFile(csg_triListJoin(aClipped, bClipped), "testing/cube.stl");
     }
 
     bump_free(&arena);
