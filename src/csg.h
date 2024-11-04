@@ -208,7 +208,6 @@ bool csg_planeLineIntersection(HMM_Vec3 planeOrigin, HMM_Vec3 planeNormal, HMM_V
 // FIXME: full coplanar testing
 // FIXME: point deduplication of some kind
 // WILL OVERWRITE triS NEXT PTR
-static int splitIter = 0;
 void _csg_triSplit(csg_TriListNode* tri, BumpAlloc* arena, csg_TriListNode** outOutsideList, csg_TriListNode** outInsideList, csg_BSPNode* cutter) {
     HMM_Vec3 cutNormal = csg_triNormal(cutter->point1, cutter->point2, cutter->point3);
 
@@ -305,27 +304,6 @@ void _csg_triSplit(csg_TriListNode* tri, BumpAlloc* arena, csg_TriListNode** out
                 .c = rotatedVerts[2],
             };
 
-            {
-                csg_TriListNode c = (csg_TriListNode){
-                    .a = cutter->point1,
-                    .b = cutter->point2,
-                    .c = cutter->point3,
-                };
-                csg_triListToSTLFile(&c, bump_formatStr(arena, "testing/%dCutter.stl", splitIter));
-                csg_TriListNode i = (csg_TriListNode){
-                    .a = tri->a,
-                    .b = tri->b,
-                    .c = tri->c,
-                };
-                csg_triListToSTLFile(&i, bump_formatStr(arena, "testing/%dInitial.stl", splitIter));
-
-                csg_triListToSTLFile(t1, bump_formatStr(arena, "testing/%dFirst.stl", splitIter));
-                csg_triListToSTLFile(t2, bump_formatStr(arena, "testing/%dSecond.stl", splitIter));
-                csg_triListToSTLFile(t3, bump_formatStr(arena, "testing/%dThird.stl", splitIter));
-
-                splitIter++;
-            }
-
             csg_TriListNode** t1List = t1Outside ? outOutsideList : outInsideList;
             csg_TriListNode** t2and3List = t1Outside ? outInsideList : outOutsideList;
 
@@ -357,7 +335,7 @@ void _csg_triSplit(csg_TriListNode* tri, BumpAlloc* arena, csg_TriListNode** out
             // t1B should never be colinear with the cut plane so long as rotation has been done correctly
             bool t1Outside = HMM_DotV3(HMM_SubV3(t1->b, cutter->point1), cutNormal) > 0;
             csg_TriListNode** t1List = t1Outside ? outOutsideList : outInsideList;
-            csg_TriListNode** t2List = t1Outside ? outInsideList : outInsideList;
+            csg_TriListNode** t2List = t1Outside ? outInsideList : outOutsideList;
             t1->next = *t1List;
             *t1List = t1;
             t2->next = *t2List;
@@ -373,31 +351,45 @@ void _csg_triSplit(csg_TriListNode* tri, BumpAlloc* arena, csg_TriListNode** out
 // clips all tris in meshTris that are inside of tree, returns a LL of the new tris
 // all passed pts expected non-null
 // everything allocated to arena
+static int iter = 0;
 csg_TriListNode* csg_bspClipTris(csg_TriListNode* meshTris, csg_BSPNode* tree, BumpAlloc* arena) {
     csg_TriListNode* inside = NULL;
     csg_TriListNode* outside = NULL;
-    csg_TriListNode* outsideLast = NULL;
 
     csg_TriListNode* next = NULL;  // memod because placing in the other list would overwrite
     for (csg_TriListNode* tri = meshTris; tri; tri = next) {
         next = tri->next;
         _csg_triSplit(tri, arena, &outside, &inside, tree);
-        if (outsideLast == NULL && outside != NULL) {
-            outsideLast = outside;
-        }
     }
+
+    csg_TriListNode cutter = (csg_TriListNode){
+        .a = tree->point1,
+        .b = tree->point2,
+        .c = tree->point3,
+    };
+    csg_triListToSTLFile(&cutter, bump_formatStr(arena, "testing/%dCutter.stl", iter));
+    if (inside) {
+        csg_triListToSTLFile(inside, bump_formatStr(arena, "testing/%dIn.stl", iter));
+    }
+    if (outside) {
+        csg_triListToSTLFile(outside, bump_formatStr(arena, "testing/%dOut.stl", iter));
+    }
+    iter++;
+
 
     if (tree->innerTree != NULL) {
         inside = csg_bspClipTris(inside, tree->innerTree, arena);
+    } else {
+        inside = NULL;
     }
 
     if (tree->outerTree != NULL) {
         outside = csg_bspClipTris(outside, tree->outerTree, arena);
-    } else {
-        outside = NULL;
     }
 
     if (outside != NULL) {
+        csg_TriListNode* outsideLast = outside;
+        for (;outsideLast->next != NULL; outsideLast = outsideLast->next); // FIXME: yuck
         outsideLast->next = inside;
         return outside;
     } else {
@@ -513,7 +505,6 @@ void csg_tests() {
 
         csg_BSPNode* treeB = csg_triListToBSP(cubeB, &arena);
         csg_TriListNode* fin = csg_bspClipTris(cubeA, treeB, &arena);
-        printf("splititer ended at: %d\n", splitIter);
 
         // csg_TriListNode* bLast = cubeB;
         // for (;bLast->next != NULL; bLast = bLast->next);
