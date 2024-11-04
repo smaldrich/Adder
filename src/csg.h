@@ -62,7 +62,7 @@ HMM_Vec3 csg_triNormal(HMM_Vec3 a, HMM_Vec3 b, HMM_Vec3 c) {
 }
 
 csg_TriList csg_triListInit() {
-    return (csg_TriList) { .first = NULL, .last = NULL };
+    return (csg_TriList){.first = NULL, .last = NULL};
 }
 
 // destructive to node->next
@@ -101,9 +101,18 @@ void csg_triListPushNew(BumpAlloc* arena, csg_TriList* list, HMM_Vec3 a, HMM_Vec
 void csg_triListTransform(csg_TriList* list, HMM_Mat4 transform) {
     for (csg_TriListNode* node = list->first; node; node = node->next) {
         for (int i = 0; i < 3; i++) {
-            HMM_Vec4 v4 = (HMM_Vec4){ .XYZ = node->elems[i], .W = 1 };
+            HMM_Vec4 v4 = (HMM_Vec4){.XYZ = node->elems[i], .W = 1};
             node->elems[i] = HMM_MulM4V4(transform, v4).XYZ;
         }
+    }
+}
+
+// flips the normals for every tri within list
+void csg_triListInvert(csg_TriList* list) {
+    for (csg_TriListNode* node = list->first; node; node = node->next) {
+        HMM_Vec3 temp = node->a;
+        node->a = node->c;
+        node->c = temp;
     }
 }
 
@@ -214,7 +223,7 @@ csg_BSPNode* csg_triListToBSP(const csg_TriList* tris, BumpAlloc* arena) {
 
 bool csg_BSPContainsPoint(csg_BSPNode* tree, HMM_Vec3 point) {
     csg_BSPNode* node = tree;
-    while (true) { // FIXME: failsafe here :)
+    while (true) {  // FIXME: failsafe here :)
         HMM_Vec3 diff = HMM_SubV3(point, node->point1);
         float dot = HMM_DotV3(diff, csg_triNormal(node->point1, node->point2, node->point3));
         if (dot <= 0) {
@@ -251,7 +260,7 @@ void _csg_triSplit(csg_TriListNode* tri, BumpAlloc* arena, csg_TriList* outOutsi
     csg_PlaneRelation rel = _csg_triClassify(tri->elems, cutNormal, cutter->point1);
 
     if (rel == CSG_PR_COPLANAR) {
-        assert(false); // FIXME: this
+        assert(false);  // FIXME: this
         // FIXME: how do coplanar things factor into this?
         // FIXME: full coplanar testing
     } else if (rel == CSG_PR_OUTSIDE) {
@@ -259,7 +268,7 @@ void _csg_triSplit(csg_TriListNode* tri, BumpAlloc* arena, csg_TriList* outOutsi
     } else if (rel == CSG_PR_WITHIN) {
         csg_triListPush(outInsideList, tri);
     } else {
-        HMM_Vec3 verts[5] = { 0 };
+        HMM_Vec3 verts[5] = {0};
         int vertCount = 0;
         int firstIntersectionIdx = -1;
 
@@ -313,7 +322,7 @@ void _csg_triSplit(csg_TriListNode* tri, BumpAlloc* arena, csg_TriList* outOutsi
         // rotate points so that the verts can be triangulated consistantly
         // problem if you don't do this is that the triangulation doesn't end
         // up going across the cut line or will create zero-width tris
-        HMM_Vec3 rotatedVerts[5] = { 0 };
+        HMM_Vec3 rotatedVerts[5] = {0};
         for (int i = 0; i < vertCount; i++) {
             rotatedVerts[i] = verts[(i + firstIntersectionIdx) % vertCount];
         }
@@ -347,7 +356,7 @@ void _csg_triSplit(csg_TriListNode* tri, BumpAlloc* arena, csg_TriList* outOutsi
             csg_triListPush(t1List, t1);
             csg_triListPush(t2and3List, t2);
             csg_triListPush(t2and3List, t3);
-        } // end 5 vert-check
+        }  // end 5 vert-check
         else if (vertCount == 4) {
             csg_TriListNode* t1 = BUMP_PUSH_NEW(arena, csg_TriListNode);
             *t1 = (csg_TriListNode){
@@ -375,10 +384,11 @@ void _csg_triSplit(csg_TriListNode* tri, BumpAlloc* arena, csg_TriList* outOutsi
     }  // end spanning check
 }
 
-// clips all tris in meshTris that are inside of tree, returns a LL of the new tris, destructive to the original
+// clips all tris in meshTris from tree, returns a LL of the new tris, destructive to the original
+// if within is set, tris within are clipped, otherwise tris outside
 // everything allocated to arena
 // static int iter = 0;
-csg_TriList* csg_bspClipTrisWithin(csg_TriList* meshTris, csg_BSPNode* tree, BumpAlloc* arena) {
+csg_TriList* csg_bspClipTris(bool within, csg_TriList* meshTris, csg_BSPNode* tree, BumpAlloc* arena) {
     csg_TriList inside = csg_triListInit();
     csg_TriList outside = csg_triListInit();
 
@@ -403,16 +413,22 @@ csg_TriList* csg_bspClipTrisWithin(csg_TriList* meshTris, csg_BSPNode* tree, Bum
     //     }
     // }
 
-
     if (tree->innerTree != NULL) {
-        inside = *csg_bspClipTrisWithin(&inside, tree->innerTree, arena);
+        inside = *csg_bspClipTris(within, &inside, tree->innerTree, arena);
     } else {
-        inside.first = NULL;
-        inside.last = NULL;
+        if (within) {
+            inside.first = NULL;
+            inside.last = NULL;
+        }
     }
 
     if (tree->outerTree != NULL) {
-        outside = *csg_bspClipTrisWithin(&outside, tree->outerTree, arena);
+        outside = *csg_bspClipTris(within, &outside, tree->outerTree, arena);
+    } else {
+        if (!within) {
+            outside.first = NULL;
+            outside.last = NULL;
+        }
     }
 
     csg_TriList* out = BUMP_PUSH_NEW(arena, csg_TriList);
@@ -528,9 +544,28 @@ void csg_tests() {
         csg_BSPNode* treeA = csg_triListToBSP(&cubeA, &arena);
         csg_BSPNode* treeB = csg_triListToBSP(&cubeB, &arena);
 
-        csg_TriList* aClipped = csg_bspClipTrisWithin(&cubeA, treeB, &arena);
-        csg_TriList* bClipped = csg_bspClipTrisWithin(&cubeB, treeA, &arena);
-        csg_triListToSTLFile(csg_triListJoin(aClipped, bClipped), "testing/cube.stl");
+        csg_TriList* aClipped = csg_bspClipTris(true, &cubeA, treeB, &arena);
+        csg_TriList* bClipped = csg_bspClipTris(true, &cubeB, treeA, &arena);
+        csg_triListToSTLFile(csg_triListJoin(aClipped, bClipped), "testing/union.stl");
+
+        // FIXME: optimize output geometry to not split tris that don't need to be split in the end
+    }
+
+    {
+        csg_TriList cubeA = csg_cube(&arena);
+        csg_TriList cubeB = csg_cube(&arena);
+        csg_triListTransform(&cubeB, HMM_Rotate_RH(30, HMM_V3(1, 1, 1)));
+        csg_triListTransform(&cubeB, HMM_Translate(HMM_V3(1, 1, 1)));
+
+        csg_BSPNode* treeA = csg_triListToBSP(&cubeA, &arena);
+        csg_BSPNode* treeB = csg_triListToBSP(&cubeB, &arena);
+
+        csg_TriList* aClipped = csg_bspClipTris(true, &cubeA, treeB, &arena);
+        csg_TriList* bClipped = csg_bspClipTris(false, &cubeB, treeA, &arena);
+        csg_triListInvert(bClipped);
+        csg_triListToSTLFile(csg_triListJoin(aClipped, bClipped), "testing/difference.stl");
+
+        // FIXME: optimize output geometry to not split tris that don't need to be split in the end
     }
 
     bump_free(&arena);
