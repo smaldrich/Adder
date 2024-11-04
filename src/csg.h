@@ -208,6 +208,7 @@ bool csg_planeLineIntersection(HMM_Vec3 planeOrigin, HMM_Vec3 planeNormal, HMM_V
 // FIXME: full coplanar testing
 // FIXME: point deduplication of some kind
 // WILL OVERWRITE triS NEXT PTR
+static int splitIter = 0;
 void _csg_triSplit(csg_TriListNode* tri, BumpAlloc* arena, csg_TriListNode** outOutsideList, csg_TriListNode** outInsideList, csg_BSPNode* cutter) {
     HMM_Vec3 cutNormal = csg_triNormal(cutter->point1, cutter->point2, cutter->point3);
 
@@ -304,26 +305,26 @@ void _csg_triSplit(csg_TriListNode* tri, BumpAlloc* arena, csg_TriListNode** out
                 .c = rotatedVerts[2],
             };
 
-            // {
-            //     csg_TriListNode c = (csg_TriListNode){
-            //         .a = cutter->point1,
-            //         .b = cutter->point2,
-            //         .c = cutter->point3,
-            //     };
-            //     csg_triListToSTLFile(&c, bump_formatStr(arena, "testing/%dCutter.stl", splitIter));
-            //     csg_TriListNode i = (csg_TriListNode){
-            //         .a = tri->a,
-            //         .b = tri->b,
-            //         .c = tri->c,
-            //     };
-            //     csg_triListToSTLFile(&i, bump_formatStr(arena, "testing/%dInitial.stl", splitIter));
+            {
+                csg_TriListNode c = (csg_TriListNode){
+                    .a = cutter->point1,
+                    .b = cutter->point2,
+                    .c = cutter->point3,
+                };
+                csg_triListToSTLFile(&c, bump_formatStr(arena, "testing/%dCutter.stl", splitIter));
+                csg_TriListNode i = (csg_TriListNode){
+                    .a = tri->a,
+                    .b = tri->b,
+                    .c = tri->c,
+                };
+                csg_triListToSTLFile(&i, bump_formatStr(arena, "testing/%dInitial.stl", splitIter));
 
-            //     csg_triListToSTLFile(t1, bump_formatStr(arena, "testing/%dFirst.stl", splitIter));
-            //     csg_triListToSTLFile(t2, bump_formatStr(arena, "testing/%dSecond.stl", splitIter));
-            //     csg_triListToSTLFile(t3, bump_formatStr(arena, "testing/%dThird.stl", splitIter));
+                csg_triListToSTLFile(t1, bump_formatStr(arena, "testing/%dFirst.stl", splitIter));
+                csg_triListToSTLFile(t2, bump_formatStr(arena, "testing/%dSecond.stl", splitIter));
+                csg_triListToSTLFile(t3, bump_formatStr(arena, "testing/%dThird.stl", splitIter));
 
-            //     splitIter++;
-            // }
+                splitIter++;
+            }
 
             csg_TriListNode** t1List = t1Outside ? outOutsideList : outInsideList;
             csg_TriListNode** t2and3List = t1Outside ? outInsideList : outOutsideList;
@@ -393,13 +394,15 @@ csg_TriListNode* csg_bspClipTris(csg_TriListNode* meshTris, csg_BSPNode* tree, B
     if (tree->outerTree != NULL) {
         outside = csg_bspClipTris(outside, tree->outerTree, arena);
     } else {
-        inside = NULL;
+        outside = NULL;
     }
 
-    if (outsideLast != NULL) {
+    if (outside != NULL) {
         outsideLast->next = inside;
+        return outside;
+    } else {
+        return inside;
     }
-    return outside;
 }
 
 // FIXME: this is horrible
@@ -510,6 +513,7 @@ void csg_tests() {
 
         csg_BSPNode* treeB = csg_triListToBSP(cubeB, &arena);
         csg_TriListNode* fin = csg_bspClipTris(cubeA, treeB, &arena);
+        printf("splititer ended at: %d\n", splitIter);
 
         // csg_TriListNode* bLast = cubeB;
         // for (;bLast->next != NULL; bLast = bLast->next);
