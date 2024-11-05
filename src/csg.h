@@ -409,12 +409,12 @@ csg_TriList* csg_bspClipTris(bool within, csg_TriList* meshTris, csg_BSPNode* tr
         _csg_triSplit(tri, arena, &outside, &inside, tree);
     }
 
+    csg_TriList* listToClear = NULL;
     if (tree->innerTree != NULL) {
         inside = *csg_bspClipTris(within, &inside, tree->innerTree, arena);
     } else {
         if (within) {
-            inside.first = NULL;
-            inside.last = NULL;
+            listToClear = &inside;
         }
     }
 
@@ -422,9 +422,22 @@ csg_TriList* csg_bspClipTris(bool within, csg_TriList* meshTris, csg_BSPNode* tr
         outside = *csg_bspClipTris(within, &outside, tree->outerTree, arena);
     } else {
         if (!within) {
-            outside.first = NULL;
-            outside.last = NULL;
+            listToClear = &outside;
         }
+    }
+
+    if (listToClear != NULL) {
+        // when we clear some portion of geometry, poison all ancestors so the geometry doesn't come back
+        // later, because these splits are actually important to the end geometry.
+        // other splits are just there to make inner splits possible, but can be reverted to save tris after
+        // the entire operation.
+        for (csg_TriListNode* node = listToClear->first; node; node = node->next) {
+            for (csg_TriListNode* n = node; n; n = n->ancestor) {
+                n->anyChildDeleted = true;
+            }
+        }
+        listToClear->first = NULL;
+        listToClear->last = NULL;
     }
 
     csg_TriList* out = BUMP_PUSH_NEW(arena, csg_TriList);
@@ -443,7 +456,12 @@ void csg_triListRecoverNonBroken(csg_TriList** tris, BumpAlloc* arena) {
 
         csg_TriListNode* oldest = node->ancestor;
         while (true) {
-            if (oldest != NULL && oldest->ancestor != NULL) {
+            if (oldest == NULL) {
+                break;
+            } else if (oldest->anyChildDeleted) {
+                oldest = NULL;
+                break;
+            } else if (oldest->ancestor != NULL) {
                 if (!oldest->ancestor->anyChildDeleted) {
                     oldest = oldest->ancestor;
                     continue;
@@ -576,6 +594,23 @@ void csg_tests() {
         csg_TriList* final = csg_triListJoin(aClipped, bClipped);
         csg_triListRecoverNonBroken(&final, &arena);
         csg_triListToSTLFile(final, "testing/union.stl");
+    }
+
+    {
+        csg_TriList cubeA = csg_cube(&arena);
+        csg_TriList cubeB = csg_cube(&arena);
+        csg_triListTransform(&cubeB, HMM_Rotate_RH(30, HMM_V3(1, 1, 1)));
+        csg_triListTransform(&cubeB, HMM_Translate(HMM_V3(1, 1, 1)));
+
+        csg_BSPNode* treeA = csg_triListToBSP(&cubeA, &arena);
+        csg_BSPNode* treeB = csg_triListToBSP(&cubeB, &arena);
+
+        csg_TriList* aClipped = csg_bspClipTris(true, &cubeA, treeB, &arena);
+        csg_TriList* bClipped = csg_bspClipTris(false, &cubeB, treeA, &arena);
+        csg_triListInvert(bClipped);
+        csg_TriList* final = csg_triListJoin(aClipped, bClipped);
+        csg_triListRecoverNonBroken(&final, &arena);
+        csg_triListToSTLFile(final, "testing/intersection.stl");
     }
 
     bump_free(&arena);
