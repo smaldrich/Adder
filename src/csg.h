@@ -11,9 +11,6 @@
 
 typedef struct csg_TriListNode csg_TriListNode;
 struct csg_TriListNode {
-    csg_TriListNode* ancestor;  // indicates the parent tri that this has been split off from
-    bool childDeleted;
-    bool recovered;
     csg_TriListNode* next;
     union {
         struct {
@@ -87,22 +84,6 @@ csg_TriList* csg_triListJoin(csg_TriList* listA, csg_TriList* listB) {
         return listA;
     } else {
         return listB;
-    }
-}
-
-// prev == null indicates removing the head of the list
-// otherwise, it should be the node before the one you want to remove
-// (works in the case where prev is a node before the first one in the list)
-void csg_triListRemoveAfter(csg_TriList* list, csg_TriListNode* prev) {
-    if (prev) {
-        assert(prev->next != NULL);
-        if (prev == list->first) {
-            prev->next = prev->next->next;
-        } else {
-            list->first = prev->next;
-        }
-    } else {
-        list->first = list->first->next;
     }
 }
 
@@ -272,7 +253,7 @@ bool csg_planeLineIntersection(HMM_Vec3 planeOrigin, HMM_Vec3 planeNormal, HMM_V
 }
 
 // FIXME: point deduplication of some kind?
-// destructive to both outlists next, and to tri
+// destructive to tri->next, and both outlists next
 void _csg_triSplit(csg_TriListNode* tri, BumpAlloc* arena, csg_TriList* outOutsideList, csg_TriList* outInsideList, csg_BSPNode* cutter) {
     HMM_Vec3 cutNormal = csg_triNormal(cutter->point1, cutter->point2, cutter->point3);
 
@@ -353,7 +334,6 @@ void _csg_triSplit(csg_TriListNode* tri, BumpAlloc* arena, csg_TriList* outOutsi
                 .a = rotatedVerts[0],
                 .b = rotatedVerts[1],
                 .c = rotatedVerts[2],
-                .ancestor = tri,
             };
 
             csg_TriListNode* t2 = BUMP_PUSH_NEW(arena, csg_TriListNode);
@@ -361,7 +341,6 @@ void _csg_triSplit(csg_TriListNode* tri, BumpAlloc* arena, csg_TriList* outOutsi
                 .a = rotatedVerts[2],
                 .b = rotatedVerts[3],
                 .c = rotatedVerts[4],
-                .ancestor = tri,
             };
 
             csg_TriListNode* t3 = BUMP_PUSH_NEW(arena, csg_TriListNode);
@@ -369,7 +348,6 @@ void _csg_triSplit(csg_TriListNode* tri, BumpAlloc* arena, csg_TriList* outOutsi
                 .a = rotatedVerts[4],
                 .b = rotatedVerts[0],
                 .c = rotatedVerts[2],
-                .ancestor = tri,
             };
 
             csg_TriList* t1List = t1Outside ? outOutsideList : outInsideList;
@@ -385,7 +363,6 @@ void _csg_triSplit(csg_TriListNode* tri, BumpAlloc* arena, csg_TriList* outOutsi
                 .a = rotatedVerts[0],
                 .b = rotatedVerts[1],
                 .c = rotatedVerts[2],
-                .ancestor = tri,
             };
 
             csg_TriListNode* t2 = BUMP_PUSH_NEW(arena, csg_TriListNode);
@@ -393,7 +370,6 @@ void _csg_triSplit(csg_TriListNode* tri, BumpAlloc* arena, csg_TriList* outOutsi
                 .a = rotatedVerts[2],
                 .b = rotatedVerts[3],
                 .c = rotatedVerts[0],
-                .ancestor = tri,
             };
 
             // t1B should never be colinear with the cut plane so long as rotation has been done correctly
@@ -406,41 +382,6 @@ void _csg_triSplit(csg_TriListNode* tri, BumpAlloc* arena, csg_TriList* outOutsi
             assert(false);
         }
     }  // end spanning check
-}
-
-csg_TriListNode* _csg_triListNodeOldestNonBrokenAncestor(csg_TriListNode* node) {
-    csg_TriListNode* prev = NULL;
-    for (csg_TriListNode* a = node->ancestor; a; a = a->ancestor) {
-        if (a->childDeleted) {
-            break;
-        }
-        prev = a;
-    }
-    return prev;
-}
-
-// arena only included here in the off chance a new list needs to be returned up.
-static int iter = 0;
-csg_TriList* csg_triListRecoverNonBroken(BumpAlloc* arena, csg_TriList* tris) {
-    csg_TriList* recovered = BUMP_PUSH_NEW(arena, csg_TriList);
-    csg_TriListNode* prev = NULL;
-    // FIXME: comma is gross here
-    for (csg_TriListNode* node = tris->first; node; (prev = node, node = node->next)) {
-        csg_TriListNode* ancestor = _csg_triListNodeOldestNonBrokenAncestor(node);
-        if (ancestor == NULL) {
-            continue;
-        }
-
-        csg_triListRemoveAfter(tris, prev);
-        if (!ancestor->recovered) {
-            ancestor->recovered = true;
-            csg_triListPush(recovered, ancestor);
-        }
-    }
-
-    csg_triListToSTLFile(recovered, bump_formatStr(arena, "testing/%drecovered.stl", iter));
-    iter++;
-    return csg_triListJoin(tris, recovered);
 }
 
 // clips all tris in meshTris from tree, returns a LL of the new tris, destructive to the original
@@ -472,13 +413,12 @@ csg_TriList* csg_bspClipTris(bool within, csg_TriList* meshTris, csg_BSPNode* tr
     //     }
     // }
 
-    csg_TriList* listToClear = NULL;
-
     if (tree->innerTree != NULL) {
         inside = *csg_bspClipTris(within, &inside, tree->innerTree, arena);
     } else {
         if (within) {
-            listToClear = &inside;
+            inside.first = NULL;
+            inside.last = NULL;
         }
     }
 
@@ -486,20 +426,9 @@ csg_TriList* csg_bspClipTris(bool within, csg_TriList* meshTris, csg_BSPNode* tr
         outside = *csg_bspClipTris(within, &outside, tree->outerTree, arena);
     } else {
         if (!within) {
-            listToClear = &outside;
+            outside.first = NULL;
+            outside.last = NULL;
         }
-    }
-
-    // deleting the list of tris, marking ancestors as broken
-    if (listToClear != NULL) {
-        // for (csg_TriListNode* node = listToClear->first; node; node = node->next) {
-        //     for (csg_TriListNode* ancestor = node->ancestor; ancestor; ancestor = ancestor->ancestor) {
-        //         // printf("parent was %d\n", ancestor->childDeleted);
-        //         // ancestor->childDeleted = true;
-        //     }
-        // }
-        listToClear->first = NULL;
-        listToClear->last = NULL;
     }
 
     csg_TriList* out = BUMP_PUSH_NEW(arena, csg_TriList);
@@ -617,9 +546,9 @@ void csg_tests() {
 
         csg_TriList* aClipped = csg_bspClipTris(true, &cubeA, treeB, &arena);
         csg_TriList* bClipped = csg_bspClipTris(true, &cubeB, treeA, &arena);
-        csg_TriList* final = csg_triListJoin(aClipped, bClipped);
-        final = csg_triListRecoverNonBroken(&arena, final);
-        csg_triListToSTLFile(final, "testing/union.stl");
+        csg_triListToSTLFile(csg_triListJoin(aClipped, bClipped), "testing/union.stl");
+
+        // FIXME: optimize output geometry to not split tris that don't need to be split in the end
     }
 
     {
@@ -634,9 +563,9 @@ void csg_tests() {
         csg_TriList* aClipped = csg_bspClipTris(true, &cubeA, treeB, &arena);
         csg_TriList* bClipped = csg_bspClipTris(false, &cubeB, treeA, &arena);
         csg_triListInvert(bClipped);
-        csg_TriList* final = csg_triListJoin(aClipped, bClipped);
-        final = csg_triListRecoverNonBroken(&arena, final);
-        csg_triListToSTLFile(final, "testing/difference.stl");
+        csg_triListToSTLFile(csg_triListJoin(aClipped, bClipped), "testing/difference.stl");
+
+        // FIXME: optimize output geometry to not split tris that don't need to be split in the end
     }
 
     bump_free(&arena);
