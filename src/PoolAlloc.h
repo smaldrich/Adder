@@ -14,11 +14,12 @@ fns:
 poolAllocInit() - returns a good to used pool alloc. Dont copy or modify this. Use deinit to free properly.
 poolAllocDeinit() - frees a pool + all allocations within.
 
-poolALlocAlloc() - malloc but in the pool
+poolALlocAlloc() - malloc but in the pool, returned memory is zeroed
 poolALlocFree() - free but in the pool
 poolAllocPushArray() - take an array allocated in the pool, attempt to add one to it (can grow the arr)
     doubles allocated memory on a grow
 */
+// FIXME: move this to allocaters.h
 
 typedef struct PoolAllocNode PoolAllocNode;
 struct PoolAllocNode {
@@ -91,7 +92,7 @@ void* poolAllocAlloc(PoolAlloc* pool, int64_t size) {
 
     node->allocated = true;
     assert(size >= 0);
-    node->allocation = malloc(size + 1);  // add one so the allocation is never zero
+    node->allocation = calloc(1, size + 1);  // add one so the allocation is never zero
     node->capacity = size;
     return node->allocation;
 }
