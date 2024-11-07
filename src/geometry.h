@@ -26,6 +26,8 @@ struct geo_Vert {
 };
 
 void geo_sketchToTris(BumpAlloc* scratch, BumpAlloc* outArena, sk_Sketch* sketch) {
+    assert(sk_sketchSolve(sketch) == SKE_OK);
+
     geo_Vert* firstVert = NULL;
     geo_Edge* firstEdge = NULL;
 
@@ -48,6 +50,7 @@ void geo_sketchToTris(BumpAlloc* scratch, BumpAlloc* outArena, sk_Sketch* sketch
             if (!l->inUse) {
                 continue;
             }
+            assert(l->kind == SK_LK_STRAIGHT); // FIXME: this
             geo_Edge* edge = BUMP_PUSH_NEW(scratch, geo_Edge);
             edge->vertA = &verts[l->p1.index];
             edge->vertB = &verts[l->p2.index];
@@ -59,6 +62,44 @@ void geo_sketchToTris(BumpAlloc* scratch, BumpAlloc* outArena, sk_Sketch* sketch
         }
     }  // end sketch data unpacking
 
-    FIXME sketch validation :)
-    FIXME null 1st point or 1st edge?
+    // FIXME: are these asserts what we want?
+    assert(firstVert != NULL);
+    assert(firstEdge != NULL);
+
+    // split every edge with every other to generate verts at the intersections
+    // could probably be optimized, but good enough for now
+    for (geo_Edge* edge = firstEdge; edge; edge = edge->nextAllocated) {
+        for (geo_Edge* other = edge->nextAllocated; other; other = other->nextAllocated) {
+            // stolen: https://en.wikipedia.org/wiki/Line%E2%80%93line_intersection
+            float x1 = edge->vertA->pos.X;
+            float x2 = edge->vertB->pos.X;
+            float y1 = edge->vertA->pos.Y;
+            float y2 = edge->vertB->pos.Y;
+            float x3 = other->vertA->pos.X;
+            float x4 = other->vertB->pos.X;
+            float y3 = other->vertA->pos.Y;
+            float y4 = other->vertB->pos.Y;
+
+            // FIXME: coincident lines???
+            float t = (x1 - x3) * (y3 - y4) - (y1 - y3) * (x3 - x4);
+            t /= (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4);
+            if (!isfinite(t)) {
+                continue;
+            }
+
+            // FIXME: use doubles in the future
+            // FIXME: precision of the new vert when it is 'on' another line?? Could drift over time and become a problem??
+            bool under1 = t < 1 || csg_floatEqual(t, 1);
+            bool over0 = t > 0 || csg_floatEqual(t, 0);
+            if (!under1 || !over0) {
+                continue;
+            }
+
+            HMM_Vec3 intersection = HMM_LerpV3(edge->vertA->pos, t, edge->vertB->pos);
+
+            // 1 remove both lines from their LL around each vert
+            // remove both from the allocd LL
+            // fix verts first edge
+        }
+    }
 }  // end geo_sketchToTris
