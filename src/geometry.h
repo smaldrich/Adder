@@ -3,32 +3,38 @@
 #include "csg.h"
 #include "sketches.h"
 
-/*
-lines+curves -> verts + edges
-then intersections
-verts+edges -> vertloops
-vertloops -> tris
-*/
-
 typedef struct geo_Vert geo_Vert;
 typedef struct geo_Edge geo_Edge;
 
 struct geo_Edge {
     geo_Vert* vertA;
     geo_Vert* vertB;
-    geo_Edge* nextOnVertA;
     geo_Edge* nextAllocated;
+    bool doneSplitting;
 };
 
 struct geo_Vert {
     HMM_Vec3 pos;
-    geo_Edge* firstEdge;
 };
+
+void _geo_splitEdge(BumpAlloc* scratch, geo_Edge* edge, geo_Edge** firstEdge, geo_Vert* intersection) {
+    geo_Vert* vertA = edge->vertA;
+    geo_Vert* vertB = edge->vertB;
+
+    geo_Edge* e0 = edge;
+    geo_Edge* e1 = BUMP_PUSH_NEW(scratch, geo_Edge);
+    e1->nextAllocated = *firstEdge;
+    *firstEdge = e1;
+
+    e0->vertA = vertA;
+    e0->vertB = intersection;
+    e1->vertA = intersection;
+    e1->vertB = vertB;
+}
 
 void geo_sketchToTris(BumpAlloc* scratch, BumpAlloc* outArena, sk_Sketch* sketch) {
     assert(sk_sketchSolve(sketch) == SKE_OK);
 
-    geo_Vert* firstVert = NULL;
     geo_Edge* firstEdge = NULL;
 
     // unpack sketch data into verts and edges that are better for this operation
@@ -40,9 +46,6 @@ void geo_sketchToTris(BumpAlloc* scratch, BumpAlloc* outArena, sk_Sketch* sketch
             }
 
             verts[i].pos.XY = sketch->points[i].pt;
-            if (firstVert == NULL) {
-                firstVert = &verts[i];
-            }
         }
 
         for (int64_t lineIdx = 0; lineIdx < sketch->lineCount; lineIdx++) {
@@ -54,22 +57,28 @@ void geo_sketchToTris(BumpAlloc* scratch, BumpAlloc* outArena, sk_Sketch* sketch
             geo_Edge* edge = BUMP_PUSH_NEW(scratch, geo_Edge);
             edge->vertA = &verts[l->p1.index];
             edge->vertB = &verts[l->p2.index];
-            edge->nextOnVertA = edge->vertA->firstEdge;
-            edge->vertA->firstEdge = edge;
-
             edge->nextAllocated = firstEdge;
             firstEdge = edge;
         }
     }  // end sketch data unpacking
 
     // FIXME: are these asserts what we want?
-    assert(firstVert != NULL);
     assert(firstEdge != NULL);
 
     // split every edge with every other to generate verts at the intersections
     // could probably be optimized, but good enough for now
-    for (geo_Edge* edge = firstEdge; edge; edge = edge->nextAllocated) {
+    for (geo_Edge* edge = firstEdge; edge != NULL; edge = edge->nextAllocated) {
+        if (edge->doneSplitting) {
+            continue;
+        }
+
+        // FIXME: coincident lines??? // should be prevented in sk_solve but currently arent
+        HMM_Vec3 intersection = HMM_V3(0, 0, 0);
+        geo_Edge* intersected = NULL;
         for (geo_Edge* other = edge->nextAllocated; other; other = other->nextAllocated) {
+            if (other->doneSplitting) {
+                continue;
+            }
             // stolen: https://en.wikipedia.org/wiki/Line%E2%80%93line_intersection
             float x1 = edge->vertA->pos.X;
             float x2 = edge->vertB->pos.X;
@@ -80,26 +89,30 @@ void geo_sketchToTris(BumpAlloc* scratch, BumpAlloc* outArena, sk_Sketch* sketch
             float y3 = other->vertA->pos.Y;
             float y4 = other->vertB->pos.Y;
 
-            // FIXME: coincident lines???
             float t = (x1 - x3) * (y3 - y4) - (y1 - y3) * (x3 - x4);
             t /= (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4);
             if (!isfinite(t)) {
                 continue;
             }
+            // NOTE: we are purposefully expecting colinear points to not exist, they should split the line in the
+            // sketch, not just exist on top of it or be constrained on top of it
+            assert(!csg_floatEqual(t, 0) && !csg_floatEqual(t, 1));
 
-            // FIXME: use doubles in the future
-            // FIXME: precision of the new vert when it is 'on' another line?? Could drift over time and become a problem??
-            bool under1 = t < 1 || csg_floatEqual(t, 1);
-            bool over0 = t > 0 || csg_floatEqual(t, 0);
-            if (!under1 || !over0) {
-                continue;
-            }
-
-            HMM_Vec3 intersection = HMM_LerpV3(edge->vertA->pos, t, edge->vertB->pos);
-
-            // 1 remove both lines from their LL around each vert
-            // remove both from the allocd LL
-            // fix verts first edge
+            intersection = HMM_LerpV3(edge->vertA->pos, t, edge->vertB->pos);
+            intersected = other;
+            break;
         }
-    }
+
+        if (intersected == NULL) {
+            edge->doneSplitting = true;
+            continue;
+        }
+
+        assert(!intersected->doneSplitting);
+
+        geo_Vert* middle = BUMP_PUSH_NEW(scratch, geo_Vert);
+        middle->pos = intersection;
+        _geo_splitEdge(scratch, edge, &firstEdge, middle);
+        _geo_splitEdge(scratch, intersected, &firstEdge, middle);
+    } // end intersection generation
 }  // end geo_sketchToTris
