@@ -6,8 +6,6 @@
 
 #include "HMM/HandmadeMath.h"
 #include "PoolAlloc.h"
-#include "base/allocators.h"
-#include "base/testing.h"
 
 typedef struct csg_TriListNode csg_TriListNode;
 struct csg_TriListNode {

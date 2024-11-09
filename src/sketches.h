@@ -4,9 +4,7 @@
 #include <stdio.h>
 
 #include "HMM/HandmadeMath.h"
-#include "base/allocators.h"
 #include "base/options.h"
-#include "base/testing.h"
 
 #define SK_MAX_PT_COUNT 10000
 #define SK_MAX_CONSTRAINT_COUNT 10000

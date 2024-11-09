@@ -8,7 +8,7 @@
 #include <assert.h>
 #include <ctype.h>
 
-#include "base/allocators.h"
+#include "snooze.h"
 
 typedef enum {
     SERE_OK,
@@ -150,7 +150,7 @@ struct _ser_Decl {
 };
 
 typedef struct {
-    BumpAlloc arena; // TODO: don't embed these as a dep
+    snz_Arena arena;
 
     _ser_Decl* firstDecl;
     _ser_Decl* lastDecl;
@@ -158,7 +158,7 @@ typedef struct {
 } _ser_SpecSet;
 
 void _ser_clearSpecSet(_ser_SpecSet* set) {
-    bump_clear(&set->arena);
+    snz_arenaClear(&set->arena);
     set->firstDecl = NULL;
     set->lastDecl = NULL;
     set->declCount = 0;
@@ -174,13 +174,13 @@ bool _ser_isGlobalSetLocked;
 _ser_SpecSet _ser_specSetInit(const char* arenaName) {
     _ser_SpecSet out;
     memset(&out, 0, sizeof(out));
-    out.arena = bump_allocate(1000000, arenaName); // TODO: should this be able to grow tho????
+    out.arena = snz_arenaInit(1000000, arenaName);
     return out;
 }
 
 // pushes a new decl, fills the ID as the index, and pushes it to the sets list
 _ser_Decl* _ser_declPush(_ser_SpecSet* set) {
-    _ser_Decl* s = BUMP_PUSH_NEW(&set->arena, _ser_Decl);
+    _ser_Decl* s = SNZ_ARENA_PUSH(&set->arena, _ser_Decl);
     set->declCount++;
     s->id = set->declCount; // make it 1 indexed // see comment at definition
 
@@ -430,7 +430,7 @@ ser_Error _ser_parsePropInners(const char** str, _ser_InnerProp* prop) {
     }
 
     if (_ser_isPropKindNonTerminal(prop->kind)) {
-        prop->inner = BUMP_PUSH_NEW(&_ser_globalSpecSet.arena, _ser_InnerProp);
+        prop->inner = SNZ_ARENA_PUSH(&_ser_globalSpecSet.arena, _ser_InnerProp);
         _SER_EXPECT_OK(_ser_parsePropInners(str, prop->inner));
     }
     return SERE_OK;
@@ -449,7 +449,7 @@ ser_Error _ser_specStruct(const char* tag, const char* str) {
 
     const char* c = str;
     while (true) {
-        _ser_OuterProp* prop = BUMP_PUSH_NEW(&_ser_globalSpecSet.arena, _ser_OuterProp);
+        _ser_OuterProp* prop = SNZ_ARENA_PUSH(&_ser_globalSpecSet.arena, _ser_OuterProp);
         bool newToken = _ser_parseToken(&c, &prop->tag, &prop->tagLen);
         if (!newToken) {
             break;
@@ -602,7 +602,7 @@ typedef struct {
 } _ser_PtrTableElem;
 
 typedef struct {
-    BumpAlloc arena;
+    snz_Arena arena;
     _ser_PtrTableElem* elems;
     uint64_t count;
 } _ser_PtrTable;
@@ -610,13 +610,13 @@ typedef struct {
 _ser_PtrTable _ser_ptrTableInit() {
     _ser_PtrTable table;
     memset(&table, 0, sizeof(table));
-    table.arena = bump_allocate(1000000, "ser ptrTable arena");
+    table.arena = snz_arenaInit(1000000, "ser ptrTable arena");
     table.elems = table.arena.start;
     return table;
 }
 
 _ser_PtrTableElem* _ser_ptrTablePush(_ser_PtrTable* table) {
-    _ser_PtrTableElem* p = BUMP_PUSH_NEW(&table->arena, _ser_PtrTableElem);
+    _ser_PtrTableElem* p = SNZ_ARENA_PUSH(&table->arena, _ser_PtrTableElem);
     table->count++;
     return p;
 }
@@ -852,7 +852,7 @@ ser_Error _ser_writeObj(const char* specTag, void* obj, const char* path) {
 
     ser_Error e = _ser_writeObjInner(file, &ptrTable, obj, specTag);
 
-    bump_free(&ptrTable.arena);
+    snz_arenaDeinit(&ptrTable.arena);
     fclose(file);
     return e;
 }
@@ -882,21 +882,21 @@ typedef struct {
 
 typedef struct {
     _ser_DserPtrTableElem* elems;
-    BumpAlloc arena;
+    snz_Arena arena;
     uint64_t count;
 } _ser_DserPtrTable;
 
 _ser_DserPtrTable _ser_dserPtrTableInit() {
     _ser_DserPtrTable table;
     memset(&table, 0, sizeof(table));
-    table.arena = bump_allocate(1000000, "ser dserPtrTable arena");
+    table.arena = snz_arenaInit(1000000, "ser dserPtrTable arena");
     table.elems = table.arena.start;
     return table;
 }
 
 // fills in objID for the element
 _ser_DserPtrTableElem* _ser_dserPtrTablePush(_ser_DserPtrTable* table) {
-    _ser_DserPtrTableElem* p = BUMP_PUSH_NEW(&table->arena, _ser_DserPtrTableElem);
+    _ser_DserPtrTableElem* p = SNZ_ARENA_PUSH(&table->arena, _ser_DserPtrTableElem);
     table->count++;
     p->objId = table->count;
     return p;
@@ -907,7 +907,7 @@ _ser_DserPtrTableElem* _ser_dserPtrTablePush(_ser_DserPtrTable* table) {
 typedef struct {
     FILE* file;
     _ser_SpecSet specSet;
-    BumpAlloc* outArena;
+    snz_Arena* outArena;
     _ser_DserPtrTable ptrTable;
 
     uint64_t fileSerVersion;
@@ -923,7 +923,7 @@ ser_Error _ser_dserPropInner(_ser_DserInstance* inst, _ser_InnerProp* first) {
     first->kind = kind;
 
     if (_ser_isPropKindNonTerminal(first->kind)) {
-        _ser_InnerProp* inner = BUMP_PUSH_NEW(&inst->specSet.arena, _ser_InnerProp);
+        _ser_InnerProp* inner = SNZ_ARENA_PUSH(&inst->specSet.arena, _ser_InnerProp);
         _SER_EXPECT_OK(_ser_dserPropInner(inst, inner));
         SER_ASSERT(inner != NULL);
         first->inner = inner;
@@ -944,7 +944,7 @@ ser_Error _ser_dserDecl(_ser_DserInstance* inst) {
 
     uint64_t strLen = 0;
     _SER_READ_VAR_OR_FAIL(uint64_t, strLen, inst->file);
-    char* str = BUMP_PUSH_ARR(&inst->specSet.arena, strLen + 1, char); // add one for the null term >:(
+    char* str = SNZ_ARENA_PUSH_ARR(&inst->specSet.arena, strLen + 1, char); // add one for the null term >:(
     _SER_READ_OR_FAIL(str, strLen, inst->file);
     decl->tag = str;
 
@@ -953,9 +953,9 @@ ser_Error _ser_dserDecl(_ser_DserInstance* inst) {
         _ser_OuterProp* lastProp = NULL;
 
         for (uint64_t i = 0; i < decl->structInfo.propCount; i++) {
-            _ser_OuterProp* p = BUMP_PUSH_NEW(&inst->specSet.arena, _ser_OuterProp);
+            _ser_OuterProp* p = SNZ_ARENA_PUSH(&inst->specSet.arena, _ser_OuterProp);
             _SER_READ_VAR_OR_FAIL(uint64_t, p->tagLen, inst->file);
-            char* tagBuf = BUMP_PUSH_ARR(&inst->specSet.arena, p->tagLen + 1, char); // add one for the null term >:(
+            char* tagBuf = SNZ_ARENA_PUSH_ARR(&inst->specSet.arena, p->tagLen + 1, char); // add one for the null term >:(
             _SER_READ_OR_FAIL(tagBuf, p->tagLen, inst->file);
             p->tag = tagBuf;
             _SER_EXPECT_OK(_ser_dserPropInner(inst, &p->inner));
@@ -979,10 +979,10 @@ ser_Error _ser_dserDecl(_ser_DserInstance* inst) {
 }
 
 // both of these are expecting that the decl/prop has been fully filled in for deserialization // offsets done, links completed etc.
-ser_Error _ser_readToPropFromInner(void* loc, _ser_InnerProp* prop, _ser_DserPtrTable* table, FILE* file, BumpAlloc* arena);
-ser_Error _ser_readToObjFromProp(void* obj, _ser_OuterProp* prop, _ser_DserPtrTable* table, FILE* file, BumpAlloc* arena);
+ser_Error _ser_readToPropFromInner(void* loc, _ser_InnerProp* prop, _ser_DserPtrTable* table, FILE* file, snz_Arena* arena);
+ser_Error _ser_readToObjFromProp(void* obj, _ser_OuterProp* prop, _ser_DserPtrTable* table, FILE* file, snz_Arena* arena);
 
-ser_Error _ser_readToObjFromDecl(void* obj, _ser_Decl* decl, _ser_DserPtrTable* table, FILE* file, BumpAlloc* arena) {
+ser_Error _ser_readToObjFromDecl(void* obj, _ser_Decl* decl, _ser_DserPtrTable* table, FILE* file, snz_Arena* arena) {
     if (decl->kind == SER_DK_STRUCT) {
         _ser_dserPtrTablePush(table)->address = obj;
         for (_ser_OuterProp* prop = decl->structInfo.firstProp; prop; prop = prop->next) {
@@ -999,7 +999,7 @@ ser_Error _ser_readToObjFromDecl(void* obj, _ser_Decl* decl, _ser_DserPtrTable* 
     return SERE_OK;
 }
 
-ser_Error _ser_readToPropFromInner(void* loc, _ser_InnerProp* prop, _ser_DserPtrTable* table, FILE* file, BumpAlloc* arena) {
+ser_Error _ser_readToPropFromInner(void* loc, _ser_InnerProp* prop, _ser_DserPtrTable* table, FILE* file, snz_Arena* arena) {
     if (prop->kind == SER_PK_CHAR) {
         _ser_dserPtrTablePush(table)->address = loc;
         _SER_READ_OR_FAIL(loc, sizeof(uint8_t), file);
@@ -1025,13 +1025,13 @@ ser_Error _ser_readToPropFromInner(void* loc, _ser_InnerProp* prop, _ser_DserPtr
 }
 
 // each prop needs to offset itself into the struct (bc array has to reference two different things)
-ser_Error _ser_readToObjFromProp(void* obj, _ser_OuterProp* prop, _ser_DserPtrTable* table, FILE* file, BumpAlloc* arena) {
+ser_Error _ser_readToObjFromProp(void* obj, _ser_OuterProp* prop, _ser_DserPtrTable* table, FILE* file, snz_Arena* arena) {
     if (prop->inner.kind == SER_PK_ARRAY_EXTERNAL) {
         uint64_t count = 0;
         _SER_READ_VAR_OR_FAIL(uint64_t, count, file);
         *_SER_LOOKUP_MEMBER(uint64_t, obj, prop->inner.arrLengthParentStructOffset) = count; // TODO: type assumption will be bad at some point
         uint64_t innerSize = _ser_sizeOfProp(prop->inner.inner);
-        void* array = bump_push(arena, innerSize * count);
+        void* array = snz_arenaPush(arena, innerSize * count);
         *_SER_LOOKUP_MEMBER(void*, obj, prop->parentStructOffset) = array;
         _ser_dserPtrTablePush(table)->address = array;
         for (uint64_t i = 0; i < count; i++) {
@@ -1163,7 +1163,7 @@ ser_Error _ser_readObjFromFileInner(_ser_DserInstance* inst, const char* type, v
 }
 
 // TODO: file patches! // TODO: can we embed backwards compatibility things too?
-ser_Error _ser_readObjFromFile(const char* type, void* obj, const char* path, BumpAlloc* outArena) {
+ser_Error _ser_readObjFromFile(const char* type, void* obj, const char* path, snz_Arena* outArena) {
     _SER_EXPECT(_ser_isGlobalSetLocked, SERE_GLOBAL_SET_UNLOCKED);
 
     _ser_DserInstance inst;
@@ -1179,8 +1179,8 @@ ser_Error _ser_readObjFromFile(const char* type, void* obj, const char* path, Bu
     if (inst.file != NULL) {
         fclose(inst.file);
     }
-    bump_free(&inst.specSet.arena);
-    bump_free(&inst.ptrTable.arena);
+    snz_arenaDeinit(&inst.specSet.arena);
+    snz_arenaDeinit(&inst.ptrTable.arena);
     return e;
 }
 
@@ -1310,7 +1310,7 @@ ser_Error _ser_test_multipleVec2RoundTrip() {
 
     _ser_test_ArrayStruct outArr;
     memset(&outArr, 0, sizeof(outArr));
-    BumpAlloc arena = bump_allocate(1000000, "v2 round trip arena");
+    snz_Arena arena = snz_arenaInit(1000000, "v2 round trip arena");
     _SER_EXPECT_OK(ser_readObj(_ser_test_ArrayStruct, &outArr, "./testing/v2RoundTrip", &arena));
 
     _SER_EXPECT(outArr.count == vecArr.count, SERE_TEST_EXPECT_FAILED);
@@ -1318,7 +1318,7 @@ ser_Error _ser_test_multipleVec2RoundTrip() {
     for (uint64_t i = 0; i < outArr.count; i++) {
         _SER_EXPECT(outVecs[i].X == vecs[i].X && outVecs[i].Y == vecs[i].Y, SERE_TEST_EXPECT_FAILED);
     }
-    bump_free(&arena);
+    snz_arenaDeinit(&arena);
     return SERE_OK;
 }
 
@@ -1348,7 +1348,7 @@ ser_Error _ser_test_pointerThings() {
     _ser_test_ArrayStruct array = (_ser_test_ArrayStruct){ .count = 2, .elems = ptrArr };
     _SER_EXPECT_OK(ser_writeObj(_ser_test_ArrayStruct, &array, "./testing/ptrThings"));
 
-    BumpAlloc outArena = bump_allocate(1000000, "ser test ptrThings arena");
+    snz_Arena outArena = snz_arenaInit(1000000, "ser test ptrThings arena");
     _ser_test_ArrayStruct outArr;
     _SER_EXPECT_OK(ser_readObj(_ser_test_ArrayStruct, &outArr, "./testing/ptrThings", &outArena));
 
