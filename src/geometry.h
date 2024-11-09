@@ -116,3 +116,7 @@ void geo_sketchToTris(BumpAlloc* scratch, BumpAlloc* outArena, sk_Sketch* sketch
         _geo_splitEdge(scratch, intersected, &firstEdge, middle);
     } // end intersection generation
 }  // end geo_sketchToTris
+
+void geo_tests() {
+    test_printSectionHeader("geo");
+}
