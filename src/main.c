@@ -42,8 +42,7 @@ void main_init(snz_Arena* scratch) {
         csg_BSPNode* treeB = csg_triListToBSP(&cubeB, scratch);
 
         csg_TriList* aClipped = csg_bspClipTris(true, &cubeA, treeB, scratch);
-        csg_TriList* bClipped = csg_bspClipTris(false, &cubeB, treeA, scratch);
-        csg_triListInvert(bClipped);
+        csg_TriList* bClipped = csg_bspClipTris(true, &cubeB, treeA, scratch);
         csg_TriList* final = csg_triListJoin(aClipped, bClipped);
         csg_triListRecoverNonBroken(&final, scratch);
 
@@ -105,6 +104,43 @@ void main_frame(float dt, snz_Arena* scratch) {
         snzu_boxOrderChildrenInRowRecurse(10, SNZU_AX_Y);
         snzu_boxClipChildren();
 
+        snzu_boxNew("rightPanel");
+        snzu_boxFillParent();
+        snzu_boxSetSizeFromEndAx(SNZU_AX_X, rightPanelSize.X);
+        snzu_boxScope() {
+            snzu_Interaction* inter = SNZU_USE_MEM(snzu_Interaction, "inter");
+            snzu_boxSetInteractionOutput(inter, SNZU_IF_HOVER | SNZU_IF_MOUSE_BUTTONS | SNZU_IF_MOUSE_SCROLL);
+            HMM_Vec3* const orbitPos = SNZU_USE_MEM(HMM_Vec3, "orbitPos");
+            if (snzu_useMemIsPrevNew()) {
+                orbitPos->Z = 4;
+            }
+
+            HMM_Vec2* const lastMousePos = SNZU_USE_MEM(HMM_Vec2, "lastMousePos");
+
+            if (inter->mouseActions[SNZU_MB_LEFT] == SNZU_ACT_DOWN) {
+                *lastMousePos = inter->mousePosGlobal;
+            }
+            if (inter->dragged) {
+                HMM_Vec2 diff = HMM_SubV2(inter->mousePosGlobal, *lastMousePos);
+                *lastMousePos = inter->mousePosGlobal;
+                orbitPos->XY = HMM_AddV2(orbitPos->XY, diff);
+            }
+
+            orbitPos->Z += inter->mouseScrollY * orbitPos->Z * 0.05;
+
+            HMM_Mat4 view = HMM_Translate(HMM_V3(0, 0, orbitPos->Z));
+            view = HMM_MulM4(HMM_Rotate_RH(orbitPos->Y * 0.3, HMM_V3(-1, 0, 0)), view);
+            view = HMM_MulM4(HMM_Rotate_RH(orbitPos->X * 0.3, HMM_V3(0, -1, 0)), view);
+            view = HMM_InvGeneral(view);
+
+            float aspect = rightPanelSize.Y / rightPanelSize.X;
+            HMM_Mat4 proj = HMM_Perspective_RH_NO(90, aspect, 0.001, 100000);
+
+            // HMM_Mat4 model = HMM_Rotate_RH(*time * 100, HMM_V3(0, 1, 0));
+            HMM_Mat4 model = HMM_Translate(HMM_V3(0, 0, 0));
+            ren3d_drawMesh(&mesh, HMM_MulM4(proj, view), model, HMM_V3(-1, -1, -1));
+        }
+
         snzu_boxNew("leftPanelBorder");
         snzu_boxFillParent();
         snzu_boxSetStartFromParentAx(*leftPanelSize, SNZU_AX_X);
@@ -117,19 +153,6 @@ void main_frame(float dt, snz_Arena* scratch) {
         snzu_boxSetSizeFromStartAx(SNZU_AX_Y, BORDER_THICKNESS);
         snzu_boxSetColor(TEXT_COLOR);
     }
-
-    float* const time = SNZU_USE_MEM(float, "time");
-    *time += dt;
-
-    HMM_Mat4 view = HMM_Translate(HMM_V3(0, 0, 4));
-    // view = HMM_Rotate_RH(*time * 30, HMM_V3(0, 1, 0));
-    view = HMM_InvGeneral(view);
-
-    float aspect = rightPanelSize.Y / rightPanelSize.X;
-    HMM_Mat4 proj = HMM_Perspective_RH_NO(90, aspect, 0.001, 100000);
-
-    HMM_Mat4 model = HMM_Rotate_RH(*time * 100, HMM_V3(0, 1, 0));
-    ren3d_drawMesh(&mesh, HMM_MulM4(proj, view), model, HMM_V3(-1, -1, -1));
 }
 
 int main() {

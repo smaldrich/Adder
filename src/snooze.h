@@ -1526,7 +1526,7 @@ void snz_main(const char* windowTitle, snz_InitFunc initFunc, snz_FrameFunc fram
 
         int screenW, screenH;
         SDL_GL_GetDrawableSize(window, &screenW, &screenH);
-        _snzr_beginFrame(screenW, screenH, HMM_V4(0.9, 0.9, 1, 1));
+        _snzr_beginFrame(screenW, screenH, HMM_V4(1, 1, 1, 1));
 
         int mouseX, mouseY;
         uint32_t mouseButtons = SDL_GetMouseState(&mouseX, &mouseY);
