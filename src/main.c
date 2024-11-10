@@ -69,6 +69,8 @@ void main_frame(float dt, snz_Arena* scratch) {
     assert(scratch || !scratch);
     assert(dt || !dt);
 
+    HMM_Vec2 rightPanelSize = HMM_V2(0, 0);
+
     snzu_boxNew("parent");
     snzu_boxFillParent();
     snzu_boxScope() {
@@ -79,6 +81,9 @@ void main_frame(float dt, snz_Arena* scratch) {
         }
         // FIXME: cursor change
         *leftPanelSize = SNZ_MAX(200, SNZ_MIN(*leftPanelSize, snzu_boxGetSize(snzu_boxGetParent()).X - 200));
+
+        rightPanelSize = snzu_boxGetSize(snzu_boxGetParent());
+        rightPanelSize.X -= *leftPanelSize;
 
         snzu_boxNew("leftPanel");
         snzu_boxFillParent();
@@ -119,9 +124,11 @@ void main_frame(float dt, snz_Arena* scratch) {
     HMM_Mat4 view = HMM_Translate(HMM_V3(0, 0, 4));
     // view = HMM_Rotate_RH(*time * 30, HMM_V3(0, 1, 0));
     view = HMM_InvGeneral(view);
-    HMM_Mat4 proj = HMM_Perspective_RH_NO(90, 1, 0.001, 100000);
 
-    HMM_Mat4 model = HMM_Translate(HMM_V3(0, 0, 0));
+    float aspect = rightPanelSize.Y / rightPanelSize.X;
+    HMM_Mat4 proj = HMM_Perspective_RH_NO(90, aspect, 0.001, 100000);
+
+    HMM_Mat4 model = HMM_Rotate_RH(*time * 100, HMM_V3(0, 1, 0));
     ren3d_drawMesh(&mesh, HMM_MulM4(proj, view), model, HMM_V3(-1, -1, -1));
 }
 
