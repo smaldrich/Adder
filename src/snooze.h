@@ -198,7 +198,7 @@ static void _snzr_glDebugCallback(GLenum source, GLenum type, GLuint id, GLenum 
 }
 
 // wraps a call in a do while, with another line that asserts no gl errors are present
-#define _snzr_callGLFnOrError(lineOfCode)                                                   \
+#define snzr_callGLFnOrError(lineOfCode)                                                   \
     do {                                                                                    \
         lineOfCode;                                                                         \
         int64_t err = glGetError();                                                         \
@@ -233,34 +233,34 @@ uint32_t snzr_shaderInit(const char* vertChars, const char* fragChars, snz_Arena
     uint32_t vert = _snzr_loadShaderStep(vertChars, GL_VERTEX_SHADER, scratch);
     uint32_t frag = _snzr_loadShaderStep(fragChars, GL_FRAGMENT_SHADER, scratch);
     uint32_t id = glCreateProgram();
-    _snzr_callGLFnOrError(glAttachShader(id, vert));
-    _snzr_callGLFnOrError(glAttachShader(id, frag));
-    _snzr_callGLFnOrError(glLinkProgram(id));
-    _snzr_callGLFnOrError(glValidateProgram(id));
+    snzr_callGLFnOrError(glAttachShader(id, vert));
+    snzr_callGLFnOrError(glAttachShader(id, frag));
+    snzr_callGLFnOrError(glLinkProgram(id));
+    snzr_callGLFnOrError(glValidateProgram(id));
     return id;
 }
 
 snzr_Texture snzr_textureInitRBGA(int32_t width, int32_t height, uint8_t* data) {
     snzr_Texture out = { .width = width, .height = height };
-    _snzr_callGLFnOrError(glGenTextures(1, &out.glId));
-    _snzr_callGLFnOrError(glBindTexture(GL_TEXTURE_2D, out.glId));
-    _snzr_callGLFnOrError(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR));
-    _snzr_callGLFnOrError(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR));
-    _snzr_callGLFnOrError(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE));
-    _snzr_callGLFnOrError(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE));
-    _snzr_callGLFnOrError(glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, data));
+    snzr_callGLFnOrError(glGenTextures(1, &out.glId));
+    snzr_callGLFnOrError(glBindTexture(GL_TEXTURE_2D, out.glId));
+    snzr_callGLFnOrError(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR));
+    snzr_callGLFnOrError(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR));
+    snzr_callGLFnOrError(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE));
+    snzr_callGLFnOrError(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE));
+    snzr_callGLFnOrError(glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, data));
     return out;
 }
 
 snzr_Texture snzr_textureInitGrayscale(int32_t width, int32_t height, uint8_t* data) {
     snzr_Texture out = { .width = width, .height = height };
-    _snzr_callGLFnOrError(glGenTextures(1, &out.glId));
-    _snzr_callGLFnOrError(glBindTexture(GL_TEXTURE_2D, out.glId));
-    _snzr_callGLFnOrError(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR));
-    _snzr_callGLFnOrError(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR));
-    _snzr_callGLFnOrError(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE));
-    _snzr_callGLFnOrError(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE));
-    _snzr_callGLFnOrError(glTexImage2D(GL_TEXTURE_2D, 0, GL_R8, width, height, 0, GL_RED, GL_UNSIGNED_BYTE, data));
+    snzr_callGLFnOrError(glGenTextures(1, &out.glId));
+    snzr_callGLFnOrError(glBindTexture(GL_TEXTURE_2D, out.glId));
+    snzr_callGLFnOrError(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR));
+    snzr_callGLFnOrError(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR));
+    snzr_callGLFnOrError(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE));
+    snzr_callGLFnOrError(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE));
+    snzr_callGLFnOrError(glTexImage2D(GL_TEXTURE_2D, 0, GL_R8, width, height, 0, GL_RED, GL_UNSIGNED_BYTE, data));
     return out;
 }
 
@@ -327,20 +327,20 @@ static void _snzr_init(snz_Arena* scratchArena) {
     {  // initialize gl settings
         gladLoadGL();
         glLoadIdentity();
-        _snzr_callGLFnOrError(glEnable(GL_DEPTH_TEST));
-        _snzr_callGLFnOrError(glDepthFunc(GL_LESS | GL_EQUAL));
-        _snzr_callGLFnOrError(glEnable(GL_BLEND));
-        _snzr_callGLFnOrError(glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA));
-        _snzr_callGLFnOrError(glEnable(GL_DEBUG_OUTPUT));
+        snzr_callGLFnOrError(glEnable(GL_DEPTH_TEST));
+        snzr_callGLFnOrError(glDepthFunc(GL_LESS | GL_EQUAL));
+        snzr_callGLFnOrError(glEnable(GL_BLEND));
+        snzr_callGLFnOrError(glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA));
+        snzr_callGLFnOrError(glEnable(GL_DEBUG_OUTPUT));
 
-        _snzr_callGLFnOrError(glEnable(GL_CULL_FACE));
-        _snzr_callGLFnOrError(glCullFace(GL_BACK));
-        _snzr_callGLFnOrError(glFrontFace(GL_CCW));
-        _snzr_callGLFnOrError(glEnable(GL_MULTISAMPLE));
-        _snzr_callGLFnOrError(glDebugMessageCallback(_snzr_glDebugCallback, 0));
+        snzr_callGLFnOrError(glEnable(GL_CULL_FACE));
+        snzr_callGLFnOrError(glCullFace(GL_BACK));
+        snzr_callGLFnOrError(glFrontFace(GL_CCW));
+        snzr_callGLFnOrError(glEnable(GL_MULTISAMPLE));
+        snzr_callGLFnOrError(glDebugMessageCallback(_snzr_glDebugCallback, 0));
 
-        _snzr_callGLFnOrError(glPixelStorei(GL_UNPACK_ALIGNMENT, 1));
-        _snzr_callGLFnOrError(glPixelStorei(GL_PACK_ALIGNMENT, 1));
+        snzr_callGLFnOrError(glPixelStorei(GL_UNPACK_ALIGNMENT, 1));
+        snzr_callGLFnOrError(glPixelStorei(GL_PACK_ALIGNMENT, 1));
     }
 
     {
@@ -492,9 +492,9 @@ static void _snzr_init(snz_Arena* scratchArena) {
         _snzr_globs.lineShaderId = snzr_shaderInit(vertSrc, fragSrc, scratchArena);
     }
 
-    _snzr_callGLFnOrError(glGenBuffers(1, &_snzr_globs.lineShaderSSBOId));
-    _snzr_callGLFnOrError(glBindBuffer(GL_SHADER_STORAGE_BUFFER, _snzr_globs.lineShaderSSBOId));
-    _snzr_callGLFnOrError(glBufferData(GL_SHADER_STORAGE_BUFFER, 0, NULL, GL_DYNAMIC_DRAW));
+    snzr_callGLFnOrError(glGenBuffers(1, &_snzr_globs.lineShaderSSBOId));
+    snzr_callGLFnOrError(glBindBuffer(GL_SHADER_STORAGE_BUFFER, _snzr_globs.lineShaderSSBOId));
+    snzr_callGLFnOrError(glBufferData(GL_SHADER_STORAGE_BUFFER, 0, NULL, GL_DYNAMIC_DRAW));
 
     uint8_t solidTexData[] = { 255, 255, 255, 255 };
     _snzr_globs.solidTex = snzr_textureInitRBGA(1, 1, solidTexData);
@@ -503,9 +503,9 @@ static void _snzr_init(snz_Arena* scratchArena) {
 // clears screen, sets viewport size
 static void _snzr_beginFrame(int screenW, int screenH, HMM_Vec4 clearColor) {
     _snzr_globs.screenSize = HMM_V2(screenW, screenH);
-    _snzr_callGLFnOrError(glViewport(0, 0, screenW, screenH));
-    _snzr_callGLFnOrError(glClearColor(clearColor.X, clearColor.Y, clearColor.Z, clearColor.W));
-    _snzr_callGLFnOrError(glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT));
+    snzr_callGLFnOrError(glViewport(0, 0, screenW, screenH));
+    snzr_callGLFnOrError(glClearColor(clearColor.X, clearColor.Y, clearColor.Z, clearColor.W));
+    snzr_callGLFnOrError(glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT));
 }
 
 void snzr_drawRect(
@@ -520,7 +520,7 @@ void snzr_drawRect(
     HMM_Mat4 vp) {
     // FIXME: layering system
     // FIXME: error safe gl calls
-    _snzr_callGLFnOrError(glUseProgram(_snzr_globs.rectShaderId));
+    snzr_callGLFnOrError(glUseProgram(_snzr_globs.rectShaderId));
 
     int loc = glGetUniformLocation(_snzr_globs.rectShaderId, "uVP");
     glUniformMatrix4fv(loc, 1, false, (float*)&vp);
@@ -554,7 +554,7 @@ void snzr_drawRect(
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, _snzr_globs.solidTex.glId);
 
-    _snzr_callGLFnOrError(glDrawArrays(GL_TRIANGLES, 0, 6));
+    snzr_callGLFnOrError(glDrawArrays(GL_TRIANGLES, 0, 6));
 }
 
 static const stbtt_packedchar* _snzr_getGylphFromChar(const snzr_Font* font, char c) {
@@ -596,7 +596,7 @@ void snzr_drawText(HMM_Vec2 start,
                    HMM_Mat4 vp) {
     // FIXME: layering system
     // FIXME: safe gl calls
-    _snzr_callGLFnOrError(glUseProgram(_snzr_globs.rectShaderId));
+    snzr_callGLFnOrError(glUseProgram(_snzr_globs.rectShaderId));
     int loc = glGetUniformLocation(_snzr_globs.rectShaderId, "uVP");
     glUniformMatrix4fv(loc, 1, false, (float*)&vp);
     loc = glGetUniformLocation(_snzr_globs.rectShaderId, "uZ");
@@ -661,13 +661,13 @@ void snzr_drawText(HMM_Vec2 start,
         glUniform2f(loc, (int)dstStart.X, (int)dstStart.Y);
         loc = glGetUniformLocation(_snzr_globs.rectShaderId, "uDstEnd");
         glUniform2f(loc, (int)dstEnd.X, (int)dstEnd.Y);
-        _snzr_callGLFnOrError(glDrawArrays(GL_TRIANGLES, 0, 6));
+        snzr_callGLFnOrError(glDrawArrays(GL_TRIANGLES, 0, 6));
     }
 }
 
 // requires a padding start pt and end pt to define start and end miters, these should be included in ptCount, but wont be rendered
 void snzr_drawLine(HMM_Vec2* pts, uint64_t ptCount, HMM_Vec4 color, float thickness, HMM_Mat4 vp) {
-    _snzr_callGLFnOrError(glUseProgram(_snzr_globs.lineShaderId));
+    snzr_callGLFnOrError(glUseProgram(_snzr_globs.lineShaderId));
 
     int loc = glGetUniformLocation(_snzr_globs.lineShaderId, "uColor");
     glUniform4f(loc, color.X, color.Y, color.Z, color.W);
@@ -684,7 +684,7 @@ void snzr_drawLine(HMM_Vec2* pts, uint64_t ptCount, HMM_Vec4 color, float thickn
     glBufferData(GL_SHADER_STORAGE_BUFFER, ptCount * sizeof(HMM_Vec2), pts, GL_DYNAMIC_DRAW);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, _snzr_globs.lineShaderSSBOId);
 
-    _snzr_callGLFnOrError(glDrawArrays(GL_TRIANGLES, 0, (ptCount - 2 - 1) * 6));
+    snzr_callGLFnOrError(glDrawArrays(GL_TRIANGLES, 0, (ptCount - 2 - 1) * 6));
 }
 
 // RENDER ======================================================================

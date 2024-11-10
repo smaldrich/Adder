@@ -52,29 +52,36 @@ ren3d_Mesh ren3d_meshInit(ren3d_Vert* verts, uint64_t vertCount) {
     glBindBuffer(GL_ARRAY_BUFFER, out.vertexBufferId);
     uint64_t vertSize = sizeof(ren3d_Vert);
     glBufferData(GL_ARRAY_BUFFER, vertCount * vertSize, verts, GL_STATIC_DRAW);
+
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, vertSize, (void*)(0));
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, vertSize, (void*)(sizeof(HMM_Vec3)));
+    glEnableVertexAttribArray(1);
+
     glBindVertexArray(0);
     return out;
 }
 
-void ren3d_drawMesh(HMM_Mat4 vp, HMM_Vec3 lightDir, HMM_Mat4 model, HMM_Vec4 color, const ren3d_Mesh* mesh) {
-    glUseProgram(_ren3d_shaderId);
+void ren3d_drawMesh(const ren3d_Mesh* mesh, HMM_Mat4 vp, HMM_Mat4 model, HMM_Vec3 lightDir) {
+    snzr_callGLFnOrError(glUseProgram(_ren3d_shaderId));
 
-    // FIXME: gl safe calls
+    // // FIXME: gl safe uniform loc calls
     int loc = glGetUniformLocation(_ren3d_shaderId, "uVP");
-    glUniformMatrix4fv(loc, 1, false, (float*)&vp);
+    snzr_callGLFnOrError(glUniformMatrix4fv(loc, 1, false, (float*)&vp));
 
     loc = glGetUniformLocation(_ren3d_shaderId, "uModel");
-    glUniformMatrix4fv(loc, 1, false, (float*)&model);
+    snzr_callGLFnOrError(glUniformMatrix4fv(loc, 1, false, (float*)&model));
 
     loc = glGetUniformLocation(_ren3d_shaderId, "uColor");
-    glUniform4f(loc, color.X, color.Y, color.Z, color.W);
+    snzr_callGLFnOrError(glUniform3f(loc, 0.8, 0.8, 0.8));
 
     loc = glGetUniformLocation(_ren3d_shaderId, "uLightColor");
-    glUniform4f(loc, color.X, color.Y, color.Z, color.W);
+    snzr_callGLFnOrError(glUniform3f(loc, 1, 1, 1));
 
     loc = glGetUniformLocation(_ren3d_shaderId, "uLightDir");
-    glUniform3f(loc, lightDir.X, lightDir.Y, lightDir.Z);
+    snzr_callGLFnOrError(glUniform3f(loc, lightDir.X, lightDir.Y, lightDir.Z));
 
-    glBindVertexArray(mesh->vaId);
-    glDrawArrays(GL_TRIANGLES, 0, mesh->vertCount);
+    snzr_callGLFnOrError(glBindVertexArray(mesh->vaId));
+    snzr_callGLFnOrError(glBindBuffer(GL_ARRAY_BUFFER, mesh->vertexBufferId));
+    snzr_callGLFnOrError(glDrawArrays(GL_TRIANGLES, 0, mesh->vertCount));
 }

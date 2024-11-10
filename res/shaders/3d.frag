@@ -5,7 +5,7 @@ out vec4 color;
 in vec4 gl_FragCoord;
 in vec3 vNormal;
 
-uniform vec4 uColor;
+uniform vec3 uColor;
 uniform vec3 uLightDir;
 uniform vec3 uLightColor;
 // uniform vec3 uViewDir;
@@ -31,6 +31,7 @@ void main()
     // float spec = pow(max(dot(-viewDir, reflectDir), 0.0), 25);
     // vec3 specular = 0.1 * spec * uLightColor;
     // color = vec4(specular + diffuse + ambient, 1.0) * uColor;
-    color = vec4(diffuse + ambient, 1.0) * uColor;
-    // color = vec4(diffuse + ambient, 1.0) * uColor;
+
+    color = vec4((diffuse + ambient) * uColor, 1.0);
+    // color = vec4(uColor, 1);
 };
