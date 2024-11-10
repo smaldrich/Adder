@@ -1436,14 +1436,14 @@ void _ser_test_invoke(_ser_testFunc func, const char* name) {
     _ser_isGlobalSetLocked = false;
 
     ser_Error e = func();
-    test_printResult(e == SERE_OK, name);
+    snz_testPrint(e == SERE_OK, name);
     if (e != SERE_OK) {
         printf("\tError code: %d\n", e);
     }
 }
 
 void ser_tests() {
-    test_printSectionHeader("Ser");
+    snz_testPrintSection("Ser");
 
     _ser_globalSpecSet = _ser_specSetInit("global spec set arena");
     _SER_TEST_INVOKE(_ser_test_serializeVec2);

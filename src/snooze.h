@@ -16,20 +16,20 @@
 #include "SDL2/include/SDL2/SDL.h"
 #include "stb/stb_truetype.h"
 
+// UTILITIES ==================================================================
+// UTILITIES ==================================================================
+// UTILITIES ==================================================================
+
+// FIXME: logging system / remove all instances of printf
+// FIXME: vector macro abstraction
+
 #define SNZ_MIN(a, b) ((a < b) ? a : b)
 #define SNZ_MAX(a, b) ((a > b) ? a : b)
 
 // FIXME: macro override for these somehow
-// FIXME: logging system / remove all instances of printf
-// FIXME: vector macro abstraction
-
-// ASSERTIONS ==================================================================
-// ASSERTIONS ==================================================================
-// ASSERTIONS ==================================================================
-
-// FIXME: macro override for these somehow
 
 // appends a newline :)
+// FIXME: some type of way to see cause of failure
 #define SNZ_ASSERT(cond, msg) _snz_assertf(cond, "%s", __FILE__, __LINE__, msg)
 #define SNZ_ASSERTF(cond, fmt, ...) _snz_assertf(cond, fmt, __FILE__, __LINE__, __VA_ARGS__)
 
@@ -44,9 +44,29 @@ void _snz_assertf(bool cond, const char* fmt, const char* file, int64_t line, ..
     }
 }
 
-// ASSERTIONS ==================================================================
-// ASSERTIONS ==================================================================
-// ASSERTIONS ==================================================================
+#define SNZ_OPTION_NAMED(okT, errorT, name) \
+    typedef struct {                   \
+        okT ok;                        \
+        errorT error;                  \
+    } name;
+
+#define SNZ_OPTION(okT, errorT) SNZ_OPTION_NAMED(okT, errorT, okT##Opt)
+
+void snz_testPrint(bool result, const char* name) {
+    const char* colorCode = (result) ? "\x1B[0;32m" : "\x1B[0;31m";
+    const char* resultStr = (result) ? "passed" : "failed";
+    printf("\x1B[0m%s\"%s\" %s\x1B[0m\n", colorCode, name, resultStr);
+}
+
+void snz_testPrintSection(const char* name) {
+    printf("\n    -- %s Tests -- \n", name);
+}
+
+// FIXME: multiple def guards
+
+// UTILITIES ==================================================================
+// UTILITIES ==================================================================
+// UTILITIES ==================================================================
 
 // ARENAS ======================================================================
 // ARENAS ======================================================================

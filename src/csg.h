@@ -93,8 +93,8 @@ csg_TriList* csg_triListJoin(csg_TriList* listA, csg_TriList* listB) {
 }
 
 // destructive to node->next in list
-void csg_triListPushNew(BumpAlloc* arena, csg_TriList* list, HMM_Vec3 a, HMM_Vec3 b, HMM_Vec3 c) {
-    csg_TriListNode* new = BUMP_PUSH_NEW(arena, csg_TriListNode);
+void csg_triListPushNew(snz_Arena* arena, csg_TriList* list, HMM_Vec3 a, HMM_Vec3 b, HMM_Vec3 c) {
+    csg_TriListNode* new = SNZ_ARENA_PUSH(arena, csg_TriListNode);
     *new = (csg_TriListNode){
         .a = a,
         .b = b,
@@ -157,7 +157,7 @@ csg_PlaneRelation _csg_triClassify(HMM_Vec3* pts, HMM_Vec3 planeNormal, HMM_Vec3
 // parent assumed non-null, new nodes allocated into arena
 // takes a list of nodes with normals and origins filled out, organizes it + its children into the tree shape based on splits
 // will allocate more nodes over the course of fixing, these are put into arena
-void _csg_BSPTreeFixNode(BumpAlloc* arena, csg_BSPNode* parent, csg_BSPNode* listOfPossibleNodes) {
+void _csg_BSPTreeFixNode(snz_Arena* arena, csg_BSPNode* parent, csg_BSPNode* listOfPossibleNodes) {
     HMM_Vec3 splitNormal = csg_triNormal(parent->point1, parent->point2, parent->point3);
 
     csg_BSPNode* innerList = NULL;
@@ -182,7 +182,7 @@ void _csg_BSPTreeFixNode(BumpAlloc* arena, csg_BSPNode* parent, csg_BSPNode* lis
                 innerList = node;
             } else {
                 // it spans both sides, we need one node for each side // FIXME: does this need to be split too?
-                csg_BSPNode* duplicate = BUMP_PUSH_NEW(arena, csg_BSPNode);
+                csg_BSPNode* duplicate = SNZ_ARENA_PUSH(arena, csg_BSPNode);
                 duplicate->point1 = node->point1;
                 duplicate->point2 = node->point2;
                 duplicate->point3 = node->point3;
@@ -209,11 +209,11 @@ void _csg_BSPTreeFixNode(BumpAlloc* arena, csg_BSPNode* parent, csg_BSPNode* lis
 
 // returns the top of a bsp tree for the list of tris, allocated entirely inside arena
 // Normals calculated with out being CW, where all normals should be pointing out
-csg_BSPNode* csg_triListToBSP(const csg_TriList* tris, BumpAlloc* arena) {
+csg_BSPNode* csg_triListToBSP(const csg_TriList* tris, snz_Arena* arena) {
     csg_BSPNode* tree = NULL;
 
     for (const csg_TriListNode* tri = tris->first; tri; tri = tri->next) {
-        csg_BSPNode* node = BUMP_PUSH_NEW(arena, csg_BSPNode);
+        csg_BSPNode* node = SNZ_ARENA_PUSH(arena, csg_BSPNode);
         node->nextAvailible = tree;
         tree = node;
 
@@ -259,7 +259,7 @@ bool csg_planeLineIntersection(HMM_Vec3 planeOrigin, HMM_Vec3 planeNormal, HMM_V
 
 // FIXME: point deduplication of some kind?
 // destructive to tri->next, and both outlists next
-void _csg_triSplit(csg_TriListNode* tri, BumpAlloc* arena, csg_TriList* outOutsideList, csg_TriList* outInsideList, csg_BSPNode* cutter) {
+void _csg_triSplit(csg_TriListNode* tri, snz_Arena* arena, csg_TriList* outOutsideList, csg_TriList* outInsideList, csg_BSPNode* cutter) {
     HMM_Vec3 cutNormal = csg_triNormal(cutter->point1, cutter->point2, cutter->point3);
 
     csg_PlaneRelation rel = _csg_triClassify(tri->elems, cutNormal, cutter->point1);
@@ -334,7 +334,7 @@ void _csg_triSplit(csg_TriListNode* tri, BumpAlloc* arena, csg_TriList* outOutsi
 
         if (vertCount == 5) {
             bool t1Outside = HMM_DotV3(HMM_SubV3(rotatedVerts[1], cutter->point1), cutNormal) > 0;
-            csg_TriListNode* t1 = BUMP_PUSH_NEW(arena, csg_TriListNode);
+            csg_TriListNode* t1 = SNZ_ARENA_PUSH(arena, csg_TriListNode);
             *t1 = (csg_TriListNode){
                 .a = rotatedVerts[0],
                 .b = rotatedVerts[1],
@@ -342,7 +342,7 @@ void _csg_triSplit(csg_TriListNode* tri, BumpAlloc* arena, csg_TriList* outOutsi
                 .ancestor = tri,
             };
 
-            csg_TriListNode* t2 = BUMP_PUSH_NEW(arena, csg_TriListNode);
+            csg_TriListNode* t2 = SNZ_ARENA_PUSH(arena, csg_TriListNode);
             *t2 = (csg_TriListNode){
                 .a = rotatedVerts[2],
                 .b = rotatedVerts[3],
@@ -350,7 +350,7 @@ void _csg_triSplit(csg_TriListNode* tri, BumpAlloc* arena, csg_TriList* outOutsi
                 .ancestor = tri,
             };
 
-            csg_TriListNode* t3 = BUMP_PUSH_NEW(arena, csg_TriListNode);
+            csg_TriListNode* t3 = SNZ_ARENA_PUSH(arena, csg_TriListNode);
             *t3 = (csg_TriListNode){
                 .a = rotatedVerts[4],
                 .b = rotatedVerts[0],
@@ -366,7 +366,7 @@ void _csg_triSplit(csg_TriListNode* tri, BumpAlloc* arena, csg_TriList* outOutsi
             csg_triListPush(t2and3List, t3);
         }  // end 5 vert-check
         else if (vertCount == 4) {
-            csg_TriListNode* t1 = BUMP_PUSH_NEW(arena, csg_TriListNode);
+            csg_TriListNode* t1 = SNZ_ARENA_PUSH(arena, csg_TriListNode);
             *t1 = (csg_TriListNode){
                 .a = rotatedVerts[0],
                 .b = rotatedVerts[1],
@@ -374,7 +374,7 @@ void _csg_triSplit(csg_TriListNode* tri, BumpAlloc* arena, csg_TriList* outOutsi
                 .ancestor = tri,
             };
 
-            csg_TriListNode* t2 = BUMP_PUSH_NEW(arena, csg_TriListNode);
+            csg_TriListNode* t2 = SNZ_ARENA_PUSH(arena, csg_TriListNode);
             *t2 = (csg_TriListNode){
                 .a = rotatedVerts[2],
                 .b = rotatedVerts[3],
@@ -397,7 +397,7 @@ void _csg_triSplit(csg_TriListNode* tri, BumpAlloc* arena, csg_TriList* outOutsi
 // clips all tris in meshTris from tree, returns a LL of the new tris, destructive to the original
 // if within is set, tris within are clipped, otherwise tris outside
 // everything allocated to arena
-csg_TriList* csg_bspClipTris(bool within, csg_TriList* meshTris, csg_BSPNode* tree, BumpAlloc* arena) {
+csg_TriList* csg_bspClipTris(bool within, csg_TriList* meshTris, csg_BSPNode* tree, snz_Arena* arena) {
     csg_TriList inside = csg_triListInit();
     csg_TriList outside = csg_triListInit();
 
@@ -438,15 +438,15 @@ csg_TriList* csg_bspClipTris(bool within, csg_TriList* meshTris, csg_BSPNode* tr
         listToClear->last = NULL;
     }
 
-    csg_TriList* out = BUMP_PUSH_NEW(arena, csg_TriList);
+    csg_TriList* out = SNZ_ARENA_PUSH(arena, csg_TriList);
     *out = *csg_triListJoin(&inside, &outside);
     return out;
 }
 
 // destructive to the original tri list
-void csg_triListRecoverNonBroken(csg_TriList** tris, BumpAlloc* arena) {
-    csg_TriList* recovered = BUMP_PUSH_NEW(arena, csg_TriList);
-    csg_TriList* trisRemaining = BUMP_PUSH_NEW(arena, csg_TriList);
+void csg_triListRecoverNonBroken(csg_TriList** tris, snz_Arena* arena) {
+    csg_TriList* recovered = SNZ_ARENA_PUSH(arena, csg_TriList);
+    csg_TriList* trisRemaining = SNZ_ARENA_PUSH(arena, csg_TriList);
 
     csg_TriListNode* next = NULL;
     for (csg_TriListNode* node = (*tris)->first; node; node = next) {
@@ -482,7 +482,7 @@ void csg_triListRecoverNonBroken(csg_TriList** tris, BumpAlloc* arena) {
 
 // FIXME: this is horrible
 // 2 width cube, centered on the origin
-csg_TriList csg_cube(BumpAlloc* arena) {
+csg_TriList csg_cube(snz_Arena* arena) {
     csg_TriList list = csg_triListInit();
 
     HMM_Vec3 v[] = {
@@ -511,9 +511,9 @@ csg_TriList csg_cube(BumpAlloc* arena) {
 }
 
 void csg_tests() {
-    test_printSectionHeader("csg");
+    snz_testPrintSection("csg");
 
-    BumpAlloc arena = bump_allocate(1000000, "csg test arena");
+    snz_Arena arena = snz_arenaInit(1000000, "csg test arena");
     PoolAlloc pool = poolAllocInit();
 
     {
@@ -531,16 +531,16 @@ void csg_tests() {
         csg_triListPushNew(&arena, &list, verts[3], verts[2], verts[1]);
 
         csg_BSPNode* tree = csg_triListToBSP(&list, &arena);
-        test_printResult(csg_BSPContainsPoint(tree, HMM_V3(0.5, 0.5, 0.0)) == true, "Tetra contains pt");
-        test_printResult(csg_BSPContainsPoint(tree, HMM_V3(0.5, 1.0, 0.5)) == false, "Tetra doesn't contain pt");
-        test_printResult(csg_BSPContainsPoint(tree, HMM_V3(0, 0, 0)) == true, "Tetra contains edge pt");
-        test_printResult(csg_BSPContainsPoint(tree, HMM_V3(1, 0, -1)) == true, "Tetra contains edge pt 2");
-        test_printResult(csg_BSPContainsPoint(tree, HMM_V3(-1, 0, -1)) == false, "Tetra doesn't contain point 2");
-        test_printResult(csg_BSPContainsPoint(tree, HMM_V3(3, 3, 3)) == false, "Tetra doesn't contain point 3");
-        test_printResult(csg_BSPContainsPoint(tree, HMM_V3(INFINITY, NAN, NAN)) == false, "Tetra doesn't contain invalid floats");
+        snz_testPrint(csg_BSPContainsPoint(tree, HMM_V3(0.5, 0.5, 0.0)) == true, "Tetra contains pt");
+        snz_testPrint(csg_BSPContainsPoint(tree, HMM_V3(0.5, 1.0, 0.5)) == false, "Tetra doesn't contain pt");
+        snz_testPrint(csg_BSPContainsPoint(tree, HMM_V3(0, 0, 0)) == true, "Tetra contains edge pt");
+        snz_testPrint(csg_BSPContainsPoint(tree, HMM_V3(1, 0, -1)) == true, "Tetra contains edge pt 2");
+        snz_testPrint(csg_BSPContainsPoint(tree, HMM_V3(-1, 0, -1)) == false, "Tetra doesn't contain point 2");
+        snz_testPrint(csg_BSPContainsPoint(tree, HMM_V3(3, 3, 3)) == false, "Tetra doesn't contain point 3");
+        snz_testPrint(csg_BSPContainsPoint(tree, HMM_V3(INFINITY, NAN, NAN)) == false, "Tetra doesn't contain invalid floats");
     }
 
-    bump_clear(&arena);
+    snz_arenaClear(&arena);
     poolAllocClear(&pool);
 
     {
@@ -566,16 +566,16 @@ void csg_tests() {
 
         csg_BSPNode* tree = csg_triListToBSP(&list, &arena);
 
-        test_printResult(csg_BSPContainsPoint(tree, HMM_V3(0, 0, 0)) == true, "horn contain test 1");
-        test_printResult(csg_BSPContainsPoint(tree, HMM_V3(0, 10, 0)) == false, "horn contain test 2");
-        test_printResult(csg_BSPContainsPoint(tree, HMM_V3(0, 0, -0.1)) == true, "horn contain test 3");
-        test_printResult(csg_BSPContainsPoint(tree, HMM_V3(-0.5, 0, 0)) == true, "horn contain test 4");
-        test_printResult(csg_BSPContainsPoint(tree, HMM_V3(0, -1, -1)) == true, "horn contain test 5");
-        test_printResult(csg_BSPContainsPoint(tree, HMM_V3(-1, -1, -1)) == false, "horn contain test 6");
-        test_printResult(csg_BSPContainsPoint(tree, HMM_V3(0, -0.5, 0)) == false, "horn contain test 7");
+        snz_testPrint(csg_BSPContainsPoint(tree, HMM_V3(0, 0, 0)) == true, "horn contain test 1");
+        snz_testPrint(csg_BSPContainsPoint(tree, HMM_V3(0, 10, 0)) == false, "horn contain test 2");
+        snz_testPrint(csg_BSPContainsPoint(tree, HMM_V3(0, 0, -0.1)) == true, "horn contain test 3");
+        snz_testPrint(csg_BSPContainsPoint(tree, HMM_V3(-0.5, 0, 0)) == true, "horn contain test 4");
+        snz_testPrint(csg_BSPContainsPoint(tree, HMM_V3(0, -1, -1)) == true, "horn contain test 5");
+        snz_testPrint(csg_BSPContainsPoint(tree, HMM_V3(-1, -1, -1)) == false, "horn contain test 6");
+        snz_testPrint(csg_BSPContainsPoint(tree, HMM_V3(0, -0.5, 0)) == false, "horn contain test 7");
     }
 
-    bump_clear(&arena);
+    snz_arenaClear(&arena);
     poolAllocClear(&pool);
 
     {
@@ -611,6 +611,6 @@ void csg_tests() {
         csg_triListToSTLFile(final, "testing/intersection.stl");
     }
 
-    bump_free(&arena);
+    snz_arenaDeinit(&arena);
     poolAllocDeinit(&pool);
 }

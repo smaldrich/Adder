@@ -2,6 +2,7 @@
 
 #include "csg.h"
 #include "sketches.h"
+#include "snooze.h"
 
 typedef struct geo_Vert geo_Vert;
 typedef struct geo_Edge geo_Edge;
@@ -17,12 +18,12 @@ struct geo_Vert {
     HMM_Vec3 pos;
 };
 
-void _geo_splitEdge(BumpAlloc* scratch, geo_Edge* edge, geo_Edge** firstEdge, geo_Vert* intersection) {
+void _geo_splitEdge(snz_Arena* scratch, geo_Edge* edge, geo_Edge** firstEdge, geo_Vert* intersection) {
     geo_Vert* vertA = edge->vertA;
     geo_Vert* vertB = edge->vertB;
 
     geo_Edge* e0 = edge;
-    geo_Edge* e1 = BUMP_PUSH_NEW(scratch, geo_Edge);
+    geo_Edge* e1 = SNZ_ARENA_PUSH(scratch, geo_Edge);
     e1->nextAllocated = *firstEdge;
     *firstEdge = e1;
 
@@ -32,14 +33,14 @@ void _geo_splitEdge(BumpAlloc* scratch, geo_Edge* edge, geo_Edge** firstEdge, ge
     e1->vertB = vertB;
 }
 
-void geo_sketchToTris(BumpAlloc* scratch, BumpAlloc* outArena, sk_Sketch* sketch) {
+void geo_sketchToTris(snz_Arena* scratch, snz_Arena* outArena, sk_Sketch* sketch) {
     assert(sk_sketchSolve(sketch) == SKE_OK);
 
     geo_Edge* firstEdge = NULL;
 
     // unpack sketch data into verts and edges that are better for this operation
     {
-        geo_Vert* verts = BUMP_PUSH_ARR(scratch, sketch->pointCount, geo_Vert);
+        geo_Vert* verts = SNZ_ARENA_PUSH_ARR(scratch, sketch->pointCount, geo_Vert);
         for (int64_t i = 0; i < sketch->pointCount; i++) {
             if (!sketch->points[i].inUse) {
                 continue;
@@ -54,7 +55,7 @@ void geo_sketchToTris(BumpAlloc* scratch, BumpAlloc* outArena, sk_Sketch* sketch
                 continue;
             }
             assert(l->kind == SK_LK_STRAIGHT); // FIXME: this
-            geo_Edge* edge = BUMP_PUSH_NEW(scratch, geo_Edge);
+            geo_Edge* edge = SNZ_ARENA_PUSH(scratch, geo_Edge);
             edge->vertA = &verts[l->p1.index];
             edge->vertB = &verts[l->p2.index];
             edge->nextAllocated = firstEdge;
@@ -110,7 +111,7 @@ void geo_sketchToTris(BumpAlloc* scratch, BumpAlloc* outArena, sk_Sketch* sketch
 
         assert(!intersected->doneSplitting);
 
-        geo_Vert* middle = BUMP_PUSH_NEW(scratch, geo_Vert);
+        geo_Vert* middle = SNZ_ARENA_PUSH(scratch, geo_Vert);
         middle->pos = intersection;
         _geo_splitEdge(scratch, edge, &firstEdge, middle);
         _geo_splitEdge(scratch, intersected, &firstEdge, middle);
@@ -118,5 +119,5 @@ void geo_sketchToTris(BumpAlloc* scratch, BumpAlloc* outArena, sk_Sketch* sketch
 }  // end geo_sketchToTris
 
 void geo_tests() {
-    test_printSectionHeader("geo");
+    snz_testPrintSection("geo");
 }
