@@ -209,7 +209,7 @@ static void _snzr_glDebugCallback(GLenum source, GLenum type, GLuint id, GLenum 
 
 // step kind should be GL_VERTEX_SHADER or GL_FRAGMENT_SHADER
 // asserts on failure of any kind, including opening the file and compiling the shader stage
-static uint32_t _snzr_loadShaderStep(const char* src, GLenum stepKind, snz_Arena* arena) {
+static uint32_t _snzr_loadShaderStep(const char* src, GLenum stepKind, snz_Arena* scratch) {
     int32_t shaderSrcCount = strlen(src);
 
     uint32_t id = glCreateShader(stepKind);
@@ -217,7 +217,7 @@ static uint32_t _snzr_loadShaderStep(const char* src, GLenum stepKind, snz_Arena
     glCompileShader(id);
 
     int compileSucceded = false;
-    char* logBuffer = SNZ_ARENA_PUSH_ARR(arena, 512, char);
+    char* logBuffer = SNZ_ARENA_PUSH_ARR(scratch, 512, char); // FIXME: this is gross
     glGetShaderiv(id, GL_COMPILE_STATUS, &compileSucceded);
     if (!compileSucceded) {
         glGetShaderInfoLog(id, 512, NULL, logBuffer);
@@ -225,6 +225,18 @@ static uint32_t _snzr_loadShaderStep(const char* src, GLenum stepKind, snz_Arena
         assert(false);
     };
 
+    return id;
+}
+
+// returns the openGL id of the shader
+uint32_t snzr_shaderInit(const char* vertChars, const char* fragChars, snz_Arena* scratch) {
+    uint32_t vert = _snzr_loadShaderStep(vertChars, GL_VERTEX_SHADER, scratch);
+    uint32_t frag = _snzr_loadShaderStep(fragChars, GL_FRAGMENT_SHADER, scratch);
+    uint32_t id = glCreateProgram();
+    _snzr_callGLFnOrError(glAttachShader(id, vert));
+    _snzr_callGLFnOrError(glAttachShader(id, frag));
+    _snzr_callGLFnOrError(glLinkProgram(id));
+    _snzr_callGLFnOrError(glValidateProgram(id));
     return id;
 }
 
@@ -414,14 +426,7 @@ static void _snzr_init(snz_Arena* scratchArena) {
 
             "    if (color.a <= 0.01) { discard; }"
             "};";
-
-        uint32_t vert = _snzr_loadShaderStep(vertSrc, GL_VERTEX_SHADER, scratchArena);
-        uint32_t frag = _snzr_loadShaderStep(fragSrc, GL_FRAGMENT_SHADER, scratchArena);
-        _snzr_globs.rectShaderId = glCreateProgram();
-        _snzr_callGLFnOrError(glAttachShader(_snzr_globs.rectShaderId, vert));
-        _snzr_callGLFnOrError(glAttachShader(_snzr_globs.rectShaderId, frag));
-        _snzr_callGLFnOrError(glLinkProgram(_snzr_globs.rectShaderId));
-        _snzr_callGLFnOrError(glValidateProgram(_snzr_globs.rectShaderId));
+        _snzr_globs.rectShaderId = snzr_shaderInit(vertSrc, fragSrc, scratchArena);
     }
 
     {
@@ -484,13 +489,7 @@ static void _snzr_init(snz_Arena* scratchArena) {
             "    color = uColor;"
             "};";
 
-        uint32_t vert = _snzr_loadShaderStep(vertSrc, GL_VERTEX_SHADER, scratchArena);
-        uint32_t frag = _snzr_loadShaderStep(fragSrc, GL_FRAGMENT_SHADER, scratchArena);
-        _snzr_globs.lineShaderId = glCreateProgram();
-        _snzr_callGLFnOrError(glAttachShader(_snzr_globs.lineShaderId, vert));
-        _snzr_callGLFnOrError(glAttachShader(_snzr_globs.lineShaderId, frag));
-        _snzr_callGLFnOrError(glLinkProgram(_snzr_globs.lineShaderId));
-        _snzr_callGLFnOrError(glValidateProgram(_snzr_globs.lineShaderId));
+        _snzr_globs.lineShaderId = snzr_shaderInit(vertSrc, fragSrc, scratchArena);
     }
 
     _snzr_callGLFnOrError(glGenBuffers(1, &_snzr_globs.lineShaderSSBOId));

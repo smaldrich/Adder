@@ -1,5 +1,6 @@
 #include "snooze.h"
 #include "PoolAlloc.h"
+#include "render3d.h"
 #include "csg.h"
 #include "serialization2.h"
 #include "sketches.h"
@@ -20,6 +21,8 @@ void main_init(snz_Arena* scratch) {
     titleFont = snzr_fontInit(&fontArena, scratch, "res/fonts/AzeretMono-Regular.ttf", 48);
     paragraphFont = snzr_fontInit(&fontArena, scratch, "res/fonts/OpenSans-Light.ttf", 16);
     labelFont = snzr_fontInit(&fontArena, scratch, "res/fonts/AzeretMono-LightItalic.ttf", 20);
+
+    ren3d_init(scratch);
 }
 
 void main_frame(float dt, snz_Arena* scratch) {
@@ -28,7 +31,6 @@ void main_frame(float dt, snz_Arena* scratch) {
 
     snzu_boxNew("parent");
     snzu_boxFillParent();
-    snzu_boxSetColor(BACKGROUND_COLOR);
     snzu_boxScope() {
         float* const leftPanelSize = SNZU_USE_MEM(float, "leftPanelSize");
         snzu_Interaction* leftPanelInter = SNZU_USE_MEM(snzu_Interaction, "leftPanelInter");
@@ -64,7 +66,6 @@ void main_frame(float dt, snz_Arena* scratch) {
         snzu_boxSetSizeFromStartAx(SNZU_AX_X, BORDER_THICKNESS);
         snzu_boxSetColor(TEXT_COLOR);
         snzu_boxSetInteractionOutput(leftPanelInter, SNZU_IF_HOVER | SNZU_IF_MOUSE_BUTTONS);
-
 
         snzu_boxNew("upperBorder");
         snzu_boxFillParent();
