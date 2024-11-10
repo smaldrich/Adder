@@ -659,9 +659,9 @@ void snzr_drawText(HMM_Vec2 start,
         loc = glGetUniformLocation(_snzr_globs.rectShaderId, "uSrcEnd");
         glUniform2f(loc, srcEnd.X, srcEnd.Y);
         loc = glGetUniformLocation(_snzr_globs.rectShaderId, "uDstStart");
-        glUniform2f(loc, dstStart.X, dstStart.Y);
+        glUniform2f(loc, (int)dstStart.X, (int)dstStart.Y);
         loc = glGetUniformLocation(_snzr_globs.rectShaderId, "uDstEnd");
-        glUniform2f(loc, dstEnd.X, dstEnd.Y);
+        glUniform2f(loc, (int)dstEnd.X, (int)dstEnd.Y);
         _snzr_callGLFnOrError(glDrawArrays(GL_TRIANGLES, 0, 6));
     }
 }
@@ -696,7 +696,6 @@ void snzr_drawLine(HMM_Vec2* pts, uint64_t ptCount, HMM_Vec4 color, float thickn
 // UI ==========================================================================
 // UI ==========================================================================
 
-#define SNZU_TEXT_COLOR HMM_V4(1, 1, 1, 1)
 #define SNZU_TEXT_PADDING 5
 // FIXME: ^ these should be part of the component lib, not hardcoded
 
@@ -788,9 +787,11 @@ struct _snzu_Box {
     float cornerRadius;
     float borderThickness;
     HMM_Vec4 borderColor;
+
     const char* displayStr;
     uint64_t displayStrLen;
     const snzr_Font* font;
+    HMM_Vec4 displayStrColor;
 
     HMM_Vec2 clippedStart;
     HMM_Vec2 clippedEnd;
@@ -1025,7 +1026,7 @@ static void _snzu_drawBoxAndChildren(_snzu_Box* parent, HMM_Vec2 clipStart, HMM_
         snzr_drawText(
             textPos,
             clipStart, clipEnd,
-            SNZU_TEXT_COLOR,
+            parent->displayStrColor,
             parent->displayStr, parent->displayStrLen,
             *parent->font,
             vp);
@@ -1245,16 +1246,17 @@ void snzu_boxSetBorder(float px, HMM_Vec4 col) {
 
 // string should last until the end of the frome
 // font must also last
-void snzu_boxSetDisplayStrLen(const snzr_Font* font, const char* str, uint64_t strLen) {
+void snzu_boxSetDisplayStrLen(const snzr_Font* font, HMM_Vec4 color, const char* str, uint64_t strLen) {
+    _snzu_globs.selectedBox->font = font;
+    _snzu_globs.selectedBox->displayStrColor = color;
     _snzu_globs.selectedBox->displayStr = str;
     _snzu_globs.selectedBox->displayStrLen = strLen;
-    _snzu_globs.selectedBox->font = font;
 }
 
 // str is null terminated, must last until the end of the frame
 // font must alos last
-void snzu_boxSetDisplayStr(const snzr_Font* font, const char* str) {
-    snzu_boxSetDisplayStrLen(font, str, strlen(str));
+void snzu_boxSetDisplayStr(const snzr_Font* font, HMM_Vec4 color, const char* str) {
+    snzu_boxSetDisplayStrLen(font, color, str, strlen(str));
 }
 
 void snzu_boxSetDisplayStrF(snzr_Font* font, const char* fmt, ...) {
@@ -1509,7 +1511,7 @@ void snz_main(const char* windowTitle, snz_InitFunc initFunc, snz_FrameFunc fram
         SNZ_ASSERT(renderer, "sdl renderer creation failed");
     }
 
-    snz_Arena frameArena = snz_arenaInit(10000000, "snz frame arena");
+    snz_Arena frameArena = snz_arenaInit(100000000, "snz frame arena");
 
     _snzr_init(&frameArena);
     snz_arenaClear(&frameArena);
@@ -1888,7 +1890,7 @@ void snzuc_textArea(_snzu_Box* container, int64_t maxCharCount, const snzr_Font*
         // FIXME: clipping for text and innards
         snzu_boxNew("text");
         snzu_boxFillParent();
-        snzu_boxSetDisplayStrLen(text->font, text->chars, text->charCount);
+        snzu_boxSetDisplayStrLen(text->font, HMM_V4(1, 1, 1, 1), text->chars, text->charCount);
         snzu_boxSetSizeFitText();  // aligns text left
 
         if (focused) {
@@ -1907,7 +1909,7 @@ void snzuc_textArea(_snzu_Box* container, int64_t maxCharCount, const snzr_Font*
 // outbox may be null - title used for the boxes id and display name
 bool snzuc_button(const snzr_Font* font, const char* title) {
     snzu_boxNew(title);
-    snzu_boxSetDisplayStr(font, title);
+    snzu_boxSetDisplayStr(font, HMM_V4(1, 1, 1, 1), title);
     snzu_boxSetSizeFitText();
     snzu_Interaction* inter = SNZU_USE_MEM(snzu_Interaction, "interaction");
     snzu_boxSetInteractionOutput(inter, SNZU_IF_MOUSE_BUTTONS | SNZU_IF_HOVER);
