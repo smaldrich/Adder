@@ -41,6 +41,7 @@ void _snz_assertf(bool cond, const char* fmt, const char* file, int64_t line, ..
         vprintf(fmt, args);
         printf("\n");
         va_end(args);
+        assert(false);
     }
 }
 
@@ -240,6 +241,7 @@ uint32_t snzr_shaderInit(const char* vertChars, const char* fragChars, snz_Arena
     return id;
 }
 
+// data does not need to be kept alive after this call
 snzr_Texture snzr_textureInitRBGA(int32_t width, int32_t height, uint8_t* data) {
     snzr_Texture out = { .width = width, .height = height };
     snzr_callGLFnOrError(glGenTextures(1, &out.glId));
@@ -252,6 +254,7 @@ snzr_Texture snzr_textureInitRBGA(int32_t width, int32_t height, uint8_t* data) 
     return out;
 }
 
+// data does not need to be kept alive after this call
 snzr_Texture snzr_textureInitGrayscale(int32_t width, int32_t height, uint8_t* data) {
     snzr_Texture out = { .width = width, .height = height };
     snzr_callGLFnOrError(glGenTextures(1, &out.glId));
@@ -403,6 +406,7 @@ static void _snzr_init(snz_Arena* scratchArena) {
 
             "uniform vec4 uColor;"
             "uniform sampler2D uFontTexture;"
+            "uniform sampler2D uColorTexture;"
             "uniform float uCornerRadius;"
 
             "uniform float uBorderThickness;"
@@ -414,8 +418,9 @@ static void _snzr_init(snz_Arena* scratchArena) {
             "}"
 
             "void main() {"
+            "    vec4 textureColor = texture(uColorTexture, vUv);"
             "    vec4 fontColor = vec4(1.0, 1.0, 1.0, texture(uFontTexture, vUv).r);"
-            "    color = uColor * fontColor;"
+            "    color = uColor * textureColor * fontColor;"
 
             "    float dist = roundedRectSDF(uCornerRadius);"
             "    if(dist > 0) {"
@@ -517,7 +522,8 @@ void snzr_drawRect(
     float cornerRadius,
     float borderThickness,
     HMM_Vec4 borderColor,
-    HMM_Mat4 vp) {
+    HMM_Mat4 vp,
+    snzr_Texture texture) {
     // FIXME: layering system
     // FIXME: error safe gl calls
     snzr_callGLFnOrError(glUseProgram(_snzr_globs.rectShaderId));
@@ -539,7 +545,11 @@ void snzr_drawRect(
     glUniform2f(loc, start.X, start.Y);
     loc = glGetUniformLocation(_snzr_globs.rectShaderId, "uDstEnd");
     glUniform2f(loc, end.X, end.Y);
-    // not setting src uniforms, should be ok beacuse the whole font texture is solid
+
+    loc = glGetUniformLocation(_snzr_globs.rectShaderId, "uSrcStart");
+    glUniform2f(loc, 0, 0);
+    loc = glGetUniformLocation(_snzr_globs.rectShaderId, "uSrcEnd");
+    glUniform2f(loc, 1, 1);
 
     loc = glGetUniformLocation(_snzr_globs.rectShaderId, "uClipStart");
     glUniform2f(loc, clipStart.X, clipStart.Y);
@@ -553,6 +563,11 @@ void snzr_drawRect(
     glUniform1i(loc, 0);
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, _snzr_globs.solidTex.glId);
+
+    loc = glGetUniformLocation(_snzr_globs.rectShaderId, "uColorTexture");
+    glUniform1i(loc, 1);
+    glActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_2D, texture.glId);
 
     snzr_callGLFnOrError(glDrawArrays(GL_TRIANGLES, 0, 6));
 }
@@ -786,6 +801,7 @@ struct _snzu_Box {
     float cornerRadius;
     float borderThickness;
     HMM_Vec4 borderColor;
+    snzr_Texture texture;
 
     const char* displayStr;
     uint64_t displayStrLen;
@@ -928,6 +944,7 @@ _snzu_Box* snzu_boxNew(const char* tag) {
     SNZ_ASSERT(_snzu_globs.currentParentBox != NULL, "creating a new box, parent was null");
     _snzu_Box* b = SNZ_ARENA_PUSH(_snzu_globs.frameArena, _snzu_Box);
     b->tag = tag;
+    b->texture = _snzr_globs.solidTex;
 
     b->parent = _snzu_globs.currentParentBox;
     if (_snzu_globs.currentParentBox->lastChild) {
@@ -1015,7 +1032,8 @@ static void _snzu_drawBoxAndChildren(_snzu_Box* parent, HMM_Vec2 clipStart, HMM_
         parent->color,
         parent->cornerRadius,
         parent->borderThickness, parent->borderColor,
-        vp);
+        vp,
+        parent->texture);
 
     if (parent->displayStr != NULL) {
         HMM_Vec2 textPos = HMM_DivV2F(HMM_AddV2(parent->start, parent->end), 2);  // set to the midpoint of the box
@@ -1241,6 +1259,11 @@ void snzu_boxSetCornerRadius(float radiusPx) {
 void snzu_boxSetBorder(float px, HMM_Vec4 col) {
     _snzu_globs.selectedBox->borderThickness = px;
     _snzu_globs.selectedBox->borderColor = col;
+}
+
+void snzu_boxSetTexture(snzr_Texture texture) {
+    _snzu_globs.selectedBox->color = HMM_V4(1, 1, 1, 1);
+    _snzu_globs.selectedBox->texture = texture;
 }
 
 // string should last until the end of the frome
