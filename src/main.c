@@ -132,6 +132,8 @@ void main_frame(float dt, snz_Arena* scratch) {
                 orbitPos->XY = HMM_AddV2(orbitPos->XY, diff);
             }
 
+            // FIXME: panning
+            // FIXME: live orbit point selection by raycast
             orbitPos->Z += inter->mouseScrollY * orbitPos->Z * 0.05;
 
             HMM_Mat4 view = HMM_Translate(HMM_V3(0, 0, orbitPos->Z));
