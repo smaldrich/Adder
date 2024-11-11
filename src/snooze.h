@@ -242,6 +242,7 @@ uint32_t snzr_shaderInit(const char* vertChars, const char* fragChars, snz_Arena
 }
 
 // data does not need to be kept alive after this call
+// may be null to indicate undefined contents
 snzr_Texture snzr_textureInitRBGA(int32_t width, int32_t height, uint8_t* data) {
     snzr_Texture out = { .width = width, .height = height };
     snzr_callGLFnOrError(glGenTextures(1, &out.glId));
@@ -265,6 +266,45 @@ snzr_Texture snzr_textureInitGrayscale(int32_t width, int32_t height, uint8_t* d
     snzr_callGLFnOrError(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE));
     snzr_callGLFnOrError(glTexImage2D(GL_TEXTURE_2D, 0, GL_R8, width, height, 0, GL_RED, GL_UNSIGNED_BYTE, data));
     return out;
+}
+
+// FIXME: there is no method of freeing gl resources built in, that is bad
+
+typedef struct {
+    uint32_t glId;
+    uint32_t depthBufferId;
+    snzr_Texture texture;
+} snzr_FrameBuffer;
+
+// returns the GLID for a new framebuffer, attacted to tex, and with size of tex + a depth buffer
+snzr_FrameBuffer snzr_frameBufferInit(snzr_Texture tex) {
+    snzr_FrameBuffer out = (snzr_FrameBuffer){
+        .depthBufferId = 0,
+        .glId = 0,
+        .texture = tex,
+    };
+    snzr_callGLFnOrError(glGenFramebuffers(1, &out.glId));
+    snzr_callGLFnOrError(glBindFramebuffer(GL_FRAMEBUFFER, out.glId));
+
+    snzr_callGLFnOrError(glActiveTexture(GL_TEXTURE0));
+    snzr_callGLFnOrError(glBindTexture(GL_TEXTURE_2D, tex.glId));
+    snzr_callGLFnOrError(glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, tex.glId, 0));
+
+    snzr_callGLFnOrError(glGenRenderbuffers(1, &out.depthBufferId));
+    snzr_callGLFnOrError(glBindRenderbuffer(GL_RENDERBUFFER, out.depthBufferId));
+    snzr_callGLFnOrError(glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT32, tex.width, tex.height));
+    snzr_callGLFnOrError(glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, out.depthBufferId));
+
+    SNZ_ASSERT(glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE, "Framebuffer gen failed.");
+    snzr_callGLFnOrError(glBindFramebuffer(GL_FRAMEBUFFER, 0));
+    return out;
+}
+
+void snzr_frameBufferDeinit(snzr_FrameBuffer* fb) {
+    glDeleteFramebuffers(1, &fb->glId);
+    glDeleteRenderbuffers(1, &fb->depthBufferId);
+    glDeleteTextures(1, &fb->texture.glId);
+    memset(fb, 0, sizeof(*fb));
 }
 
 #define _SNZR_FONT_FIRST_ASCII 32
@@ -505,14 +545,6 @@ static void _snzr_init(snz_Arena* scratchArena) {
     _snzr_globs.solidTex = snzr_textureInitRBGA(1, 1, solidTexData);
 }
 
-// clears screen, sets viewport size
-static void _snzr_beginFrame(int screenW, int screenH, HMM_Vec4 clearColor) {
-    _snzr_globs.screenSize = HMM_V2(screenW, screenH);
-    snzr_callGLFnOrError(glViewport(0, 0, screenW, screenH));
-    snzr_callGLFnOrError(glClearColor(clearColor.X, clearColor.Y, clearColor.Z, clearColor.W));
-    snzr_callGLFnOrError(glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT));
-}
-
 void snzr_drawRect(
     HMM_Vec2 start,
     HMM_Vec2 end,
@@ -546,10 +578,11 @@ void snzr_drawRect(
     loc = glGetUniformLocation(_snzr_globs.rectShaderId, "uDstEnd");
     glUniform2f(loc, end.X, end.Y);
 
+    // flip vertically because we assume this is being used in pixel space, where 00 is in the UL corner
     loc = glGetUniformLocation(_snzr_globs.rectShaderId, "uSrcStart");
-    glUniform2f(loc, 0, 0);
+    glUniform2f(loc, 0, 1);
     loc = glGetUniformLocation(_snzr_globs.rectShaderId, "uSrcEnd");
-    glUniform2f(loc, 1, 1);
+    glUniform2f(loc, 1, 0);
 
     loc = glGetUniformLocation(_snzr_globs.rectShaderId, "uClipStart");
     glUniform2f(loc, clipStart.X, clipStart.Y);
@@ -1549,7 +1582,7 @@ void snz_main(const char* windowTitle, snz_InitFunc initFunc, snz_FrameFunc fram
 
         int screenW, screenH;
         SDL_GL_GetDrawableSize(window, &screenW, &screenH);
-        _snzr_beginFrame(screenW, screenH, HMM_V4(1, 1, 1, 1));
+        _snzr_globs.screenSize = HMM_V2(screenW, screenH);
 
         int mouseX, mouseY;
         uint32_t mouseButtons = SDL_GetMouseState(&mouseX, &mouseY);
@@ -1584,8 +1617,18 @@ void snz_main(const char* windowTitle, snz_InitFunc initFunc, snz_FrameFunc fram
         }  // end event polling
 
         _snzu_beginFrame(&frameArena, HMM_V2(screenW, screenH), dt);
+
+        snzr_callGLFnOrError(glBindFramebuffer(GL_FRAMEBUFFER, 0));
+        snzr_callGLFnOrError(glViewport(0, 0, screenW, screenH));
+        snzr_callGLFnOrError(glClearColor(1, 1, 1, 1));
+        snzr_callGLFnOrError(glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT));
+
         frameFunc(dt, &frameArena);
+
+        snzr_callGLFnOrError(glBindFramebuffer(GL_FRAMEBUFFER, 0));
+        snzr_callGLFnOrError(glViewport(0, 0, screenW, screenH));
         _snzu_drawFrameAndGenInterations(uiInputs, HMM_V2(screenW, screenH));
+
         snz_arenaClear(&frameArena);
         SDL_GL_SwapWindow(window);
     }  // end main loop

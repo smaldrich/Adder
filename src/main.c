@@ -11,13 +11,13 @@ snz_Arena fontArena;
 snzr_Font titleFont;
 snzr_Font paragraphFont;
 snzr_Font labelFont;
-snzr_Texture logo;
 
 #define TEXT_COLOR HMM_V4(60/255.0, 60/255.0, 60/255.0, 1)
 #define BACKGROUND_COLOR HMM_V4(1, 1, 1, 1)
 #define BORDER_THICKNESS 4
 
 ren3d_Mesh mesh;
+snzr_FrameBuffer sceneFB;
 
 void main_init(snz_Arena* scratch) {
     _poolAllocTests();
@@ -30,15 +30,6 @@ void main_init(snz_Arena* scratch) {
     titleFont = snzr_fontInit(&fontArena, scratch, "res/fonts/AzeretMono-Regular.ttf", 48);
     paragraphFont = snzr_fontInit(&fontArena, scratch, "res/fonts/OpenSans-Light.ttf", 16);
     labelFont = snzr_fontInit(&fontArena, scratch, "res/fonts/AzeretMono-LightItalic.ttf", 20);
-
-    {
-        // stbi_set_flip_vertically_on_load(true);
-        int32_t w = 0, h = 0, channels = 0;
-        uint8_t* data = stbi_load("res/textures/logo.png", &w, &h, &channels, 4);
-        SNZ_ASSERT(data != NULL, "loading logo failed.");
-        logo = snzr_textureInitRBGA(w, h, data);
-        free(data);
-    }
 
     ren3d_init(scratch);
 
@@ -73,6 +64,9 @@ void main_init(snz_Arena* scratch) {
         mesh = ren3d_meshInit(verts, vertCount);
         poolAllocDeinit(&pool);
     } // end mesh for testing
+    snz_arenaClear(scratch);
+
+    sceneFB = snzr_frameBufferInit(snzr_textureInitRBGA(500, 500, NULL));
 }
 
 void main_frame(float dt, snz_Arena* scratch) {
@@ -118,40 +112,52 @@ void main_frame(float dt, snz_Arena* scratch) {
         snzu_boxNew("rightPanel");
         snzu_boxFillParent();
         snzu_boxSetSizeFromEndAx(SNZU_AX_X, rightPanelSize.X); //FIXME: set size remaining util fn
-        snzu_boxSetTexture(logo);
-        // snzu_boxScope() {
-        //     snzu_Interaction* inter = SNZU_USE_MEM(snzu_Interaction, "inter");
-        //     snzu_boxSetInteractionOutput(inter, SNZU_IF_HOVER | SNZU_IF_MOUSE_BUTTONS | SNZU_IF_MOUSE_SCROLL);
-        //     HMM_Vec3* const orbitPos = SNZU_USE_MEM(HMM_Vec3, "orbitPos");
-        //     if (snzu_useMemIsPrevNew()) {
-        //         orbitPos->Z = 4;
-        //     }
+        snzu_boxSetTexture(sceneFB.texture);
+        snzu_boxScope() {
+            snzu_Interaction* inter = SNZU_USE_MEM(snzu_Interaction, "inter");
+            snzu_boxSetInteractionOutput(inter, SNZU_IF_HOVER | SNZU_IF_MOUSE_BUTTONS | SNZU_IF_MOUSE_SCROLL);
+            HMM_Vec3* const orbitPos = SNZU_USE_MEM(HMM_Vec3, "orbitPos");
+            if (snzu_useMemIsPrevNew()) {
+                orbitPos->Z = 4;
+            }
 
-        //     HMM_Vec2* const lastMousePos = SNZU_USE_MEM(HMM_Vec2, "lastMousePos");
+            HMM_Vec2* const lastMousePos = SNZU_USE_MEM(HMM_Vec2, "lastMousePos");
 
-        //     if (inter->mouseActions[SNZU_MB_LEFT] == SNZU_ACT_DOWN) {
-        //         *lastMousePos = inter->mousePosGlobal;
-        //     }
-        //     if (inter->dragged) {
-        //         HMM_Vec2 diff = HMM_SubV2(inter->mousePosGlobal, *lastMousePos);
-        //         *lastMousePos = inter->mousePosGlobal;
-        //         orbitPos->XY = HMM_AddV2(orbitPos->XY, diff);
-        //     }
+            if (inter->mouseActions[SNZU_MB_LEFT] == SNZU_ACT_DOWN) {
+                *lastMousePos = inter->mousePosGlobal;
+            }
+            if (inter->dragged) {
+                HMM_Vec2 diff = HMM_SubV2(inter->mousePosGlobal, *lastMousePos);
+                *lastMousePos = inter->mousePosGlobal;
+                orbitPos->XY = HMM_AddV2(orbitPos->XY, diff);
+            }
 
-        //     orbitPos->Z += inter->mouseScrollY * orbitPos->Z * 0.05;
+            orbitPos->Z += inter->mouseScrollY * orbitPos->Z * 0.05;
 
-        //     HMM_Mat4 view = HMM_Translate(HMM_V3(0, 0, orbitPos->Z));
-        //     view = HMM_MulM4(HMM_Rotate_RH(orbitPos->Y * 0.3, HMM_V3(-1, 0, 0)), view);
-        //     view = HMM_MulM4(HMM_Rotate_RH(orbitPos->X * 0.3, HMM_V3(0, -1, 0)), view);
-        //     view = HMM_InvGeneral(view);
+            HMM_Mat4 view = HMM_Translate(HMM_V3(0, 0, orbitPos->Z));
+            view = HMM_MulM4(HMM_Rotate_RH(orbitPos->Y * 0.3, HMM_V3(-1, 0, 0)), view);
+            view = HMM_MulM4(HMM_Rotate_RH(orbitPos->X * 0.3, HMM_V3(0, -1, 0)), view);
+            view = HMM_InvGeneral(view);
 
-        //     float aspect = rightPanelSize.Y / rightPanelSize.X;
-        //     HMM_Mat4 proj = HMM_Perspective_RH_NO(90, aspect, 0.001, 100000);
+            float aspect = rightPanelSize.X / rightPanelSize.Y;
+            HMM_Mat4 proj = HMM_Perspective_RH_NO(90, aspect, 0.001, 100000);
 
-        //     // HMM_Mat4 model = HMM_Rotate_RH(*time * 100, HMM_V3(0, 1, 0));
-        //     HMM_Mat4 model = HMM_Translate(HMM_V3(0, 0, 0));
-        //     ren3d_drawMesh(&mesh, HMM_MulM4(proj, view), model, HMM_V3(-1, -1, -1));
-        // }
+            HMM_Mat4 model = HMM_Translate(HMM_V3(0, 0, 0));
+
+            uint32_t w = (uint32_t)rightPanelSize.X;
+            uint32_t h = (uint32_t)rightPanelSize.Y;
+            if (w != sceneFB.texture.width || h != sceneFB.texture.height) {
+                snzr_frameBufferDeinit(&sceneFB);
+                sceneFB = snzr_frameBufferInit(snzr_textureInitRBGA(w, h, NULL));
+            }
+
+            // FIXME: opengl here is gross
+            snzr_callGLFnOrError(glBindFramebuffer(GL_FRAMEBUFFER, sceneFB.glId));
+            snzr_callGLFnOrError(glViewport(0, 0, w, h));
+            snzr_callGLFnOrError(glClearColor(1, 1, 1, 1));
+            snzr_callGLFnOrError(glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT));
+            ren3d_drawMesh(&mesh, HMM_MulM4(proj, view), model, HMM_V3(-1, -1, -1));
+        }
 
         snzu_boxNew("leftPanelBorder");
         snzu_boxFillParent();
