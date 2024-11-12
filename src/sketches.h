@@ -9,7 +9,7 @@
 #define SK_MAX_CONSTRAINT_COUNT 10000
 #define SK_MAX_LINE_COUNT 10000
 
-#define SK_MAX_SOLVE_ITERATIONS 100
+#define SK_MAX_SOLVE_ITERATIONS 1000
 #define SK_SOLVE_FAILED_THRESHOLD 0.001f
 
 // does not double eval expr :)
@@ -31,6 +31,7 @@ typedef enum {
     SKE_INVALID_LINE_KIND,
     SKE_DUPLICATE_REFERENCES,
     SKE_INVALID_UNION_USAGE,
+    SKE_MORE_THAN_ONE_ORIGIN_CONSTRAINT,
 } sk_Error;
 
 typedef struct {
@@ -82,12 +83,14 @@ typedef enum {
     SK_CK_ANGLE_ARC,
     SK_CK_ARC_UNIFORM,  // makes sure both ends are the same distance from the center // kind of a hack over having two distance constraints // TODO: should it be two distances or not?
     SK_CK_AXIS_ALIGNED,
+    SK_CK_ORIGIN,
 } sk_ConstraintKind;
 
 typedef struct {
     float value;
     sk_LineHandle line1;
     sk_LineHandle line2;
+    sk_PointHandle point1;
 
     sk_ConstraintKind kind;
     int32_t generation;
@@ -96,11 +99,6 @@ typedef struct {
 // Kind should be considered immutable after construction
 
 typedef struct {
-    // TODO: these don't work
-    int64_t pointCount;
-    int64_t constraintCount;
-    int64_t lineCount;
-
     sk_Point points[SK_MAX_PT_COUNT]; // FIXME: pool alloc this please
     sk_Constraint constraints[SK_MAX_CONSTRAINT_COUNT];
     sk_Line lines[SK_MAX_LINE_COUNT];
@@ -320,6 +318,16 @@ sk_Error sk_constraintAxisAlignedPush(sk_Sketch* sketch, sk_LineHandle straight)
     return SKE_OK;
 }
 
+sk_Error sk_constraintOriginPush(sk_Sketch* sketch, sk_PointHandle point) {
+    sk_ConstraintPtrOpt c = _sk_constraintPush(sketch);
+    if (c.error != SKE_OK) {
+        return c.error;
+    }
+    c.ok->kind = SK_CK_ORIGIN;
+    c.ok->point1 = point;
+    return SKE_OK;
+}
+
 // verifies that all constraints in use have valid values and valid point handles
 // does line/constraint duplication checks - which aren't handled at push time
 // editing behaviour of this will likely change the correctness of _sk_solveIteration, because it directly relies on this
@@ -452,6 +460,8 @@ sk_Error _sk_sketchValidate(sk_Sketch* sketch) {
             if (a->line1.ptr->kind != SK_LK_STRAIGHT) {
                 return SKE_INVALID_LINE_KIND;
             }
+        } else if (a->kind == SK_CK_ORIGIN) {
+            _SK_VALID_OR_RETURN(sk_pointHandleValidate(sketch, &a->point1));
         } else {
             assert(false);
         }
@@ -491,6 +501,10 @@ sk_Error _sk_sketchValidate(sk_Sketch* sketch) {
             } else if (a->kind == SK_CK_AXIS_ALIGNED) {
                 if (sk_lineHandleEq(a->line1, b->line1)) {
                     return SKE_DUPLICATE_REFERENCES;
+                }
+            } else if (a->kind == SK_CK_ORIGIN) {
+                if (b->kind == SK_CK_ORIGIN) {
+                    return SKE_MORE_THAN_ONE_ORIGIN_CONSTRAINT;
                 }
             } else {
                 assert(false);
@@ -634,6 +648,9 @@ float _sk_solveIteration(sk_Sketch* sketch) {
             if (fabsf(error) > maxError) {
                 maxError = fabsf(error);
             }
+        } else if (c->kind == SK_CK_ORIGIN) {
+            HMM_Vec2* p = &c->point1.ptr->pt;
+            *p = HMM_V2(0, 0);
         } else {
             assert(false);
         }
@@ -650,7 +667,7 @@ sk_Error sk_sketchSolve(sk_Sketch* sketch) {
 
     for (int i = 0; i < SK_MAX_SOLVE_ITERATIONS; i++) {
         float maxError = _sk_solveIteration(sketch);
-        // printf("Error for iteration %d: %f\n", i, maxError);
+        printf("Error for iteration %d: %f\n", i, maxError);
         if (maxError < SK_SOLVE_FAILED_THRESHOLD) {
             return SKE_OK;
         }

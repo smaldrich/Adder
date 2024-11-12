@@ -1222,7 +1222,7 @@ static void _snzu_drawFrameAndGenInterations(snzu_Input input, HMM_Vec2 screenSi
     }
 
     if (wasMouseUp) {
-        _snzu_globs.mouseCapturePathHash = 0;
+        _snzu_globs.mouseCapturePathHash = 0; // RMB clears this focus, which can fuck up a LMB drag, it doesn't get cleared on mouseup bc 'nothing is dragged'
     }
     _snzu_globs.previousInputs = _snzu_globs.currentInputs;
 }
