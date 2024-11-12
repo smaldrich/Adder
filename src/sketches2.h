@@ -30,6 +30,7 @@ struct sk_Constraint {
     sk_Line* line1;
     sk_Line* line2;
     sk_Point* point;
+    float value;
     sk_Constraint* next;
 };
 
@@ -46,14 +47,32 @@ sk_Sketch sk_sketchInit() {
     };
 }
 
-void sk_solve(sk_Sketch* sketch) {
-    for (int i = 0; i < 1000; i++) {
+#define SK_SOLVE_ITERATIONS 1000
+#define SK_SOLVE_MAX_ERROR 0.0001
+
+bool sk_solve(sk_Sketch* sketch) {
+    for (int i = 0; i < SK_SOLVE_ITERATIONS; i++) {
+        float iterationError = 0;
         for (sk_Constraint* c = sketch->firstConstraint; c; c = c->next) {
             if (c->kind == SK_CK_DISTANCE) {
+                HMM_Vec2* p1 = &c->line1->p1->pos;
+                HMM_Vec2* p2 = &c->line1->p2->pos;
+
+                HMM_Vec2 midPt = HMM_DivV2F(HMM_AddV2(*p1, *p2), 2);
+                HMM_Vec2 settled = HMM_SubV2(*p2, *p1);
+                settled = HMM_NormV2(settled);
+                settled = HMM_MulV2F(settled, c->value);
+                *p1 = HMM_AddV2(midPt, settled);
+                *p2 = HMM_SubV2(midPt, settled);
             } else if (c->kind == SK_CK_ANGLE_LINES) {
             }
+        }  // end constraint loop
+
+        if (iterationError < SK_SOLVE_MAX_ERROR) {
+            return true;
         }
-    }
+    }  // end iteration loop
+    return false;
 }
 
 bool sk_sketchSolvable() {
