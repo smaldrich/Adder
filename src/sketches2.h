@@ -3,15 +3,39 @@
 #include "HMM/HandmadeMath.h"
 #include "snooze.h"
 
+typedef enum {
+    SK_MK_INVALID,
+    SK_MK_CIRCLE,
+    SK_MK_LINE,
+} sk_ManifoldKind;
+
+typedef struct {
+    union {
+        struct {
+            HMM_Vec2 origin;
+            float radius;
+        } circle;
+        struct {
+            HMM_Vec2 origin;
+            HMM_Vec2 direction;
+        } line;
+        HMM_Vec2 point;
+    };
+    sk_ManifoldKind kind;
+} sk_Manifold;
+
+// return indicates success
+bool sk_manifoldJoin(sk_Manifold a, sk_Manifold b) {
+    if (a.kind == SK_MK_INVALID || b.kind == SK_MK_INVALID) {
+        return false;
+    }
+}
+
 typedef struct sk_Point sk_Point;
 struct sk_Point {
     HMM_Vec2 pos;
     sk_Point* next;
 };
-
-typedef struct {
-    sk_Point* firstPoint;
-} sk_Sketch;
 
 typedef struct sk_Line sk_Line;
 struct sk_Line {
@@ -42,7 +66,10 @@ typedef struct {
 } sk_Sketch;
 
 sk_Sketch sk_sketchInit() {
-    return (sk_Sketch) { .firstPoint = NULL, .firstLine = NULL, };
+    return (sk_Sketch){
+        .firstPoint = NULL,
+        .firstLine = NULL,
+    };
 }
 
 #define SK_SOLVE_ITERATIONS 1000
@@ -166,7 +193,7 @@ bool sk_sketchValid(sk_Sketch* sketch) {
             sk_Point* other1 = SNZ_MIN(other->p2, other->p1);
 
             if (line0 == other0 && line1 == other1) {
-                //FIXME: proper error report here :)
+                // FIXME: proper error report here :)
                 printf("[sk_sketchValid]: failed because of duplicate lines.");
                 return false;
             }
