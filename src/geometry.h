@@ -33,6 +33,7 @@ void _geo_splitEdge(snz_Arena* scratch, geo_Edge* edge, geo_Edge** firstEdge, ge
     e1->vertB = vertB;
 }
 
+// FIXME: tests
 void geo_sketchToTris(snz_Arena* scratch, snz_Arena* outArena, sk_Sketch* sketch) {
     assert(sk_sketchSolve(sketch) == SKE_OK);
 
