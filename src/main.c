@@ -1,9 +1,9 @@
-#include "snooze.h"
 #include "PoolAlloc.h"
-#include "render3d.h"
 #include "csg.h"
+#include "render3d.h"
 #include "serialization2.h"
-#include "sketches.h"
+#include "sketches2.h"
+#include "snooze.h"
 #include "stb/stb_image.h"
 
 snz_Arena fontArena;
@@ -12,13 +12,12 @@ snzr_Font titleFont;
 snzr_Font paragraphFont;
 snzr_Font labelFont;
 
-#define TEXT_COLOR HMM_V4(60/255.0, 60/255.0, 60/255.0, 1)
+#define TEXT_COLOR HMM_V4(60 / 255.0, 60 / 255.0, 60 / 255.0, 1)
 #define BACKGROUND_COLOR HMM_V4(1, 1, 1, 1)
 #define BORDER_THICKNESS 4
 
 ren3d_Mesh mesh;
 snzr_FrameBuffer sceneFB;
-sk_Sketch sketch;
 
 void main_init(snz_Arena* scratch) {
     _poolAllocTests();
@@ -64,38 +63,10 @@ void main_init(snz_Arena* scratch) {
         }
         mesh = ren3d_meshInit(verts, vertCount);
         poolAllocDeinit(&pool);
-    } // end mesh for testing
+    }  // end mesh for testing
     snz_arenaClear(scratch);
 
     sceneFB = snzr_frameBufferInit(snzr_textureInitRBGA(500, 500, NULL));
-
-    sk_sketchClear(&sketch);
-    sk_PointHandleOpt p1 = sk_pointPush(&sketch, HMM_V2(-1, -1));
-    sk_PointHandleOpt p2 = sk_pointPush(&sketch, HMM_V2(1, 0));
-    sk_PointHandleOpt p3 = sk_pointPush(&sketch, HMM_V2(1, 1));
-    sk_PointHandleOpt p4 = sk_pointPush(&sketch, HMM_V2(0, 1));
-
-    sk_LineHandleOpt l12 = sk_lineStraightPush(&sketch, p1.ok, p2.ok);
-    sk_LineHandleOpt l23 = sk_lineStraightPush(&sketch, p2.ok, p3.ok);
-    sk_LineHandleOpt l34 = sk_lineStraightPush(&sketch, p3.ok, p4.ok);
-    sk_LineHandleOpt l41 = sk_lineStraightPush(&sketch, p4.ok, p1.ok);
-
-    sk_constraintDistancePush(&sketch, 1, l12.ok);
-    sk_constraintDistancePush(&sketch, 1, l23.ok);
-    sk_constraintDistancePush(&sketch, 1, l34.ok);
-    sk_constraintDistancePush(&sketch, 1, l41.ok);
-
-    sk_constraintAngleLinesPush(&sketch, 70, l12.ok, l23.ok);
-    sk_constraintAxisAlignedPush(&sketch, l23.ok);
-
-    sk_PointHandleOpt pExtra = sk_pointPush(&sketch, HMM_V2(10, 10));
-    sk_LineHandleOpt lExtra = sk_lineStraightPush(&sketch, pExtra.ok, p1.ok);
-    sk_constraintDistancePush(&sketch, 1, lExtra.ok);
-    sk_constraintAngleLinesPush(&sketch, 120, lExtra.ok, l12.ok);
-    sk_constraintOriginPush(&sketch, pExtra.ok);
-
-    sk_Error e = sk_sketchSolve(&sketch);
-    SNZ_ASSERT(e == SKE_OK, "sketch solve failed");
 }
 
 void main_frame(float dt, snz_Arena* scratch) {
@@ -140,7 +111,7 @@ void main_frame(float dt, snz_Arena* scratch) {
 
         snzu_boxNew("rightPanel");
         snzu_boxFillParent();
-        snzu_boxSetSizeFromEndAx(SNZU_AX_X, rightPanelSize.X); //FIXME: set size remaining util fn
+        snzu_boxSetSizeFromEndAx(SNZU_AX_X, rightPanelSize.X);  // FIXME: set size remaining util fn
         snzu_boxSetTexture(sceneFB.texture);
         snzu_boxScope() {
             snzu_Interaction* inter = SNZU_USE_MEM(snzu_Interaction, "inter");
@@ -190,23 +161,24 @@ void main_frame(float dt, snz_Arena* scratch) {
             ren3d_drawMesh(&mesh, HMM_MulM4(proj, view), model, HMM_V3(-1, -1, -1));
             // FIXME: highlight edges :) + debug view of geometry
 
-            for (int64_t i = 0; i < SK_MAX_LINE_COUNT; i++) {
-                sk_Line l = sketch.lines[i];
-                if (!l.inUse) {
-                    continue;
-                }
+            // draw sketch geometry
+            // for (int64_t i = 0; i < SK_MAX_LINE_COUNT; i++) {
+            //     sk_Line l = sketch.lines[i];
+            //     if (!l.inUse) {
+            //         continue;
+            //     }
 
-                sk_Point p1 = sketch.points[l.p1.index];
-                sk_Point p2 = sketch.points[l.p2.index];
-                HMM_Vec2 diff = HMM_NormV2(HMM_SubV2(p2.pt, p1.pt));
-                HMM_Vec2 points[] = {
-                    HMM_SubV2(p1.pt, diff),
-                    p1.pt,
-                    p2.pt,
-                    HMM_AddV2(p2.pt, diff),
-                };
-                snzr_drawLine(points, sizeof(points) / sizeof(*points), HMM_V4(0, 0, 0, 1), 2, HMM_MulM4(proj, view));
-            }
+            //     sk_Point p1 = sketch.points[l.p1.index];
+            //     sk_Point p2 = sketch.points[l.p2.index];
+            //     HMM_Vec2 diff = HMM_NormV2(HMM_SubV2(p2.pt, p1.pt));
+            //     HMM_Vec2 points[] = {
+            //         HMM_SubV2(p1.pt, diff),
+            //         p1.pt,
+            //         p2.pt,
+            //         HMM_AddV2(p2.pt, diff),
+            //     };
+            //     snzr_drawLine(points, sizeof(points) / sizeof(*points), HMM_V4(0, 0, 0, 1), 2, HMM_MulM4(proj, view));
+            // }
         }
 
         snzu_boxNew("leftPanelBorder");

@@ -5,6 +5,8 @@
 #include <memory.h>
 #include <stdbool.h>
 
+#include "snooze.h"
+
 /*
 POOL ALLOCATOR:
 keeps track of set of allocations to make worrying about freeing them easier.
@@ -19,7 +21,7 @@ poolALlocFree() - free but in the pool
 poolAllocPushArray() - take an array allocated in the pool, attempt to add one to it (can grow the arr)
     doubles allocated memory on a grow
 */
-// FIXME: move this to allocaters.h
+// FIXME: adapt this whole file to be in snooze please :) thank u
 
 typedef struct PoolAllocNode PoolAllocNode;
 struct PoolAllocNode {
@@ -71,6 +73,8 @@ static PoolAllocNode* _poolAllocFindAlloc(PoolAlloc* pool, void* alloc) {
 
 // FIXME: macro
 void* poolAllocAlloc(PoolAlloc* pool, int64_t size) {
+    SNZ_ASSERTF(size >= 0, "new allocation with size <= 0, was: %lld", size);
+
     PoolAllocNode* node = NULL;
     for (int i = 0; i < pool->nodeCount; i++) {
         PoolAllocNode* n = &(pool->nodes[i]);
@@ -91,8 +95,7 @@ void* poolAllocAlloc(PoolAlloc* pool, int64_t size) {
     }
 
     node->allocated = true;
-    assert(size >= 0);
-    node->allocation = calloc(1, size + 1);  // add one so the allocation is never zero
+    node->allocation = calloc(1, size + 1);
     node->capacity = size;
     return node->allocation;
 }
@@ -100,21 +103,20 @@ void* poolAllocAlloc(PoolAlloc* pool, int64_t size) {
 // FIXME: macro
 void* poolAllocGrow(PoolAlloc* pool, void* alloc, int64_t newSize) {
     PoolAllocNode* node = _poolAllocFindAlloc(pool, alloc);
-    assert(node != NULL);
-    assert(node->allocated);
+    SNZ_ASSERTF(node != NULL, "Allocation to grow could not be found, ptr: %p", alloc);
+    SNZ_ASSERTF(node->allocated, "Trying to grow non allocated node. ptr: %p", alloc);
 
+    SNZ_ASSERTF(newSize > node->capacity, "Grow fails, new size (%d) <= old (%d).", newSize, node->capacity);
     node->allocation = realloc(node->allocation, newSize);
-    assert(newSize > node->capacity);
     node->capacity = newSize;
-    assert(node->allocation != NULL);
+    SNZ_ASSERTF(node->allocation, "Realloc returned a null ptr. requested size: %d", newSize);
     return node->allocation;
 }
 
 void poolAllocFree(PoolAlloc* pool, void* alloc) {
     PoolAllocNode* node = _poolAllocFindAlloc(pool, alloc);
-    assert(node != NULL);
-    assert(node->allocated);
-
+    SNZ_ASSERTF(node != NULL, "allocation to free was not found. ptr: %p", alloc);
+    SNZ_ASSERTF(node->allocated, "allocation to free was already free. ptr: %p", alloc);
     free(node->allocation);
     memset(node, 0, sizeof(*node));
 }
@@ -124,16 +126,15 @@ void poolAllocFree(PoolAlloc* pool, void* alloc) {
 #define poolAllocPushArray(poolPtr, arrayPtr, count, T) (_poolAllocPushArray((poolPtr), (void**)(&(arrayPtr)), &(count), sizeof(T)), &arrayPtr[count - 1])
 void _poolAllocPushArray(PoolAlloc* pool, void** array, int64_t* count, int64_t sizeOfElt) {
     PoolAllocNode* node = _poolAllocFindAlloc(pool, *array);
-    assert(node != NULL);
-    assert(node->allocated);
+    SNZ_ASSERTF(node != NULL, "allocation to grow was not found. ptr: %p", *array);
+    SNZ_ASSERTF(node != NULL, "allocation node to grow was not allocated. ptr: %p", *array);
 
     int64_t newSize = (*count * 2 + 1) * sizeOfElt;
     node->capacity = newSize;
     (*count)++;
 
     node->allocation = realloc(node->allocation, newSize);
-    assert(node->allocation != NULL);
-
+    SNZ_ASSERTF(node->allocation != NULL, "Realloc returned NULL. ptr: %d", *array);
     *array = node->allocation;  // write to the output :) // FIXME: this shit very dangerous, typecheck at least
 }
 
