@@ -62,7 +62,8 @@ struct sk_Constraint {
     sk_Line* line1;
     sk_Line* line2;
     float value;
-    sk_Constraint* next;
+    sk_Constraint* nextAllocated;
+    sk_Constraint* nextUnsolved;
 };
 // FIXME: opaque types for all of these
 
@@ -74,6 +75,7 @@ typedef struct {
     sk_Point* originPoint;
     sk_Line* originLine;
     float originLineAngle;
+    sk_Constraint* firstUnsolvedConstraint;
 } sk_Sketch;
 
 /*
@@ -119,7 +121,7 @@ sk_Constraint* sk_sketchAddConstraintDistance(sk_Sketch* sketch, snz_Arena* aren
         .kind = SK_CK_DISTANCE,
         .line1 = l,
         .value = length,
-        .next = sketch->firstConstraint,
+        .nextAllocated = sketch->firstConstraint,
     };
     sketch->firstConstraint = c;
     return c;
@@ -132,7 +134,7 @@ sk_Constraint* sk_sketchAddConstraintAngle(sk_Sketch* sketch, snz_Arena* arena, 
         .line1 = line1,
         .line2 = line2,
         .value = angle,
-        .next = sketch->firstConstraint,
+        .nextAllocated = sketch->firstConstraint,
     };
     sketch->firstConstraint = c;
     return c;
@@ -149,7 +151,6 @@ sk_Constraint* sk_sketchAddConstraintAngle(sk_Sketch* sketch, snz_Arena* arena, 
 // void sk_sketchRemoveConstraint(sk_Sketch* sketch, sk_Constraint* constraint) {
 // }
 
-// FIXME: tests
 // FIXME: one big geometry file, not csg sketches and geo
 // FIXME: point/twopoint vs X cases :)))
 static sk_Manifold _sk_manifoldJoin(sk_Manifold a, sk_Manifold b) {
@@ -292,18 +293,28 @@ static bool _sk_manifoldEq(sk_Manifold a, sk_Manifold b) {
     return out;
 }
 
-void sk_sketchSolve(sk_Sketch* sketch) {
+// return indicates whether sketch was solved completely
+bool sk_sketchSolve(sk_Sketch* sketch) {
     SNZ_ASSERT(sketch->originPoint, "Sketch origin point was null");
     SNZ_ASSERT(sketch->originLine, "Sketch origin line was null");
+
+    int64_t sketchPointCount = 0;
+    int64_t solvedPointCount = 1;
 
     { // RESET SOLVE DEPENDENT VARIABLES IN THE SKETCH
         for (sk_Point* point = sketch->firstPoint; point; point = point->next) {
             point->manifold = (sk_Manifold){ .kind = SK_MK_ANY };
+            sketchPointCount++;
         }
 
         for (sk_Line* line = sketch->firstLine; line; line = line->next) {
             line->angle = 0;
             line->angleSolved = false;
+        }
+
+        for (sk_Constraint* c = sketch->firstConstraint; c; c = c->nextAllocated) {
+            c->nextUnsolved = sketch->firstUnsolvedConstraint;
+            sketch->firstUnsolvedConstraint = c;
         }
 
         sketch->originPoint->solved = true;
@@ -312,8 +323,11 @@ void sk_sketchSolve(sk_Sketch* sketch) {
     }
 
     while (true) {  // FIXME: cutoff
-        //  FIXME: remove constraints that have been solved
-        for (sk_Constraint* c = sketch->firstConstraint; c; c = c->next) {
+        bool anySolved = false;
+
+        sk_Constraint* prevConstraint = NULL;
+        for (sk_Constraint* c = sketch->firstUnsolvedConstraint; c; c = c->nextUnsolved) {
+            bool applied = false;
             if (c->kind == SK_CK_DISTANCE) {
                 sk_Point* p1 = c->line1->p1;
                 sk_Point* p2 = c->line1->p2;
@@ -328,26 +342,42 @@ void sk_sketchSolve(sk_Sketch* sketch) {
                     };
                     variable->manifold = _sk_manifoldJoin(variable->manifold, m);
                     SNZ_ASSERT(variable->manifold.kind != SK_MK_NONE, "OVERCONSTRAINED!!");  // FIXME: remove
+                    applied = true;
                 }
             } else if (c->kind == SK_CK_ANGLE) {
-                if (c->line1->angleSolved) {
+                if (c->line1->angleSolved && !c->line2->angleSolved) {
                     // c's value meaning a CW rotation from 1 to 2
                     // FIXME: this is bad? document/express better in code?
                     c->line2->angle = c->line1->angle + c->value;
                     c->line2->angleSolved = true;
-                } else if (c->line2->angleSolved) {
+                    applied = true;
+                } else if (c->line2->angleSolved && !c->line1->angleSolved) {
                     c->line1->angle = c->line2->angle - c->value;
                     c->line1->angleSolved = true;
+                    applied = true;
                 }
+            }
+
+            if (applied) {
+                anySolved = true;
+                if (!prevConstraint) {
+                    sketch->firstUnsolvedConstraint = c->nextUnsolved;
+                } else {
+                    prevConstraint->nextUnsolved = c->nextUnsolved;
+                }
+            } else {
+                prevConstraint = c;
             }
         } // end manifold join/angle propagation loop
 
         for (sk_Line* line = sketch->firstLine; line; line = line->next) {
-            if (line->p1->solved && line->p2->solved) {
+            int ptSolvedCount = line->p1->solved + line->p2->solved;
+            if (!line->angleSolved && ptSolvedCount == 2) {
                 HMM_Vec2 diff = HMM_Sub(line->p2->pos, line->p1->pos);
                 line->angle = atan2f(diff.Y, diff.X);
                 line->angleSolved = true;
-            } else if (line->angleSolved && (line->p1->solved || line->p2->solved)) {
+                anySolved = true;
+            } else if (line->angleSolved && ptSolvedCount == 1) {
                 sk_Point* fixed = line->p1->solved ? line->p1 : line->p2;
                 sk_Point* variable = line->p1->solved ? line->p2 : line->p1;
                 sk_Manifold m = (sk_Manifold){
@@ -357,18 +387,18 @@ void sk_sketchSolve(sk_Sketch* sketch) {
                 };
                 variable->manifold = _sk_manifoldJoin(variable->manifold, m);
                 SNZ_ASSERT(variable->manifold.kind != SK_MK_NONE, "OVERCONSTRAINED!!");  // FIXME: remove
+                anySolved = true;
             }
         }
 
-        bool anyPointsUnsolved = false;
         for (sk_Point* p = sketch->firstPoint; p; p = p->next) {
-            if (!p->solved) {
-                anyPointsUnsolved = true;
-            }
-
-            if (p->manifold.kind == SK_MK_POINT) {
+            if (p->solved) {
+                continue;
+            } else if (p->manifold.kind == SK_MK_POINT) {
                 p->pos = p->manifold.point;
                 p->solved = true;
+                solvedPointCount++;
+                anySolved = true;
             } else if (p->manifold.kind == SK_MK_TWO_POINTS) {
                 HMM_Vec2 p1 = p->manifold.twoPoints.a;
                 float d1 = HMM_Len(HMM_Sub(p1, p->pos));
@@ -376,13 +406,16 @@ void sk_sketchSolve(sk_Sketch* sketch) {
                 float d2 = HMM_Len(HMM_Sub(p2, p->pos));
                 p->pos = (d1 < d2) ? p1 : p2;
                 p->solved = true;
+                solvedPointCount++;
+                anySolved = true;
             }
         }
 
-        if (!anyPointsUnsolved) {
-            break;
+        if (solvedPointCount == sketchPointCount) {
+            return true;
+        } else if (!anySolved) {
+            return false;
         }
-        // FIXME: break on no more actions
     } // end solve loop
 }
 
@@ -517,7 +550,7 @@ void sk_tests() {
     s.originLine = l1;
     s.originLineAngle = 30;
 
-    sk_sketchSolve(&s);
+    snz_testPrint(sk_sketchSolve(&s), "triangle sketch solve");
 
     snz_arenaDeinit(&a);
 }
