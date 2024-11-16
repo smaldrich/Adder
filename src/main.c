@@ -13,11 +13,15 @@ snzr_Font paragraphFont;
 snzr_Font labelFont;
 
 #define TEXT_COLOR HMM_V4(60 / 255.0, 60 / 255.0, 60 / 255.0, 1)
+#define ACCENT_COLOR HMM_V4(221 / 255.0, 255 / 255.0, 178 / 255.0, 1)
 #define BACKGROUND_COLOR HMM_V4(1, 1, 1, 1)
 #define BORDER_THICKNESS 4
 
 ren3d_Mesh mesh;
 snzr_FrameBuffer sceneFB;
+
+sk_Sketch sketch;
+snz_Arena sketchArena;
 
 void main_init(snz_Arena* scratch) {
     _poolAllocTests();
@@ -26,6 +30,7 @@ void main_init(snz_Arena* scratch) {
     csg_tests();
 
     fontArena = snz_arenaInit(10000000, "main font arena");
+    sketchArena = snz_arenaInit(10000000, "main sketch arena");
 
     titleFont = snzr_fontInit(&fontArena, scratch, "res/fonts/AzeretMono-Regular.ttf", 48);
     paragraphFont = snzr_fontInit(&fontArena, scratch, "res/fonts/OpenSans-Light.ttf", 16);
@@ -67,6 +72,23 @@ void main_init(snz_Arena* scratch) {
     snz_arenaClear(scratch);
 
     sceneFB = snzr_frameBufferInit(snzr_textureInitRBGA(500, 500, NULL));
+
+    {
+        sketch = sk_sketchInit();
+        sk_Point* p1 = sk_sketchAddPoint(&sketch, &sketchArena, HMM_V2(0, 0));
+        sk_Point* p2 = sk_sketchAddPoint(&sketch, &sketchArena, HMM_V2(0, 0));
+        sk_Point* p3 = sk_sketchAddPoint(&sketch, &sketchArena, HMM_V2(0, 0));
+
+        sk_Line* l1 = sk_sketchAddLine(&sketch, &sketchArena, p1, p2);
+        sk_Line* l2 = sk_sketchAddLine(&sketch, &sketchArena, p2, p3);
+        sk_Line* l3 = sk_sketchAddLine(&sketch, &sketchArena, p3, p1);
+
+        sk_sketchAddConstraintDistance(&sketch, &sketchArena, l1, 1.5);
+        sk_sketchAddConstraintDistance(&sketch, &sketchArena, l2, 1.5);
+        sk_sketchAddConstraintDistance(&sketch, &sketchArena, l3, 1.5);
+
+        sk_sketchSolve(&sketch, p1, l1, 60);
+    }
 }
 
 void main_frame(float dt, snz_Arena* scratch) {
@@ -161,24 +183,30 @@ void main_frame(float dt, snz_Arena* scratch) {
             ren3d_drawMesh(&mesh, HMM_MulM4(proj, view), model, HMM_V3(-1, -1, -1));
             // FIXME: highlight edges :) + debug view of geometry
 
-            // draw sketch geometry
-            // for (int64_t i = 0; i < SK_MAX_LINE_COUNT; i++) {
-            //     sk_Line l = sketch.lines[i];
-            //     if (!l.inUse) {
-            //         continue;
-            //     }
+            for (sk_Constraint* c = sketch.firstConstraint; c; c = c->nextAllocated) {
+                if (c->kind == SK_CK_DISTANCE) {
+                    HMM_Vec2 p1 = c->line1->p1->pos;
+                    HMM_Vec2 p2 = c->line1->p2->pos;
+                    HMM_Vec2 diff = HMM_NormV2(HMM_SubV2(p2, p1));
+                    p2 = HMM_Sub(p2, HMM_Mul(diff, 0.3f));
+                    HMM_Vec2 offset = HMM_Mul(HMM_V2(-diff.Y, diff.X), 0.05f);
+                    p1 = HMM_Add(p1, offset);
+                    p2 = HMM_Add(p2, offset);
+                    HMM_Vec2 points[] = { HMM_SubV2(p1, diff), p1, p2, HMM_AddV2(p2, diff), };
+                    snzr_drawLine(points, sizeof(points) / sizeof(*points), TEXT_COLOR, 4, HMM_MulM4(proj, view));
+                }
+            }
 
-            //     sk_Point p1 = sketch.points[l.p1.index];
-            //     sk_Point p2 = sketch.points[l.p2.index];
-            //     HMM_Vec2 diff = HMM_NormV2(HMM_SubV2(p2.pt, p1.pt));
-            //     HMM_Vec2 points[] = {
-            //         HMM_SubV2(p1.pt, diff),
-            //         p1.pt,
-            //         p2.pt,
-            //         HMM_AddV2(p2.pt, diff),
-            //     };
-            //     snzr_drawLine(points, sizeof(points) / sizeof(*points), HMM_V4(0, 0, 0, 1), 2, HMM_MulM4(proj, view));
-            // }
+            for (sk_Line* l = sketch.firstLine; l; l = l->next) {
+                HMM_Vec2 diff = HMM_NormV2(HMM_SubV2(l->p2->pos, l->p1->pos));
+                HMM_Vec2 points[] = {
+                    HMM_SubV2(l->p1->pos, diff),
+                    l->p1->pos,
+                    l->p2->pos,
+                    HMM_AddV2(l->p2->pos, diff),
+                };
+                snzr_drawLine(points, sizeof(points) / sizeof(*points), TEXT_COLOR, 2, HMM_MulM4(proj, view));
+            }
         }
 
         snzu_boxNew("leftPanelBorder");

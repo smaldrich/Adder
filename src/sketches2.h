@@ -72,9 +72,6 @@ typedef struct {
     sk_Line* firstLine;
     sk_Constraint* firstConstraint;
 
-    sk_Point* originPoint;
-    sk_Line* originLine;
-    float originLineAngle;
     sk_Constraint* firstUnsolvedConstraint;
 } sk_Sketch;
 
@@ -294,10 +291,7 @@ static bool _sk_manifoldEq(sk_Manifold a, sk_Manifold b) {
 }
 
 // return indicates whether sketch was solved completely
-bool sk_sketchSolve(sk_Sketch* sketch) {
-    SNZ_ASSERT(sketch->originPoint, "Sketch origin point was null");
-    SNZ_ASSERT(sketch->originLine, "Sketch origin line was null");
-
+bool sk_sketchSolve(sk_Sketch* sketch, sk_Point* originPt, sk_Line* originLine, float originLineAngle) {
     int64_t sketchPointCount = 0;
     int64_t solvedPointCount = 1;
 
@@ -312,14 +306,15 @@ bool sk_sketchSolve(sk_Sketch* sketch) {
             line->angleSolved = false;
         }
 
+        sketch->firstUnsolvedConstraint = NULL;
         for (sk_Constraint* c = sketch->firstConstraint; c; c = c->nextAllocated) {
             c->nextUnsolved = sketch->firstUnsolvedConstraint;
             sketch->firstUnsolvedConstraint = c;
         }
 
-        sketch->originPoint->solved = true;
-        sketch->originLine->angleSolved = true;
-        sketch->originLine->angle = sketch->originLineAngle;
+        originLine->angle = originLineAngle;
+        originLine->angleSolved = true;
+        originPt->solved = true;
     }
 
     while (true) {  // FIXME: cutoff
@@ -546,11 +541,7 @@ void sk_tests() {
     sk_sketchAddConstraintDistance(&s, &a, l2, 1);
     sk_sketchAddConstraintDistance(&s, &a, l3, 1);
 
-    s.originPoint = p1;
-    s.originLine = l1;
-    s.originLineAngle = 30;
-
-    snz_testPrint(sk_sketchSolve(&s), "triangle sketch solve");
+    snz_testPrint(sk_sketchSolve(&s, p1, l1, 30), "triangle sketch solve");
 
     snz_arenaDeinit(&a);
 }
