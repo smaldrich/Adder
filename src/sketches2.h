@@ -1,3 +1,5 @@
+#pragma once
+
 #include <stdbool.h>
 
 #include "HMM/HandmadeMath.h"
@@ -5,12 +7,12 @@
 #include "snooze.h"
 
 typedef enum {
+    SK_MK_ANY,
     SK_MK_NONE,
     SK_MK_CIRCLE,
     SK_MK_LINE,
     SK_MK_TWO_POINTS,
     SK_MK_POINT,
-    SK_MK_ANY,
 } sk_ManifoldKind;
 
 typedef struct {
@@ -32,14 +34,96 @@ typedef struct {
     sk_ManifoldKind kind;
 } sk_Manifold;
 
+typedef struct sk_Point sk_Point;
+struct sk_Point {
+    HMM_Vec2 pos;
+    sk_Point* next;
+    sk_Manifold manifold;
+};
+
+typedef struct sk_Line sk_Line;
+struct sk_Line {
+    sk_Point* p1;
+    sk_Point* p2;
+    sk_Line* next;
+};
+
+typedef enum {
+    SK_CK_DISTANCE,
+    SK_CK_ANGLE_LINES,
+} sk_ConstraintKind;
+
+typedef struct sk_Constraint sk_Constraint;
+struct sk_Constraint {
+    sk_ConstraintKind kind;
+    sk_Line* line1;
+    sk_Line* line2;
+    float value;
+    sk_Constraint* next;
+};
+
+typedef struct {
+    sk_Point* firstPoint;
+    sk_Line* firstLine;
+    sk_Constraint* firstConstraint;
+} sk_Sketch;
+
+/*
+
+sketches:
+a collection of points, lines and constraints
+
+a failed add should highlight every other constraint in the chain to the origin that is preventing the add?
+favor angles?
+cause otherwise it's just every constrain in the sketch
+Fusions 'no response' aesthetic is really fuckin annoying
+
+also a better way of visualizing constraints
+*/
+sk_Sketch sk_sketchInit() {
+    return (sk_Sketch){
+        .firstPoint = NULL,
+        .firstLine = NULL,
+        .firstConstraint = NULL,
+    };
+}
+
+void sk_sketchAddPoint(sk_Sketch* sketch, sk_Point* point) {
+    point->next = sketch->firstPoint;
+    sketch->firstPoint = point;
+}
+
+void sk_sketchAddLine(sk_Sketch* sketch, sk_Line* line) {
+    line->next = sketch->firstLine;
+    sketch->firstLine = line;
+}
+
+void sk_sketchAddConstraint(sk_Sketch* sketch, sk_Constraint* c) {
+    c->next = sketch->firstConstraint;
+    sketch->firstConstraint = c;
+}
+
+// FIXME: this
+// void sk_sketchRemovePointAndDeps(sk_Sketch* sketch, sk_Point* point) {
+// }
+
+// void sk_sketchRemoveLineAndDeps(sk_Sketch* sketch, sk_Line* line) {
+// }
+
+// void sk_sketchRemoveConstraint(sk_Sketch* sketch, sk_Constraint* constraint) {
+// }
+
 // FIXME: tests
 // FIXME: one big geometry file, not csg sketches and geo
-sk_Manifold sk_manifoldJoin(sk_Manifold a, sk_Manifold b) {
+// FIXME: point/twopoint vs X cases :)))
+static sk_Manifold _sk_manifoldJoin(sk_Manifold a, sk_Manifold b) {
     int lineCount = (a.kind == SK_MK_LINE) + (b.kind == SK_MK_LINE);
     int circleCount = (a.kind == SK_MK_CIRCLE) + (b.kind == SK_MK_CIRCLE);
     int anyCount = (a.kind == SK_MK_ANY) + (b.kind == SK_MK_ANY);
 
-    if (anyCount >= 1) {
+    if (a.kind == SK_MK_NONE || b.kind == SK_MK_NONE) {
+        return (sk_Manifold){.kind = SK_MK_NONE};
+    } else if (anyCount >= 1) {
         return a.kind == SK_MK_ANY ? b : a;
     } else if (lineCount == 1 && circleCount == 1) {
         // stolen from: https://paulbourke.net/geometry/circlesphere/
@@ -141,91 +225,7 @@ sk_Manifold sk_manifoldJoin(sk_Manifold a, sk_Manifold b) {
     SNZ_ASSERTF(false, "Unreachable manifold join: Line count: %d, Any count: %d, Circle count: %d", lineCount, anyCount, circleCount);
 }
 
-typedef struct sk_Point sk_Point;
-struct sk_Point {
-    HMM_Vec2 pos;
-    sk_Point* next;
-};
-
-typedef struct sk_Line sk_Line;
-struct sk_Line {
-    sk_Point* p1;
-    sk_Point* p2;
-    sk_Line* next;
-};
-
-typedef enum {
-    SK_CK_DISTANCE,
-    SK_CK_ANGLE_LINES,
-} sk_ConstraintKind;
-
-typedef struct sk_Constraint sk_Constraint;
-struct sk_Constraint {
-    sk_ConstraintKind kind;
-    sk_Line* line1;
-    sk_Line* line2;
-    sk_Point* point;
-    float value;
-    sk_Constraint* next;
-};
-
-typedef struct {
-    sk_Point* firstPoint;
-    sk_Line* firstLine;
-    sk_Constraint* firstConstraint;
-} sk_Sketch;
-
-sk_Sketch sk_sketchInit() {
-    return (sk_Sketch){
-        .firstPoint = NULL,
-        .firstLine = NULL,
-        .firstConstraint = NULL,
-    };
-}
-
-void sk_sketchAddPoint(sk_Sketch* sketch, sk_Point* point) {
-    point->next = sketch->firstPoint;
-    sketch->firstPoint = point;
-}
-
-void sk_sketchAddLine(sk_Sketch* sketch, sk_Line* line) {
-    line->next = sketch->firstLine;
-    sketch->firstLine = line;
-}
-
-void sk_sketchAddConstraint(sk_Sketch* sketch, sk_Constraint* c) {
-    c->next = sketch->firstConstraint;
-    sketch->firstConstraint = c;
-}
-
-// FIXME: this
-// void sk_sketchRemovePointAndDeps(sk_Sketch* sketch, sk_Point* point) {
-// }
-
-// void sk_sketchRemoveLineAndDeps(sk_Sketch* sketch, sk_Line* line) {
-// }
-
-// void sk_sketchRemoveConstraint(sk_Sketch* sketch, sk_Constraint* constraint) {
-// }
-
-/*
-
-sketches:
-
-a collection of points, lines and constraints
-
-a failed add should highlight every other constraint in the chain to the origin that is preventing the add?
-favor angles?
-cause otherwise it's just every constrain in the sketch
-Fusions 'no response' aesthetic is really fuckin annoying
-
-also a better way of visualizing constraints
-
-
-
-*/
-
-bool _sk_manifoldEq(sk_Manifold a, sk_Manifold b) {
+static bool _sk_manifoldEq(sk_Manifold a, sk_Manifold b) {
     if (a.kind != b.kind) {
         return false;
     }
@@ -256,10 +256,43 @@ bool _sk_manifoldEq(sk_Manifold a, sk_Manifold b) {
     return out;
 }
 
+void sk_sketchSolve(sk_Sketch* sketch) {
+    for (sk_Point* point = sketch->firstPoint; point; point = point->next) {
+        memset(&point->manifold, 0, sizeof(point->manifold));
+    }
+
+    while (true) {  // FIXME: cutoff
+        bool anySolved = false;
+        for (sk_Constraint* c = sketch->firstConstraint; c; c = c->next) {
+            if (c->kind == SK_CK_DISTANCE) {
+                sk_Point* p1 = c->line1->p1;
+                sk_Point* p2 = c->line1->p2;
+                if (p1->manifold.kind == SK_MK_POINT ||
+                    p2->manifold.kind == SK_MK_POINT) {
+                    sk_Point* fixed = p1->manifold.kind == SK_MK_POINT ? p1 : p2;
+                    sk_Point* variable = p1->manifold.kind == SK_MK_POINT ? p2 : p1;
+                    sk_Manifold m = (sk_Manifold){
+                        .kind = SK_MK_CIRCLE,
+                        .circle.origin = fixed->manifold.point,
+                        .circle.radius = c->value,
+                    };
+                    variable->manifold = _sk_manifoldJoin(variable->manifold, m);
+                    SNZ_ASSERT(variable->manifold.kind != SK_MK_NONE, "OVERCONSTRAINED!!");  // FIXME: remove
+                }
+            } else if (c->kind == SK_CK_ANGLE_LINES) {
+            }
+        }
+
+        if (!anySolved) {
+            break;
+        }
+    }
+}
+
 void sk_tests() {
     snz_testPrintSection("sketch");
 
-    sk_Manifold out = sk_manifoldJoin(
+    sk_Manifold out = _sk_manifoldJoin(
         (sk_Manifold){
             .kind = SK_MK_LINE,
             .line.origin = HMM_V2(0, 0),
@@ -276,7 +309,7 @@ void sk_tests() {
     };
     snz_testPrint(_sk_manifoldEq(out, comp), "line/line manifold join");
 
-    out = sk_manifoldJoin(
+    out = _sk_manifoldJoin(
         (sk_Manifold){
             .kind = SK_MK_LINE,
             .line.origin = HMM_V2(10, 10),
@@ -294,12 +327,12 @@ void sk_tests() {
         .line.origin = HMM_V2(0, 0),
         .line.direction = HMM_V2(1, 1),
     };
-    out = sk_manifoldJoin((sk_Manifold){.kind = SK_MK_ANY}, comp);
+    out = _sk_manifoldJoin((sk_Manifold){.kind = SK_MK_ANY}, comp);
     snz_testPrint(_sk_manifoldEq(comp, out), "line/any manifold join");
-    out = sk_manifoldJoin(comp, (sk_Manifold){.kind = SK_MK_ANY});
+    out = _sk_manifoldJoin(comp, (sk_Manifold){.kind = SK_MK_ANY});
     snz_testPrint(_sk_manifoldEq(comp, out), "line/any manifold join 2");
 
-    out = sk_manifoldJoin(
+    out = _sk_manifoldJoin(
         (sk_Manifold){
             .kind = SK_MK_CIRCLE,
             .circle.origin = HMM_V2(0, 0),
@@ -317,7 +350,7 @@ void sk_tests() {
     };
     snz_testPrint(_sk_manifoldEq(out, comp), "circle/circle two pt manifold join");
 
-    out = sk_manifoldJoin(
+    out = _sk_manifoldJoin(
         (sk_Manifold){
             .kind = SK_MK_CIRCLE,
             .circle.origin = HMM_V2(0, 0),
@@ -330,7 +363,7 @@ void sk_tests() {
         });
     snz_testPrint(_sk_manifoldEq(out, (sk_Manifold){.kind = SK_MK_NONE}), "circle/inner circle manifold join");
 
-    out = sk_manifoldJoin(
+    out = _sk_manifoldJoin(
         (sk_Manifold){
             .kind = SK_MK_LINE,
             .line.origin = HMM_V2(-1, 1),
@@ -348,7 +381,7 @@ void sk_tests() {
     };
     snz_testPrint(_sk_manifoldEq(out, comp), "circle/line manifold join");
 
-    out = sk_manifoldJoin(
+    out = _sk_manifoldJoin(
         (sk_Manifold){
             .kind = SK_MK_LINE,
             .line.origin = HMM_V2(2, 10),
