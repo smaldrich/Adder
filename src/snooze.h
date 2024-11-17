@@ -338,11 +338,11 @@ snzr_Font snzr_fontInit(snz_Arena* dataArena, snz_Arena* scratch, const char* pa
     stbtt_pack_context ctx;
     uint8_t* atlasData = SNZ_ARENA_PUSH_ARR(scratch, _SNZR_FONT_ATLAS_W * _SNZR_FONT_ATLAS_H, uint8_t);
     assert(stbtt_PackBegin(&ctx, atlasData,
-                           _SNZR_FONT_ATLAS_W,
-                           _SNZR_FONT_ATLAS_H,
-                           _SNZR_FONT_ATLAS_W,
-                           1,
-                           NULL));
+        _SNZR_FONT_ATLAS_W,
+        _SNZR_FONT_ATLAS_H,
+        _SNZR_FONT_ATLAS_W,
+        1,
+        NULL));
     stbtt_PackSetOversampling(&ctx, 1, 1);
 
     const int glyphCount = _SNZR_FONT_ASCII_CHAR_COUNT + 1;
@@ -713,8 +713,12 @@ void snzr_drawText(HMM_Vec2 start,
     }
 }
 
-// requires a padding start pt and end pt to define start and end miters, these should be included in ptCount, but wont be rendered
+// end miters automatically added, pointing straight away
 void snzr_drawLine(HMM_Vec2* pts, uint64_t ptCount, HMM_Vec4 color, float thickness, HMM_Mat4 vp) {
+    if (ptCount < 2) {
+        return;
+    }
+
     snzr_callGLFnOrError(glUseProgram(_snzr_globs.lineShaderId));
 
     int loc = glGetUniformLocation(_snzr_globs.lineShaderId, "uColor");
@@ -728,11 +732,17 @@ void snzr_drawLine(HMM_Vec2* pts, uint64_t ptCount, HMM_Vec4 color, float thickn
     loc = glGetUniformLocation(_snzr_globs.lineShaderId, "uResolution");
     glUniform2f(loc, _snzr_globs.screenSize.X, _snzr_globs.screenSize.Y);
 
-    glBindBuffer(GL_SHADER_STORAGE_BUFFER, _snzr_globs.lineShaderSSBOId);
-    glBufferData(GL_SHADER_STORAGE_BUFFER, ptCount * sizeof(HMM_Vec2), pts, GL_DYNAMIC_DRAW);
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, _snzr_globs.lineShaderSSBOId);
+    snzr_callGLFnOrError(glBindBuffer(GL_SHADER_STORAGE_BUFFER, _snzr_globs.lineShaderSSBOId));
+    snzr_callGLFnOrError(glBufferData(GL_SHADER_STORAGE_BUFFER, sizeof(HMM_Vec2) * (ptCount + 2), NULL, GL_DYNAMIC_DRAW));
 
-    snzr_callGLFnOrError(glDrawArrays(GL_TRIANGLES, 0, (ptCount - 2 - 1) * 6));
+    HMM_Vec2 startMiter = HMM_Sub(pts[0], HMM_Sub(pts[1], pts[0]));
+    snzr_callGLFnOrError(glBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, sizeof(HMM_Vec2), &startMiter));
+    snzr_callGLFnOrError(glBufferSubData(GL_SHADER_STORAGE_BUFFER, sizeof(HMM_Vec2), ptCount * sizeof(HMM_Vec2), pts));
+    HMM_Vec2 endMiter = HMM_Add(pts[ptCount - 1], HMM_Sub(pts[ptCount - 1], pts[ptCount - 2]));
+    snzr_callGLFnOrError(glBufferSubData(GL_SHADER_STORAGE_BUFFER, sizeof(HMM_Vec2) * (ptCount + 1), sizeof(HMM_Vec2), &endMiter));
+
+    snzr_callGLFnOrError(glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, _snzr_globs.lineShaderSSBOId));
+    snzr_callGLFnOrError(glDrawArrays(GL_TRIANGLES, 0, (ptCount - 1) * 6));
 }
 
 // RENDER ======================================================================
