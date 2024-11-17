@@ -189,12 +189,14 @@ void main_frame(float dt, snz_Arena* scratch) {
             // FIXME: highlight edges :) + debug view of geometry
 
             for (sk_Constraint* c = sketch.firstConstraint; c; c = c->nextAllocated) {
+                float angleConstraintVisualOffset = 0.05 * orbitPos->Z; // FIXME: is this still correct when panning?
+                float distConstraintVisualOffset = 0.025 * orbitPos->Z;
                 if (c->kind == SK_CK_DISTANCE) {
                     HMM_Vec2 p1 = c->line1->p1->pos;
                     HMM_Vec2 p2 = c->line1->p2->pos;
                     HMM_Vec2 diff = HMM_NormV2(HMM_SubV2(p2, p1));
                     p2 = HMM_Sub(p2, HMM_Mul(diff, 0.3f));
-                    HMM_Vec2 offset = HMM_Mul(HMM_V2(-diff.Y, diff.X), 0.05f);
+                    HMM_Vec2 offset = HMM_Mul(HMM_V2(-diff.Y, diff.X), distConstraintVisualOffset);
                     p1 = HMM_Add(p1, offset);
                     p2 = HMM_Add(p2, offset);
                     HMM_Vec2 points[] = { p1, p2 };
@@ -209,7 +211,6 @@ void main_frame(float dt, snz_Arena* scratch) {
                         continue;
                     }
 
-                    float angleConstraintVisualOffset = 0.2;
                     if (csg_floatEqual(c->value, HMM_AngleDeg(90))) {
                         sk_Point* otherOnLine1 = (c->line1->p1 == joint) ? c->line1->p2 : c->line1->p1;
                         sk_Point* otherOnLine2 = (c->line2->p1 == joint) ? c->line2->p2 : c->line2->p1;
