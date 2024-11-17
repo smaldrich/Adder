@@ -68,7 +68,7 @@ HMM_Vec3 csg_triNormal(HMM_Vec3 a, HMM_Vec3 b, HMM_Vec3 c) {
 }
 
 csg_TriList csg_triListInit() {
-    return (csg_TriList){.first = NULL, .last = NULL};
+    return (csg_TriList) { .first = NULL, .last = NULL };
 }
 
 // destructive to node->next
@@ -111,7 +111,7 @@ void csg_triListPushNew(snz_Arena* arena, csg_TriList* list, HMM_Vec3 a, HMM_Vec
 void csg_triListTransform(csg_TriList* list, HMM_Mat4 transform) {
     for (csg_TriListNode* node = list->first; node; node = node->next) {
         for (int i = 0; i < 3; i++) {
-            HMM_Vec4 v4 = (HMM_Vec4){.XYZ = node->elems[i], .W = 1};
+            HMM_Vec4 v4 = (HMM_Vec4){ .XYZ = node->elems[i], .W = 1 };
             node->elems[i] = HMM_MulM4V4(transform, v4).XYZ;
         }
     }
@@ -278,7 +278,7 @@ void _csg_triSplit(csg_TriListNode* tri, snz_Arena* arena, csg_TriList* outOutsi
     } else if (rel == CSG_PR_WITHIN) {
         csg_triListPush(outInsideList, tri);
     } else {
-        HMM_Vec3 verts[5] = {0};
+        HMM_Vec3 verts[5] = { 0 };
         int vertCount = 0;
         int firstIntersectionIdx = -1;
 
@@ -332,7 +332,7 @@ void _csg_triSplit(csg_TriListNode* tri, snz_Arena* arena, csg_TriList* outOutsi
         // rotate points so that the verts can be triangulated consistantly
         // problem if you don't do this is that the triangulation doesn't end
         // up going across the cut line or will create zero-width tris
-        HMM_Vec3 rotatedVerts[5] = {0};
+        HMM_Vec3 rotatedVerts[5] = { 0 };
         for (int i = 0; i < vertCount; i++) {
             rotatedVerts[i] = verts[(i + firstIntersectionIdx) % vertCount];
         }
@@ -586,7 +586,7 @@ void csg_tests() {
     {
         csg_TriList cubeA = csg_cube(&arena);
         csg_TriList cubeB = csg_cube(&arena);
-        csg_triListTransform(&cubeB, HMM_Rotate_RH(30, HMM_V3(1, 1, 1)));
+        csg_triListTransform(&cubeB, HMM_Rotate_RH(HMM_AngleDeg(30), HMM_V3(1, 1, 1)));
         csg_triListTransform(&cubeB, HMM_Translate(HMM_V3(1, 1, 1)));
 
         csg_BSPNode* treeA = csg_triListToBSP(&cubeA, &arena);
@@ -602,7 +602,7 @@ void csg_tests() {
     {
         csg_TriList cubeA = csg_cube(&arena);
         csg_TriList cubeB = csg_cube(&arena);
-        csg_triListTransform(&cubeB, HMM_Rotate_RH(30, HMM_V3(1, 1, 1)));
+        csg_triListTransform(&cubeB, HMM_Rotate_RH(HMM_AngleDeg(30), HMM_V3(1, 1, 1)));
         csg_triListTransform(&cubeB, HMM_Translate(HMM_V3(1, 1, 1)));
 
         csg_BSPNode* treeA = csg_triListToBSP(&cubeA, &arena);

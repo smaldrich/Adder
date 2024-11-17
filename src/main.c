@@ -42,7 +42,7 @@ void main_init(snz_Arena* scratch) {
     {
         csg_TriList cubeA = csg_cube(scratch);
         csg_TriList cubeB = csg_cube(scratch);
-        csg_triListTransform(&cubeB, HMM_Rotate_RH(30, HMM_V3(1, 1, 1)));
+        csg_triListTransform(&cubeB, HMM_Rotate_RH(HMM_AngleDeg(30), HMM_V3(1, 1, 1)));
         csg_triListTransform(&cubeB, HMM_Translate(HMM_V3(1, 1, 1)));
 
         csg_BSPNode* treeA = csg_triListToBSP(&cubeA, scratch);
@@ -81,13 +81,18 @@ void main_init(snz_Arena* scratch) {
 
         sk_Line* l1 = sk_sketchAddLine(&sketch, &sketchArena, p1, p2);
         sk_Line* l2 = sk_sketchAddLine(&sketch, &sketchArena, p2, p3);
-        sk_Line* l3 = sk_sketchAddLine(&sketch, &sketchArena, p3, p1);
+        sk_sketchAddLine(&sketch, &sketchArena, p3, p1);
 
         sk_sketchAddConstraintDistance(&sketch, &sketchArena, l1, 1.5);
-        sk_sketchAddConstraintDistance(&sketch, &sketchArena, l2, 1.5);
-        sk_sketchAddConstraintDistance(&sketch, &sketchArena, l3, 1.5);
+        sk_sketchAddConstraintDistance(&sketch, &sketchArena, l2, 2);
+        sk_sketchAddConstraintAngle(&sketch, &sketchArena, l1, l2, HMM_AngleDeg(70));
 
-        sk_sketchSolve(&sketch, p1, l1, 60);
+        sk_Point* other = sk_sketchAddPoint(&sketch, &sketchArena, HMM_V2(0, 10));
+        sk_Line* lother = sk_sketchAddLine(&sketch, &sketchArena, other, p1);
+        sk_sketchAddConstraintDistance(&sketch, &sketchArena, lother, 0.5);
+        sk_sketchAddConstraintAngle(&sketch, &sketchArena, l1, lother, HMM_AngleDeg(90));
+
+        sk_sketchSolve(&sketch, p1, l1, HMM_AngleDeg(30));
     }
 }
 
@@ -159,12 +164,12 @@ void main_frame(float dt, snz_Arena* scratch) {
             orbitPos->Z += inter->mouseScrollY * orbitPos->Z * 0.05;
 
             HMM_Mat4 view = HMM_Translate(HMM_V3(0, 0, orbitPos->Z));
-            view = HMM_MulM4(HMM_Rotate_RH(orbitPos->Y * 0.3, HMM_V3(-1, 0, 0)), view);
-            view = HMM_MulM4(HMM_Rotate_RH(orbitPos->X * 0.3, HMM_V3(0, -1, 0)), view);
+            view = HMM_MulM4(HMM_Rotate_RH(orbitPos->Y * 0.01, HMM_V3(-1, 0, 0)), view);
+            view = HMM_MulM4(HMM_Rotate_RH(orbitPos->X * 0.01, HMM_V3(0, -1, 0)), view);
             view = HMM_InvGeneral(view);
 
             float aspect = rightPanelSize.X / rightPanelSize.Y;
-            HMM_Mat4 proj = HMM_Perspective_RH_NO(90, aspect, 0.001, 100000);
+            HMM_Mat4 proj = HMM_Perspective_RH_NO(HMM_AngleDeg(90), aspect, 0.001, 100000);
 
             HMM_Mat4 model = HMM_Translate(HMM_V3(4, 0, 0));
 
@@ -194,6 +199,43 @@ void main_frame(float dt, snz_Arena* scratch) {
                     p2 = HMM_Add(p2, offset);
                     HMM_Vec2 points[] = { HMM_SubV2(p1, diff), p1, p2, HMM_AddV2(p2, diff), };
                     snzr_drawLine(points, sizeof(points) / sizeof(*points), TEXT_COLOR, 4, HMM_MulM4(proj, view));
+                } else if (c->kind == SK_CK_ANGLE) {
+                    sk_Point* joint = NULL;
+                    if (c->line1->p1 == c->line2->p1 || c->line1->p1 == c->line2->p2) {
+                        joint = c->line1->p1;
+                    } else if (c->line1->p2 == c->line2->p1 || c->line1->p2 == c->line2->p2) {
+                        joint = c->line1->p2;
+                    } else {
+                        continue;
+                    }
+
+                    float angleConstraintVisualOffset = 0.2;
+                    if (!csg_floatEqual(c->value, HMM_AngleDeg(90))) {
+                        sk_Point* otherOnLine1 = (c->line1->p1 == joint) ? c->line1->p2 : c->line1->p1;
+                        HMM_Vec2 diff = HMM_Sub(otherOnLine1->pos, joint->pos);
+                        float startAngle = atan2f(diff.Y, diff.X);
+                        // FIXME: negative angles?
+                        int ptCount = (int)(c->value / HMM_AngleDeg(10) + 1);
+                        HMM_Vec2* linePts = SNZ_ARENA_PUSH_ARR(scratch, ptCount + 3, HMM_Vec2);
+                        for (int i = 0; i < ptCount + 3; i++) { // +3 to add two miters and include the last point // FIXME: build miters into the snzr_drawline fn
+                            HMM_Vec2 offset = HMM_RotateV2(HMM_V2(angleConstraintVisualOffset, 0), startAngle + ((i - 1) * c->value / ptCount));
+                            linePts[i] = HMM_Add(joint->pos, offset);
+                        }
+                        snzr_drawLine(linePts, ptCount + 3, TEXT_COLOR, 4, HMM_Mul(proj, view));
+                    } else {
+                        sk_Point* otherOnLine1 = (c->line1->p1 == joint) ? c->line1->p2 : c->line1->p1;
+                        sk_Point* otherOnLine2 = (c->line2->p1 == joint) ? c->line2->p2 : c->line2->p1;
+                        HMM_Vec2 offset1 = HMM_Mul(HMM_Norm(HMM_Sub(otherOnLine1->pos, joint->pos)), angleConstraintVisualOffset);
+                        HMM_Vec2 offset2 = HMM_Mul(HMM_Norm(HMM_Sub(otherOnLine2->pos, joint->pos)), angleConstraintVisualOffset);
+                        HMM_Vec2 pts[] = {
+                            joint->pos,
+                            HMM_Add(joint->pos, offset1),
+                            HMM_Add(joint->pos, HMM_Add(offset1, offset2)),
+                            HMM_Add(joint->pos, offset2),
+                            joint->pos,
+                        };
+                        snzr_drawLine(pts, sizeof(pts) / sizeof(*pts), TEXT_COLOR, 4, HMM_MulM4(proj, view));
+                    }
                 }
             }
 
