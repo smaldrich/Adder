@@ -403,6 +403,7 @@ bool sk_sketchSolve(sk_Sketch* sketch, sk_Point* originPt, sk_Line* originLine, 
                 p->solved = true;
                 solvedPointCount++;
                 anySolved = true;
+                // FIXME: weird things happen often here with >90 degree angles solving the wrong way. Find a solution.
             }
         }
 

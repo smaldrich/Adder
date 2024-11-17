@@ -735,10 +735,14 @@ void snzr_drawLine(HMM_Vec2* pts, uint64_t ptCount, HMM_Vec4 color, float thickn
     snzr_callGLFnOrError(glBindBuffer(GL_SHADER_STORAGE_BUFFER, _snzr_globs.lineShaderSSBOId));
     snzr_callGLFnOrError(glBufferData(GL_SHADER_STORAGE_BUFFER, sizeof(HMM_Vec2) * (ptCount + 2), NULL, GL_DYNAMIC_DRAW));
 
-    HMM_Vec2 startMiter = HMM_Sub(pts[0], HMM_Sub(pts[1], pts[0]));
+    HMM_Vec2 startMiter = HMM_Sub(pts[1], pts[0]);
+    startMiter = HMM_Mul(HMM_Norm(startMiter), 0.001f);
+    startMiter = HMM_Sub(pts[0], startMiter);
     snzr_callGLFnOrError(glBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, sizeof(HMM_Vec2), &startMiter));
     snzr_callGLFnOrError(glBufferSubData(GL_SHADER_STORAGE_BUFFER, sizeof(HMM_Vec2), ptCount * sizeof(HMM_Vec2), pts));
-    HMM_Vec2 endMiter = HMM_Add(pts[ptCount - 1], HMM_Sub(pts[ptCount - 1], pts[ptCount - 2]));
+    HMM_Vec2 endMiter = HMM_Sub(pts[ptCount - 1], pts[ptCount - 2]);
+    endMiter = HMM_Mul(HMM_Norm(endMiter), 0.001f);
+    endMiter = HMM_Add(pts[ptCount - 1], endMiter);
     snzr_callGLFnOrError(glBufferSubData(GL_SHADER_STORAGE_BUFFER, sizeof(HMM_Vec2) * (ptCount + 1), sizeof(HMM_Vec2), &endMiter));
 
     snzr_callGLFnOrError(glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, _snzr_globs.lineShaderSSBOId));

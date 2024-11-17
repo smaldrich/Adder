@@ -85,14 +85,14 @@ void main_init(snz_Arena* scratch) {
 
         sk_sketchAddConstraintDistance(&sketch, &sketchArena, l1, 1.5);
         sk_sketchAddConstraintDistance(&sketch, &sketchArena, l2, 2);
-        sk_sketchAddConstraintAngle(&sketch, &sketchArena, l1, l2, HMM_AngleDeg(70));
+        sk_sketchAddConstraintAngle(&sketch, &sketchArena, l1, l2, HMM_AngleDeg(120));
 
         sk_Point* other = sk_sketchAddPoint(&sketch, &sketchArena, HMM_V2(0, 10));
         sk_Line* lother = sk_sketchAddLine(&sketch, &sketchArena, other, p1);
         sk_sketchAddConstraintDistance(&sketch, &sketchArena, lother, 0.5);
         sk_sketchAddConstraintAngle(&sketch, &sketchArena, l1, lother, HMM_AngleDeg(90));
 
-        sk_sketchSolve(&sketch, p1, l1, HMM_AngleDeg(30));
+        sk_sketchSolve(&sketch, p2, l1, HMM_AngleDeg(0));
     }
 }
 
@@ -225,8 +225,7 @@ void main_frame(float dt, snz_Arena* scratch) {
                         sk_Point* otherOnLine1 = (c->line1->p1 == joint) ? c->line1->p2 : c->line1->p1;
                         HMM_Vec2 diff = HMM_Sub(otherOnLine1->pos, joint->pos);
                         float startAngle = atan2f(diff.Y, diff.X);
-                        // FIXME: negative angles?
-                        int ptCount = (int)(c->value / HMM_AngleDeg(10)) + 1;
+                        int ptCount = (int)(fabsf(c->value) / HMM_AngleDeg(10)) + 1;
                         HMM_Vec2* linePts = SNZ_ARENA_PUSH_ARR(scratch, ptCount, HMM_Vec2);
                         for (int i = 0; i < ptCount; i++) {
                             HMM_Vec2 offset = HMM_RotateV2(HMM_V2(angleConstraintVisualOffset, 0), startAngle + (i * c->value / (ptCount - 1)));
