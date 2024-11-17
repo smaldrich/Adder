@@ -23,6 +23,9 @@ snzr_FrameBuffer sceneFB;
 sk_Sketch sketch;
 snz_Arena sketchArena;
 
+HMM_Vec3 sketchOrigin;
+HMM_Quat sketchOrientation;
+
 void main_init(snz_Arena* scratch) {
     _poolAllocTests();
     sk_tests();
@@ -39,6 +42,7 @@ void main_init(snz_Arena* scratch) {
     ren3d_init(scratch);
 
     snz_arenaClear(scratch);
+    csg_TriList* final = NULL;
     {
         csg_TriList cubeA = csg_cube(scratch);
         csg_TriList cubeB = csg_cube(scratch);
@@ -50,7 +54,7 @@ void main_init(snz_Arena* scratch) {
 
         csg_TriList* aClipped = csg_bspClipTris(true, &cubeA, treeB, scratch);
         csg_TriList* bClipped = csg_bspClipTris(true, &cubeB, treeA, scratch);
-        csg_TriList* final = csg_triListJoin(aClipped, bClipped);
+        final = csg_triListJoin(aClipped, bClipped);
         csg_triListRecoverNonBroken(&final, scratch);
 
         PoolAlloc pool = poolAllocInit();
@@ -67,9 +71,7 @@ void main_init(snz_Arena* scratch) {
             }
         }
         mesh = ren3d_meshInit(verts, vertCount);
-        poolAllocDeinit(&pool);
     }  // end mesh for testing
-    snz_arenaClear(scratch);
 
     sceneFB = snzr_frameBufferInit(snzr_textureInitRBGA(500, 500, NULL));
 
@@ -93,6 +95,14 @@ void main_init(snz_Arena* scratch) {
         sk_sketchAddConstraintAngle(&sketch, &sketchArena, l1, lother, HMM_AngleDeg(90));
 
         sk_sketchSolve(&sketch, p2, l1, HMM_AngleDeg(0));
+
+        sketchOrigin = final->first->a;
+        HMM_Vec3 baseNormal = HMM_V3(0, 0, -1);
+        HMM_Vec3 newNormal = csg_triNormal(final->first->a, final->first->b, final->first->c);
+
+        HMM_Vec3 axis = HMM_Cross(baseNormal, newNormal);
+        float angle = acosf(HMM_Dot(baseNormal, newNormal) / (HMM_Len(baseNormal) * HMM_Len(newNormal)));
+        sketchOrientation = HMM_QFromAxisAngle_RH(axis, angle);
     }
 }
 
@@ -171,7 +181,7 @@ void main_frame(float dt, snz_Arena* scratch) {
             float aspect = rightPanelSize.X / rightPanelSize.Y;
             HMM_Mat4 proj = HMM_Perspective_RH_NO(HMM_AngleDeg(90), aspect, 0.001, 100000);
 
-            HMM_Mat4 model = HMM_Translate(HMM_V3(4, 0, 0));
+            HMM_Mat4 model = HMM_Translate(HMM_V3(0, 0, 0));
 
             uint32_t w = (uint32_t)rightPanelSize.X;
             uint32_t h = (uint32_t)rightPanelSize.Y;
@@ -188,6 +198,11 @@ void main_frame(float dt, snz_Arena* scratch) {
             ren3d_drawMesh(&mesh, HMM_MulM4(proj, view), model, HMM_V3(-1, -1, -1));
             // FIXME: highlight edges :) + debug view of geometry
 
+            HMM_Mat4 sketchVP = HMM_Translate(sketchOrigin);
+            sketchVP = HMM_Mul(sketchVP, HMM_QToM4(sketchOrientation));
+            sketchVP = HMM_Mul(HMM_Mul(proj, view), sketchVP);
+
+            glDisable(GL_DEPTH_TEST);
             for (sk_Constraint* c = sketch.firstConstraint; c; c = c->nextAllocated) {
                 float angleConstraintVisualOffset = 0.05 * orbitPos->Z; // FIXME: is this still correct when panning?
                 float distConstraintVisualOffset = 0.025 * orbitPos->Z;
@@ -200,7 +215,7 @@ void main_frame(float dt, snz_Arena* scratch) {
                     p1 = HMM_Add(p1, offset);
                     p2 = HMM_Add(p2, offset);
                     HMM_Vec2 points[] = { p1, p2 };
-                    snzr_drawLine(points, 2, TEXT_COLOR, 4, HMM_MulM4(proj, view));
+                    snzr_drawLine(points, 2, TEXT_COLOR, 4, sketchVP);
                 } else if (c->kind == SK_CK_ANGLE) {
                     sk_Point* joint = NULL;
                     if (c->line1->p1 == c->line2->p1 || c->line1->p1 == c->line2->p2) {
@@ -221,7 +236,7 @@ void main_frame(float dt, snz_Arena* scratch) {
                             HMM_Add(joint->pos, HMM_Add(offset1, offset2)),
                             HMM_Add(joint->pos, offset2),
                         };
-                        snzr_drawLine(pts, 3, TEXT_COLOR, 4, HMM_MulM4(proj, view));
+                        snzr_drawLine(pts, 3, TEXT_COLOR, 4, sketchVP);
                     } else {
                         sk_Point* otherOnLine1 = (c->line1->p1 == joint) ? c->line1->p2 : c->line1->p1;
                         HMM_Vec2 diff = HMM_Sub(otherOnLine1->pos, joint->pos);
@@ -232,15 +247,16 @@ void main_frame(float dt, snz_Arena* scratch) {
                             HMM_Vec2 offset = HMM_RotateV2(HMM_V2(angleConstraintVisualOffset, 0), startAngle + (i * c->value / (ptCount - 1)));
                             linePts[i] = HMM_Add(joint->pos, offset);
                         }
-                        snzr_drawLine(linePts, ptCount, TEXT_COLOR, 4, HMM_Mul(proj, view));
+                        snzr_drawLine(linePts, ptCount, TEXT_COLOR, 4, sketchVP);
                     }
                 } // end constraint kind switch
             } // end constraint draw loop
 
             for (sk_Line* l = sketch.firstLine; l; l = l->next) {
                 HMM_Vec2 points[] = { l->p1->pos, l->p2->pos, };
-                snzr_drawLine(points, 2, TEXT_COLOR, 2, HMM_MulM4(proj, view));
+                snzr_drawLine(points, 2, TEXT_COLOR, 2, sketchVP);
             }
+            glEnable(GL_DEPTH_TEST);
         }
 
         snzu_boxNew("leftPanelBorder");
