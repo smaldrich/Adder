@@ -5,26 +5,16 @@
 #include "sketches2.h"
 #include "snooze.h"
 #include "stb/stb_image.h"
+#include "style.h"
+#include "docs.h"
 
 snz_Arena fontArena;
-
-snzr_Font titleFont;
-snzr_Font paragraphFont;
-snzr_Font labelFont;
-
-#define TEXT_COLOR HMM_V4(60 / 255.0, 60 / 255.0, 60 / 255.0, 1)
-#define ACCENT_COLOR HMM_V4(221 / 255.0, 255 / 255.0, 178 / 255.0, 1)
-#define BACKGROUND_COLOR HMM_V4(1, 1, 1, 1)
-#define BORDER_THICKNESS 4
 
 ren3d_Mesh mesh;
 snzr_FrameBuffer sceneFB;
 
 sk_Sketch sketch;
 snz_Arena sketchArena;
-
-HMM_Vec3 sketchOrigin;
-HMM_Quat sketchOrientation;
 
 void main_init(snz_Arena* scratch) {
     _poolAllocTests();
@@ -35,11 +25,12 @@ void main_init(snz_Arena* scratch) {
     fontArena = snz_arenaInit(10000000, "main font arena");
     sketchArena = snz_arenaInit(10000000, "main sketch arena");
 
-    titleFont = snzr_fontInit(&fontArena, scratch, "res/fonts/AzeretMono-Regular.ttf", 48);
-    paragraphFont = snzr_fontInit(&fontArena, scratch, "res/fonts/OpenSans-Light.ttf", 16);
-    labelFont = snzr_fontInit(&fontArena, scratch, "res/fonts/AzeretMono-LightItalic.ttf", 20);
+    style_titleFont = snzr_fontInit(&fontArena, scratch, "res/fonts/AzeretMono-Regular.ttf", 48);
+    style_paragraphFont = snzr_fontInit(&fontArena, scratch, "res/fonts/OpenSans-Light.ttf", 16);
+    style_labelFont = snzr_fontInit(&fontArena, scratch, "res/fonts/AzeretMono-LightItalic.ttf", 20);
 
     ren3d_init(scratch);
+    docs_init();
 
     snz_arenaClear(scratch);
     csg_TriList* final = NULL;
@@ -96,13 +87,13 @@ void main_init(snz_Arena* scratch) {
 
         sk_sketchSolve(&sketch, p2, l1, HMM_AngleDeg(0));
 
-        sketchOrigin = final->first->a;
-        HMM_Vec3 baseNormal = HMM_V3(0, 0, -1);
-        HMM_Vec3 newNormal = csg_triNormal(final->first->a, final->first->b, final->first->c);
+        // sketchOrigin = final->first->a;
+        // HMM_Vec3 baseNormal = HMM_V3(0, 0, -1);
+        // HMM_Vec3 newNormal = csg_triNormal(final->first->a, final->first->b, final->first->c);
 
-        HMM_Vec3 axis = HMM_Cross(baseNormal, newNormal);
-        float angle = acosf(HMM_Dot(baseNormal, newNormal) / (HMM_Len(baseNormal) * HMM_Len(newNormal)));
-        sketchOrientation = HMM_QFromAxisAngle_RH(axis, angle);
+        // HMM_Vec3 axis = HMM_Cross(baseNormal, newNormal);
+        // float angle = acosf(HMM_Dot(baseNormal, newNormal) / (HMM_Len(baseNormal) * HMM_Len(newNormal)));
+        // sketchOrientation = HMM_QFromAxisAngle_RH(axis, angle);
     }
 }
 
@@ -129,21 +120,10 @@ void main_frame(float dt, snz_Arena* scratch) {
         snzu_boxNew("leftPanel");
         snzu_boxFillParent();
         snzu_boxSetSizeFromStartAx(SNZU_AX_X, *leftPanelSize);
-        snzu_boxSetColor(BACKGROUND_COLOR);
+        snzu_boxSetColor(STYLE_BACKGROUND_COLOR);
         snzu_boxScope() {
-            snzu_boxNew("title");
-            snzu_boxSetDisplayStr(&titleFont, TEXT_COLOR, "// Settings");
-            snzu_boxSetSizeFitText();
-
-            snzu_boxNew("paragraph");
-            snzu_boxSetDisplayStr(&paragraphFont, TEXT_COLOR, "lrughslidurghsdlirgnsdkjrgnsdlk jn");
-            snzu_boxSetSizeFitText();
-
-            snzu_boxNew("label");
-            snzu_boxSetDisplayStr(&labelFont, TEXT_COLOR, "Main.cadder");
-            snzu_boxSetSizeFitText();
+            docs_buildPage();
         }
-        snzu_boxOrderChildrenInRowRecurse(10, SNZU_AX_Y);
         snzu_boxClipChildren();
 
         snzu_boxNew("rightPanel");
@@ -198,9 +178,10 @@ void main_frame(float dt, snz_Arena* scratch) {
             ren3d_drawMesh(&mesh, HMM_MulM4(proj, view), model, HMM_V3(-1, -1, -1));
             // FIXME: highlight edges :) + debug view of geometry
 
-            HMM_Mat4 sketchVP = HMM_Translate(sketchOrigin);
-            sketchVP = HMM_Mul(sketchVP, HMM_QToM4(sketchOrientation));
-            sketchVP = HMM_Mul(HMM_Mul(proj, view), sketchVP);
+            // HMM_Mat4 sketchVP = HMM_Translate(sketchOrigin);
+            // sketchVP = HMM_Mul(sketchVP, HMM_QToM4(sketchOrientation));
+            // sketchVP = HMM_Mul(HMM_Mul(proj, view), sketchVP);
+            HMM_Mat4 sketchVP = HMM_Mul(proj, view);
 
             glDisable(GL_DEPTH_TEST);
             for (sk_Constraint* c = sketch.firstConstraint; c; c = c->nextAllocated) {
@@ -215,7 +196,7 @@ void main_frame(float dt, snz_Arena* scratch) {
                     p1 = HMM_Add(p1, offset);
                     p2 = HMM_Add(p2, offset);
                     HMM_Vec2 points[] = { p1, p2 };
-                    snzr_drawLine(points, 2, TEXT_COLOR, 4, sketchVP);
+                    snzr_drawLine(points, 2, STYLE_TEXT_COLOR, 4, sketchVP);
                 } else if (c->kind == SK_CK_ANGLE) {
                     sk_Point* joint = NULL;
                     if (c->line1->p1 == c->line2->p1 || c->line1->p1 == c->line2->p2) {
@@ -236,7 +217,7 @@ void main_frame(float dt, snz_Arena* scratch) {
                             HMM_Add(joint->pos, HMM_Add(offset1, offset2)),
                             HMM_Add(joint->pos, offset2),
                         };
-                        snzr_drawLine(pts, 3, TEXT_COLOR, 4, sketchVP);
+                        snzr_drawLine(pts, 3, STYLE_TEXT_COLOR, 4, sketchVP);
                     } else {
                         sk_Point* otherOnLine1 = (c->line1->p1 == joint) ? c->line1->p2 : c->line1->p1;
                         HMM_Vec2 diff = HMM_Sub(otherOnLine1->pos, joint->pos);
@@ -247,14 +228,14 @@ void main_frame(float dt, snz_Arena* scratch) {
                             HMM_Vec2 offset = HMM_RotateV2(HMM_V2(angleConstraintVisualOffset, 0), startAngle + (i * c->value / (ptCount - 1)));
                             linePts[i] = HMM_Add(joint->pos, offset);
                         }
-                        snzr_drawLine(linePts, ptCount, TEXT_COLOR, 4, sketchVP);
+                        snzr_drawLine(linePts, ptCount, STYLE_TEXT_COLOR, 4, sketchVP);
                     }
                 } // end constraint kind switch
             } // end constraint draw loop
 
             for (sk_Line* l = sketch.firstLine; l; l = l->next) {
                 HMM_Vec2 points[] = { l->p1->pos, l->p2->pos, };
-                snzr_drawLine(points, 2, TEXT_COLOR, 2, sketchVP);
+                snzr_drawLine(points, 2, STYLE_TEXT_COLOR, 2, sketchVP);
             }
             glEnable(GL_DEPTH_TEST);
         }
@@ -262,18 +243,18 @@ void main_frame(float dt, snz_Arena* scratch) {
         snzu_boxNew("leftPanelBorder");
         snzu_boxFillParent();
         snzu_boxSetStartFromParentAx(*leftPanelSize, SNZU_AX_X);
-        snzu_boxSetSizeFromStartAx(SNZU_AX_X, BORDER_THICKNESS);
-        snzu_boxSetColor(TEXT_COLOR);
+        snzu_boxSetSizeFromStartAx(SNZU_AX_X, STYLE_BORDER_THICKNESS);
+        snzu_boxSetColor(STYLE_TEXT_COLOR);
         snzu_boxSetInteractionOutput(leftPanelInter, SNZU_IF_HOVER | SNZU_IF_MOUSE_BUTTONS);
 
         snzu_boxNew("upperBorder");
         snzu_boxFillParent();
-        snzu_boxSetSizeFromStartAx(SNZU_AX_Y, BORDER_THICKNESS);
-        snzu_boxSetColor(TEXT_COLOR);
+        snzu_boxSetSizeFromStartAx(SNZU_AX_Y, STYLE_BORDER_THICKNESS);
+        snzu_boxSetColor(STYLE_TEXT_COLOR);
     }
 }
 
 int main() {
-    snz_main("CADDER V0.0", main_init, main_frame);
+    snz_main("ADDER V0.0", main_init, main_frame);
     return 0;
 }

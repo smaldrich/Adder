@@ -1344,7 +1344,7 @@ void snzu_boxSetStart(HMM_Vec2 newStart) {
     _snzu_globs.selectedBox->start = newStart;
 }
 
-void snzu_boxSetStartFromParent(HMM_Vec2 offset) {
+void snzu_boxSetStartFromParentStart(HMM_Vec2 offset) {
     HMM_Vec2 finalPos = HMM_AddV2(_snzu_globs.selectedBox->parent->start, offset);
     _snzu_globs.selectedBox->start = finalPos;
 }
@@ -1360,6 +1360,11 @@ void snzu_boxSetStartFromParentAx(float offset, snzu_Axis ax) {
 
 void snzu_boxSetEnd(HMM_Vec2 newEnd) {
     _snzu_globs.selectedBox->end = newEnd;
+}
+
+void snzu_boxSetEndFromParentEnd(HMM_Vec2 offset) {
+    HMM_Vec2 finalPos = HMM_AddV2(_snzu_globs.selectedBox->parent->end, offset);
+    _snzu_globs.selectedBox->end = finalPos;
 }
 
 void snzu_boxSetEndAx(float newEnd, snzu_Axis ax) {
@@ -1423,8 +1428,12 @@ void snzu_boxFillParent() {
 
 void snzu_boxSizePctParent(float pct, snzu_Axis ax) {
     HMM_Vec2 newSize = snzu_boxGetSize(_snzu_globs.selectedBox->parent);
-    newSize.Elements[ax] *= pct;
-    snzu_boxSetSizeFromStart(newSize);
+    snzu_boxSetSizeFromStartAx(ax, newSize.Elements[ax] * pct);
+}
+
+void snzu_boxSizeFromEndPctParent(float pct, snzu_Axis ax) {
+    HMM_Vec2 newSize = snzu_boxGetSize(_snzu_globs.selectedBox->parent);
+    snzu_boxSetSizeFromEndAx(ax, newSize.Elements[ax] * pct);
 }
 
 // TODO: unit test this
@@ -2006,7 +2015,6 @@ bool snzuc_button(const snzr_Font* font, const char* title) {
 
 // FIXME: margin prop for inners
 void snzuc_scrollArea() {
-    snzu_boxSetColor(HMM_V4(0.1, 0.1, 0.1, 1));
     snzu_boxClipChildren();
 
     snzu_Interaction* const inter = SNZU_USE_MEM(snzu_Interaction, "inter");
@@ -2047,7 +2055,7 @@ void snzuc_scrollArea() {
             if (scrollBarSize > 0) {
                 snzu_boxSetStartFromParentAx(scrollBarStart, SNZU_AX_Y);
                 snzu_boxSetSizeFromStartAx(SNZU_AX_Y, scrollBarSize);
-                snzu_boxSetColor(HMM_V4(1, 1, 1, 0.4));
+                snzu_boxSetColor(HMM_V4(0.8, 0.8, 0.8, 0.4));
             }
         }
     }  // exit container
