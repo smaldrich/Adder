@@ -1,12 +1,12 @@
 #include "PoolAlloc.h"
 #include "csg.h"
+#include "docs.h"
 #include "render3d.h"
 #include "serialization2.h"
 #include "sketches2.h"
 #include "snooze.h"
 #include "stb/stb_image.h"
 #include "style.h"
-#include "docs.h"
 
 snz_Arena fontArena;
 
@@ -185,7 +185,7 @@ void main_frame(float dt, snz_Arena* scratch) {
 
             glDisable(GL_DEPTH_TEST);
             for (sk_Constraint* c = sketch.firstConstraint; c; c = c->nextAllocated) {
-                float angleConstraintVisualOffset = 0.05 * orbitPos->Z; // FIXME: is this still correct when panning?
+                float angleConstraintVisualOffset = 0.05 * orbitPos->Z;  // FIXME: is this still correct when panning?
                 float distConstraintVisualOffset = 0.025 * orbitPos->Z;
                 if (c->kind == SK_CK_DISTANCE) {
                     HMM_Vec2 p1 = c->line1->p1->pos;
@@ -195,7 +195,7 @@ void main_frame(float dt, snz_Arena* scratch) {
                     HMM_Vec2 offset = HMM_Mul(HMM_V2(-diff.Y, diff.X), distConstraintVisualOffset);
                     p1 = HMM_Add(p1, offset);
                     p2 = HMM_Add(p2, offset);
-                    HMM_Vec2 points[] = { p1, p2 };
+                    HMM_Vec2 points[] = {p1, p2};
                     snzr_drawLine(points, 2, STYLE_TEXT_COLOR, 4, sketchVP);
                 } else if (c->kind == SK_CK_ANGLE) {
                     sk_Point* joint = NULL;
@@ -230,11 +230,14 @@ void main_frame(float dt, snz_Arena* scratch) {
                         }
                         snzr_drawLine(linePts, ptCount, STYLE_TEXT_COLOR, 4, sketchVP);
                     }
-                } // end constraint kind switch
-            } // end constraint draw loop
+                }  // end constraint kind switch
+            }  // end constraint draw loop
 
             for (sk_Line* l = sketch.firstLine; l; l = l->next) {
-                HMM_Vec2 points[] = { l->p1->pos, l->p2->pos, };
+                HMM_Vec2 points[] = {
+                    l->p1->pos,
+                    l->p2->pos,
+                };
                 snzr_drawLine(points, 2, STYLE_TEXT_COLOR, 2, sketchVP);
             }
             glEnable(GL_DEPTH_TEST);

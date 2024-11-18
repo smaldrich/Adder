@@ -65,7 +65,7 @@ void docs_buildFileButton(_docs_File* file) {
         }
 
         float* const selectedAnim = SNZU_USE_MEM(float, "selectionAnim");
-        snzu_easeExp(selectedAnim, _docs_currentFile == file, 20);
+        snzu_easeExp(selectedAnim, _docs_currentFile == file, 10);
         float* const hoverAnim = SNZU_USE_MEM(float, "hoverAnim");
         snzu_easeExp(hoverAnim, inter->hovered, 20);
 
@@ -106,12 +106,12 @@ void docs_buildPage() {
                 }
                 snzu_boxOrderChildrenInRowRecurse(5, SNZU_AX_Y);
                 snzu_boxSetSizeFromStartAx(SNZU_AX_Y, snzu_boxGetSizeToFitChildrenAx(SNZU_AX_Y));
-            } // scroll area for files
+            }  // scroll area for files
             snzuc_scrollArea();
 
             snzu_boxNew("scroll area for text");
             snzu_boxFillParent();
-            snzu_boxSizeFromEndPctParent(0.6, SNZU_AX_X); // FIXME: fill remainder function
+            snzu_boxSizeFromEndPctParent(0.6, SNZU_AX_X);  // FIXME: fill remainder function
             snzu_boxScope() {
                 snzu_boxNew("header");
                 snzu_boxSetDisplayStr(&style_titleFont, STYLE_TEXT_COLOR, _docs_currentFile->name);
@@ -120,9 +120,9 @@ void docs_buildPage() {
                 snzu_boxNew("text");
                 snzu_boxSetDisplayStr(&style_paragraphFont, STYLE_TEXT_COLOR, _docs_currentFile->text);
                 snzu_boxSetSizeFitText();
-            } // scroll area for files
+            }  // scroll area for files
             snzu_boxOrderChildrenInRowRecurse(10, SNZU_AX_Y);
             snzuc_scrollArea();
-        } // end box for both scroll areas
-    } // end parent
-} // end docs_buildPage
+        }  // end box for both scroll areas
+    }  // end parent
+}  // end docs_buildPage

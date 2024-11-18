@@ -46,9 +46,9 @@ void _snz_assertf(bool cond, const char* fmt, const char* file, int64_t line, ..
 }
 
 #define SNZ_OPTION_NAMED(okT, errorT, name) \
-    typedef struct {                   \
-        okT ok;                        \
-        errorT error;                  \
+    typedef struct {                        \
+        okT ok;                             \
+        errorT error;                       \
     } name;
 
 #define SNZ_OPTION(okT, errorT) SNZ_OPTION_NAMED(okT, errorT, okT##Opt)
@@ -199,7 +199,7 @@ static void _snzr_glDebugCallback(GLenum source, GLenum type, GLuint id, GLenum 
 }
 
 // wraps a call in a do while, with another line that asserts no gl errors are present
-#define snzr_callGLFnOrError(lineOfCode)                                                   \
+#define snzr_callGLFnOrError(lineOfCode)                                                    \
     do {                                                                                    \
         lineOfCode;                                                                         \
         int64_t err = glGetError();                                                         \
@@ -218,7 +218,7 @@ static uint32_t _snzr_loadShaderStep(const char* src, GLenum stepKind, snz_Arena
     glCompileShader(id);
 
     int compileSucceded = false;
-    char* logBuffer = SNZ_ARENA_PUSH_ARR(scratch, 512, char); // FIXME: this is gross
+    char* logBuffer = SNZ_ARENA_PUSH_ARR(scratch, 512, char);  // FIXME: this is gross
     glGetShaderiv(id, GL_COMPILE_STATUS, &compileSucceded);
     if (!compileSucceded) {
         glGetShaderInfoLog(id, 512, NULL, logBuffer);
@@ -244,7 +244,7 @@ uint32_t snzr_shaderInit(const char* vertChars, const char* fragChars, snz_Arena
 // data does not need to be kept alive after this call
 // may be null to indicate undefined contents
 snzr_Texture snzr_textureInitRBGA(int32_t width, int32_t height, uint8_t* data) {
-    snzr_Texture out = { .width = width, .height = height };
+    snzr_Texture out = {.width = width, .height = height};
     snzr_callGLFnOrError(glGenTextures(1, &out.glId));
     snzr_callGLFnOrError(glBindTexture(GL_TEXTURE_2D, out.glId));
     snzr_callGLFnOrError(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR));
@@ -257,7 +257,7 @@ snzr_Texture snzr_textureInitRBGA(int32_t width, int32_t height, uint8_t* data) 
 
 // data does not need to be kept alive after this call
 snzr_Texture snzr_textureInitGrayscale(int32_t width, int32_t height, uint8_t* data) {
-    snzr_Texture out = { .width = width, .height = height };
+    snzr_Texture out = {.width = width, .height = height};
     snzr_callGLFnOrError(glGenTextures(1, &out.glId));
     snzr_callGLFnOrError(glBindTexture(GL_TEXTURE_2D, out.glId));
     snzr_callGLFnOrError(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR));
@@ -312,7 +312,7 @@ void snzr_frameBufferDeinit(snzr_FrameBuffer* fb) {
 #define _SNZR_FONT_UNKNOWN_CHAR 9633  // white box, see: https://www.fileformat.info/info/unicode/char/25a1/index.htm
 
 snzr_Font snzr_fontInit(snz_Arena* dataArena, snz_Arena* scratch, const char* path, float size) {
-    snzr_Font out = { .renderedSize = size };
+    snzr_Font out = {.renderedSize = size};
 
     uint8_t* fileData;
     {
@@ -338,11 +338,11 @@ snzr_Font snzr_fontInit(snz_Arena* dataArena, snz_Arena* scratch, const char* pa
     stbtt_pack_context ctx;
     uint8_t* atlasData = SNZ_ARENA_PUSH_ARR(scratch, _SNZR_FONT_ATLAS_W * _SNZR_FONT_ATLAS_H, uint8_t);
     assert(stbtt_PackBegin(&ctx, atlasData,
-        _SNZR_FONT_ATLAS_W,
-        _SNZR_FONT_ATLAS_H,
-        _SNZR_FONT_ATLAS_W,
-        1,
-        NULL));
+                           _SNZR_FONT_ATLAS_W,
+                           _SNZR_FONT_ATLAS_H,
+                           _SNZR_FONT_ATLAS_W,
+                           1,
+                           NULL));
     stbtt_PackSetOversampling(&ctx, 1, 1);
 
     const int glyphCount = _SNZR_FONT_ASCII_CHAR_COUNT + 1;
@@ -541,7 +541,7 @@ static void _snzr_init(snz_Arena* scratchArena) {
     snzr_callGLFnOrError(glBindBuffer(GL_SHADER_STORAGE_BUFFER, _snzr_globs.lineShaderSSBOId));
     snzr_callGLFnOrError(glBufferData(GL_SHADER_STORAGE_BUFFER, 0, NULL, GL_DYNAMIC_DRAW));
 
-    uint8_t solidTexData[] = { 255, 255, 255, 255 };
+    uint8_t solidTexData[] = {255, 255, 255, 255};
     _snzr_globs.solidTex = snzr_textureInitRBGA(1, 1, solidTexData);
 }
 
@@ -1236,7 +1236,7 @@ static void _snzu_drawFrameAndGenInterations(snzu_Input input, HMM_Vec2 screenSi
     }
 
     if (wasMouseUp) {
-        _snzu_globs.mouseCapturePathHash = 0; // RMB clears this focus, which can fuck up a LMB drag, it doesn't get cleared on mouseup bc 'nothing is dragged'
+        _snzu_globs.mouseCapturePathHash = 0;  // RMB clears this focus, which can fuck up a LMB drag, it doesn't get cleared on mouseup bc 'nothing is dragged'
     }
     _snzu_globs.previousInputs = _snzu_globs.currentInputs;
 }
@@ -2052,7 +2052,7 @@ void snzuc_scrollArea() {
 
             float scrollBarStart = (*scrollPosPx) / innerHeight * containerHeight;
             float scrollBarSize = containerHeight / innerHeight * containerHeight;
-            if (scrollBarSize > 0) {
+            if (scrollBarSize > 0 && scrollBarSize < containerHeight) {
                 snzu_boxSetStartFromParentAx(scrollBarStart, SNZU_AX_Y);
                 snzu_boxSetSizeFromStartAx(SNZU_AX_Y, scrollBarSize);
                 snzu_boxSetColor(HMM_V4(0.8, 0.8, 0.8, 0.4));
