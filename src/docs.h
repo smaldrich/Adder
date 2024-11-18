@@ -51,38 +51,6 @@ void docs_init() {
     _docs_currentFile = _docs_firstFile;
 }
 
-// uses _docs_currentFile
-void docs_buildFileButton(_docs_File* file) {
-    HMM_Vec2 size = snzr_strSize(&style_labelFont, file->name, strlen(file->name));
-
-    snzu_boxNew(file->name);
-    snzu_boxSetSizeFromStart(size);
-    snzu_boxScope() {
-        snzu_Interaction* const inter = SNZU_USE_MEM(snzu_Interaction, "inter");
-        snzu_boxSetInteractionOutput(inter, SNZU_IF_MOUSE_BUTTONS | SNZU_IF_HOVER);
-        if (inter->mouseActions[SNZU_MB_LEFT] == SNZU_ACT_DOWN) {
-            _docs_currentFile = file;
-        }
-
-        float* const selectedAnim = SNZU_USE_MEM(float, "selectionAnim");
-        snzu_easeExp(selectedAnim, _docs_currentFile == file, 10);
-        float* const hoverAnim = SNZU_USE_MEM(float, "hoverAnim");
-        snzu_easeExp(hoverAnim, inter->hovered, 20);
-
-        snzu_boxNew("highlight");
-        snzu_boxSetColor(STYLE_ACCENT_COLOR);
-        snzu_boxFillParent();
-        snzu_boxSizeFromEndPctParent(0.3, SNZU_AX_Y);
-        snzu_boxSizePctParent(*selectedAnim * 0.6, SNZU_AX_X);
-
-        snzu_boxNew("text");
-        snzu_boxSetStartFromParentKeepSizeRecurse(HMM_V2((*hoverAnim + *selectedAnim) * 10, 0));
-        snzu_boxSetDisplayStr(&style_labelFont, STYLE_TEXT_COLOR, file->name);
-        snzu_boxSetSizeFitText();
-    }
-    snzu_boxSetSizeFromStartAx(SNZU_AX_Y, snzu_boxGetSizeToFitChildrenAx(SNZU_AX_Y));
-}
-
 void docs_buildPage() {
     snzu_boxNew("docs page");
     snzu_boxFillParent();
@@ -101,7 +69,10 @@ void docs_buildPage() {
                 snzu_boxSetSizeMarginFromParent(20);
                 snzu_boxScope() {
                     for (_docs_File* file = _docs_firstFile; file; file = file->next) {
-                        docs_buildFileButton(file);
+                        bool clicked = style_buttonWithHighlight(file == _docs_currentFile, file->name);
+                        if (clicked) {
+                            _docs_currentFile = file;
+                        }
                     }
                 }
                 snzu_boxOrderChildrenInRowRecurse(5, SNZU_AX_Y);
