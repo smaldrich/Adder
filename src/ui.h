@@ -44,18 +44,3 @@ bool ui_buttonWithHighlight(bool selected, const char* name) {
 
     return out;
 }
-
-typedef enum {
-    UI_TK_DEFAULT,
-    UI_TK_SKETCH_NEW,
-    UI_TK_SKETCH_LINE,
-    UI_TK_SKETCH_CONSTRAINT_ANGLE,
-    UI_TK_SKETCH_CONSTRAINT_DISTANCE,
-    UI_TK_EXTRUDE,
-} _ui_ToolKind;
-
-static _ui_ToolKind _ui_currentToolKind;
-
-void ui_runTools() {
-    snzu_boxNew("tool window");
-}
