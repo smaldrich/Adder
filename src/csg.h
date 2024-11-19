@@ -58,6 +58,14 @@ bool csg_floatEqual(float a, float b) {
     return csg_floatZero(a - b);
 }
 
+bool csg_floatLessEqual(float a, float b) {
+    return csg_floatEqual(a, b) || a < b;
+}
+
+bool csg_floatGreaterEqual(float a, float b) {
+    return csg_floatEqual(a, b) || a > b;
+}
+
 bool csg_v2Equal(HMM_Vec2 a, HMM_Vec2 b) {
     return csg_floatEqual(a.X, b.X) && csg_floatEqual(a.Y, b.Y);
 }

@@ -166,7 +166,7 @@ void main_drawDemoScene(HMM_Vec2 panelSize, snz_Arena* scratch) {
             HMM_Vec2 offset = HMM_Mul(HMM_V2(-diff.Y, diff.X), distConstraintVisualOffset);
             p1 = HMM_Add(p1, offset);
             p2 = HMM_Add(p2, offset);
-            HMM_Vec2 points[] = {p1, p2};
+            HMM_Vec2 points[] = { p1, p2 };
             snzr_drawLine(points, 2, STYLE_TEXT_COLOR, 4, sketchVP);
         } else if (c->kind == SK_CK_ANGLE) {
             sk_Point* joint = NULL;
