@@ -6,7 +6,7 @@
 #include "sketches2.h"
 #include "snooze.h"
 #include "stb/stb_image.h"
-#include "style.h"
+#include "ui.h"
 
 snz_Arena fontArena;
 
@@ -25,9 +25,9 @@ void main_init(snz_Arena* scratch) {
     fontArena = snz_arenaInit(10000000, "main font arena");
     sketchArena = snz_arenaInit(10000000, "main sketch arena");
 
-    style_titleFont = snzr_fontInit(&fontArena, scratch, "res/fonts/AzeretMono-Regular.ttf", 48);
+    ui_titleFont = snzr_fontInit(&fontArena, scratch, "res/fonts/AzeretMono-Regular.ttf", 48);
     style_paragraphFont = snzr_fontInit(&fontArena, scratch, "res/fonts/OpenSans-Light.ttf", 16);
-    style_labelFont = snzr_fontInit(&fontArena, scratch, "res/fonts/AzeretMono-LightItalic.ttf", 20);
+    ui_labelFont = snzr_fontInit(&fontArena, scratch, "res/fonts/AzeretMono-LightItalic.ttf", 20);
 
     ren3d_init(scratch);
     docs_init();
@@ -166,8 +166,8 @@ void main_drawDemoScene(HMM_Vec2 panelSize, snz_Arena* scratch) {
             HMM_Vec2 offset = HMM_Mul(HMM_V2(-diff.Y, diff.X), distConstraintVisualOffset);
             p1 = HMM_Add(p1, offset);
             p2 = HMM_Add(p2, offset);
-            HMM_Vec2 points[] = { p1, p2 };
-            snzr_drawLine(points, 2, STYLE_TEXT_COLOR, 4, sketchVP);
+            HMM_Vec2 points[] = {p1, p2};
+            snzr_drawLine(points, 2, UI_TEXT_COLOR, 4, sketchVP);
         } else if (c->kind == SK_CK_ANGLE) {
             sk_Point* joint = NULL;
             if (c->line1->p1 == c->line2->p1 || c->line1->p1 == c->line2->p2) {
@@ -188,7 +188,7 @@ void main_drawDemoScene(HMM_Vec2 panelSize, snz_Arena* scratch) {
                     HMM_Add(joint->pos, HMM_Add(offset1, offset2)),
                     HMM_Add(joint->pos, offset2),
                 };
-                snzr_drawLine(pts, 3, STYLE_TEXT_COLOR, 4, sketchVP);
+                snzr_drawLine(pts, 3, UI_TEXT_COLOR, 4, sketchVP);
             } else {
                 sk_Point* otherOnLine1 = (c->line1->p1 == joint) ? c->line1->p2 : c->line1->p1;
                 HMM_Vec2 diff = HMM_Sub(otherOnLine1->pos, joint->pos);
@@ -199,7 +199,7 @@ void main_drawDemoScene(HMM_Vec2 panelSize, snz_Arena* scratch) {
                     HMM_Vec2 offset = HMM_RotateV2(HMM_V2(angleConstraintVisualOffset, 0), startAngle + (i * c->value / (ptCount - 1)));
                     linePts[i] = HMM_Add(joint->pos, offset);
                 }
-                snzr_drawLine(linePts, ptCount, STYLE_TEXT_COLOR, 4, sketchVP);
+                snzr_drawLine(linePts, ptCount, UI_TEXT_COLOR, 4, sketchVP);
             }
         }  // end constraint kind switch
     }  // end constraint draw loop
@@ -209,7 +209,7 @@ void main_drawDemoScene(HMM_Vec2 panelSize, snz_Arena* scratch) {
             l->p1->pos,
             l->p2->pos,
         };
-        snzr_drawLine(points, 2, STYLE_TEXT_COLOR, 2, sketchVP);
+        snzr_drawLine(points, 2, UI_TEXT_COLOR, 2, sketchVP);
     }
     glEnable(GL_DEPTH_TEST);
 }
@@ -244,7 +244,7 @@ void main_frame(float dt, snz_Arena* scratch) {
         snzu_boxNew("leftPanel");
         snzu_boxFillParent();
         snzu_boxSetSizeFromStartAx(SNZU_AX_X, *leftPanelSize);
-        snzu_boxSetColor(STYLE_BACKGROUND_COLOR);
+        snzu_boxSetColor(UI_BACKGROUND_COLOR);
         snzu_boxScope() {
             snzu_boxNew("padding");
             snzu_boxSetSizeMarginFromParent(20);
@@ -253,7 +253,7 @@ void main_frame(float dt, snz_Arena* scratch) {
                 snzu_boxFillParent();
                 snzu_boxSizePctParent(0.5, SNZU_AX_Y);
                 snzu_boxScope() {
-                    if (style_buttonWithHighlight(main_currentView == MAIN_VIEW_SCENE, "demo scene")) {
+                    if (ui_buttonWithHighlight(main_currentView == MAIN_VIEW_SCENE, "demo scene")) {
                         main_currentView = MAIN_VIEW_SCENE;
                     }
                 }
@@ -264,7 +264,7 @@ void main_frame(float dt, snz_Arena* scratch) {
                 snzu_boxFillParent();
                 snzu_boxSizeFromEndPctParent(0.5, SNZU_AX_Y);
                 snzu_boxScope() {
-                    if (style_buttonWithHighlight(main_currentView == MAIN_VIEW_DOCS, "docs")) {
+                    if (ui_buttonWithHighlight(main_currentView == MAIN_VIEW_DOCS, "docs")) {
                         main_currentView = MAIN_VIEW_DOCS;
                     }
                 }
@@ -290,14 +290,14 @@ void main_frame(float dt, snz_Arena* scratch) {
         snzu_boxNew("leftPanelBorder");
         snzu_boxFillParent();
         snzu_boxSetStartFromParentAx(*leftPanelSize, SNZU_AX_X);
-        snzu_boxSetSizeFromStartAx(SNZU_AX_X, STYLE_BORDER_THICKNESS);
-        snzu_boxSetColor(STYLE_TEXT_COLOR);
+        snzu_boxSetSizeFromStartAx(SNZU_AX_X, UI_BORDER_THICKNESS);
+        snzu_boxSetColor(UI_TEXT_COLOR);
         snzu_boxSetInteractionOutput(leftPanelInter, SNZU_IF_HOVER | SNZU_IF_MOUSE_BUTTONS);
 
         snzu_boxNew("upperBorder");
         snzu_boxFillParent();
-        snzu_boxSetSizeFromStartAx(SNZU_AX_Y, STYLE_BORDER_THICKNESS);
-        snzu_boxSetColor(STYLE_TEXT_COLOR);
+        snzu_boxSetSizeFromStartAx(SNZU_AX_Y, UI_BORDER_THICKNESS);
+        snzu_boxSetColor(UI_TEXT_COLOR);
     }
 }
 

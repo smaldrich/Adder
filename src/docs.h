@@ -1,6 +1,6 @@
 
 #include "snooze.h"
-#include "style.h"
+#include "ui.h"
 
 static snz_Arena _docs_fileDataArena;
 
@@ -54,7 +54,7 @@ void docs_init() {
 void docs_buildPage() {
     snzu_boxNew("docs page");
     snzu_boxFillParent();
-    snzu_boxSetColor(STYLE_BACKGROUND_COLOR);
+    snzu_boxSetColor(UI_BACKGROUND_COLOR);
     snzu_boxScope() {
         snzu_boxNew("margin area");
         HMM_Vec2 parentSize = snzu_boxGetSize(snzu_boxGetParent());
@@ -69,7 +69,7 @@ void docs_buildPage() {
                 snzu_boxSetSizeMarginFromParent(20);
                 snzu_boxScope() {
                     for (_docs_File* file = _docs_firstFile; file; file = file->next) {
-                        bool clicked = style_buttonWithHighlight(file == _docs_currentFile, file->name);
+                        bool clicked = ui_buttonWithHighlight(file == _docs_currentFile, file->name);
                         if (clicked) {
                             _docs_currentFile = file;
                         }
@@ -85,11 +85,11 @@ void docs_buildPage() {
             snzu_boxSizeFromEndPctParent(0.6, SNZU_AX_X);  // FIXME: fill remainder function
             snzu_boxScope() {
                 snzu_boxNew("header");
-                snzu_boxSetDisplayStr(&style_titleFont, STYLE_TEXT_COLOR, _docs_currentFile->name);
+                snzu_boxSetDisplayStr(&ui_titleFont, UI_TEXT_COLOR, _docs_currentFile->name);
                 snzu_boxSetSizeFitText();
 
                 snzu_boxNew("text");
-                snzu_boxSetDisplayStr(&style_paragraphFont, STYLE_TEXT_COLOR, _docs_currentFile->text);
+                snzu_boxSetDisplayStr(&ui_paragraphFont, UI_TEXT_COLOR, _docs_currentFile->text);
                 snzu_boxSetSizeFitText();
             }  // scroll area for files
             snzu_boxOrderChildrenInRowRecurse(10, SNZU_AX_Y);
