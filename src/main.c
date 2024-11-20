@@ -26,7 +26,7 @@ void main_init(snz_Arena* scratch) {
     sketchArena = snz_arenaInit(10000000, "main sketch arena");
 
     ui_titleFont = snzr_fontInit(&fontArena, scratch, "res/fonts/AzeretMono-Regular.ttf", 48);
-    style_paragraphFont = snzr_fontInit(&fontArena, scratch, "res/fonts/OpenSans-Light.ttf", 16);
+    ui_paragraphFont = snzr_fontInit(&fontArena, scratch, "res/fonts/OpenSans-Light.ttf", 16);
     ui_labelFont = snzr_fontInit(&fontArena, scratch, "res/fonts/AzeretMono-LightItalic.ttf", 20);
 
     ren3d_init(scratch);
@@ -166,7 +166,7 @@ void main_drawDemoScene(HMM_Vec2 panelSize, snz_Arena* scratch) {
             HMM_Vec2 offset = HMM_Mul(HMM_V2(-diff.Y, diff.X), distConstraintVisualOffset);
             p1 = HMM_Add(p1, offset);
             p2 = HMM_Add(p2, offset);
-            HMM_Vec2 points[] = {p1, p2};
+            HMM_Vec2 points[] = { p1, p2 };
             snzr_drawLine(points, 2, UI_TEXT_COLOR, 4, sketchVP);
         } else if (c->kind == SK_CK_ANGLE) {
             sk_Point* joint = NULL;
@@ -230,21 +230,23 @@ void main_frame(float dt, snz_Arena* scratch) {
     snzu_boxNew("parent");
     snzu_boxFillParent();
     snzu_boxScope() {
-        float* const leftPanelSize = SNZU_USE_MEM(float, "leftPanelSize");
+        float* const leftPanelAnim = SNZU_USE_MEM(float, "leftPanelAnim");
         snzu_Interaction* leftPanelInter = SNZU_USE_MEM(snzu_Interaction, "leftPanelInter");
-        if (leftPanelInter->dragged) {
-            *leftPanelSize = leftPanelInter->mousePosGlobal.X;
-        }
-        // FIXME: cursor change
-        *leftPanelSize = SNZ_MAX(200, SNZ_MIN(*leftPanelSize, snzu_boxGetSize(snzu_boxGetParent()).X - 200));
+
+        // FIXME: on startup this flashes out
+        float leftPanelSize = *leftPanelAnim * 200;
+        bool target = (leftPanelInter->mousePosGlobal.X < 20) || (leftPanelInter->mousePosGlobal.X < leftPanelSize);
+        // ^ Just using hover don't work because of inner elts. masking hover events
+        snzu_easeExp(leftPanelAnim, target, 10);
 
         rightPanelSize = snzu_boxGetSize(snzu_boxGetParent());
-        rightPanelSize.X -= *leftPanelSize;
+        rightPanelSize.X -= leftPanelSize;
 
         snzu_boxNew("leftPanel");
         snzu_boxFillParent();
-        snzu_boxSetSizeFromStartAx(SNZU_AX_X, *leftPanelSize);
+        snzu_boxSetSizeFromStartAx(SNZU_AX_X, leftPanelSize);
         snzu_boxSetColor(UI_BACKGROUND_COLOR);
+        snzu_boxSetInteractionOutput(leftPanelInter, SNZU_IF_HOVER);
         snzu_boxScope() {
             snzu_boxNew("padding");
             snzu_boxSetSizeMarginFromParent(20);
@@ -273,6 +275,7 @@ void main_frame(float dt, snz_Arena* scratch) {
             }  // end padding
         }  // end leftpanel
         snzu_boxClipChildren();
+        // FIXME: some hint in the lower left corner that this menu exists
 
         snzu_boxNew("rightPanel");
         snzu_boxFillParent();
@@ -289,10 +292,9 @@ void main_frame(float dt, snz_Arena* scratch) {
 
         snzu_boxNew("leftPanelBorder");
         snzu_boxFillParent();
-        snzu_boxSetStartFromParentAx(*leftPanelSize, SNZU_AX_X);
+        snzu_boxSetStartFromParentAx(leftPanelSize - UI_BORDER_THICKNESS, SNZU_AX_X);
         snzu_boxSetSizeFromStartAx(SNZU_AX_X, UI_BORDER_THICKNESS);
         snzu_boxSetColor(UI_TEXT_COLOR);
-        snzu_boxSetInteractionOutput(leftPanelInter, SNZU_IF_HOVER | SNZU_IF_MOUSE_BUTTONS);
 
         snzu_boxNew("upperBorder");
         snzu_boxFillParent();
