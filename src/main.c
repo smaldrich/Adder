@@ -50,6 +50,10 @@ void main_init(snz_Arena* scratch) {
         sk_sketchAddConstraintDistance(&sketch, &sketchArena, rightLine, 1);
         // sk_sketchAddConstraintAngle(&sketch, &sketchArena, rightLine, false, vertical, false, HMM_AngleDeg(90));
 
+        sk_Point* other = sk_sketchAddPoint(&sketch, &sketchArena, HMM_V2(-1, 1));
+        sk_Line* l = sk_sketchAddLine(&sketch, &sketchArena, left, other);
+        sk_sketchAddConstraintAngle(&sketch, &sketchArena, l, false, leftLine, false, 120);
+
         sk_sketchAddLine(&sketch, &sketchArena, up, right);
 
         sk_sketchSolve(&sketch, originPt, vertical, HMM_AngleDeg(90));
@@ -164,6 +168,7 @@ void main_drawDemoScene(HMM_Vec2 panelSize, snz_Arena* scratch) {
         }
     }
 
+    // Drawing actual constraints
     for (sk_Constraint* c = sketch.firstConstraint; c; c = c->nextAllocated) {
         HMM_Vec4 color = UI_TEXT_COLOR;
         if (c->violated) {
