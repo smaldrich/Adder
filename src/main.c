@@ -165,6 +165,11 @@ void main_drawDemoScene(HMM_Vec2 panelSize, snz_Arena* scratch) {
     }
 
     for (sk_Constraint* c = sketch.firstConstraint; c; c = c->nextAllocated) {
+        HMM_Vec4 color = UI_TEXT_COLOR;
+        if (c->violated) {
+            color = UI_RED;
+        }
+
         float angleConstraintVisualOffset = 0.05 * orbitPos->Z;  // FIXME: is this still correct when panning?
         float distConstraintVisualOffset = 0.025 * orbitPos->Z;
         if (c->kind == SK_CK_DISTANCE) {
@@ -174,8 +179,8 @@ void main_drawDemoScene(HMM_Vec2 panelSize, snz_Arena* scratch) {
             HMM_Vec2 offset = HMM_Mul(HMM_V2(diff.Y, -diff.X), distConstraintVisualOffset);
             p1 = HMM_Add(p1, offset);
             p2 = HMM_Add(p2, offset);
-            HMM_Vec2 points[] = { p1, p2 };
-            snzr_drawLine(points, 2, UI_TEXT_COLOR, 4, sketchVP);
+            HMM_Vec2 points[] = {p1, p2};
+            snzr_drawLine(points, 2, color, 4, sketchVP);
         } else if (c->kind == SK_CK_ANGLE) {
             sk_Point* joint = NULL;
             if (c->line1->p1 == c->line2->p1 || c->line1->p1 == c->line2->p2) {
@@ -196,7 +201,7 @@ void main_drawDemoScene(HMM_Vec2 panelSize, snz_Arena* scratch) {
                     HMM_Add(joint->pos, HMM_Add(offset1, offset2)),
                     HMM_Add(joint->pos, offset2),
                 };
-                snzr_drawLine(pts, 3, UI_TEXT_COLOR, 4, sketchVP);
+                snzr_drawLine(pts, 3, color, 4, sketchVP);
             } else {
                 sk_Point* otherOnLine1 = (c->line1->p1 == joint) ? c->line1->p2 : c->line1->p1;
                 HMM_Vec2 diff = HMM_Sub(otherOnLine1->pos, joint->pos);
@@ -207,7 +212,7 @@ void main_drawDemoScene(HMM_Vec2 panelSize, snz_Arena* scratch) {
                     HMM_Vec2 offset = HMM_RotateV2(HMM_V2(angleConstraintVisualOffset, 0), startAngle + (i * c->value / (ptCount - 1)));
                     linePts[i] = HMM_Add(joint->pos, offset);
                 }
-                snzr_drawLine(linePts, ptCount, UI_TEXT_COLOR, 4, sketchVP);
+                snzr_drawLine(linePts, ptCount, color, 4, sketchVP);
             }
         }  // end constraint kind switch
     }  // end constraint draw loop

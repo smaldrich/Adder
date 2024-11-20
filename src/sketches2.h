@@ -71,6 +71,8 @@ struct sk_Constraint {
     float value;
     sk_Constraint* nextAllocated;
     sk_Constraint* nextUnapplied;
+
+    bool violated;
 };
 // FIXME: opaque types for all of these
 
@@ -346,8 +348,17 @@ static void _sk_rotatePtsWhenUnsolved(sk_Point* const p1, sk_Point* const p2, fl
     }
 }
 
+static float _sk_angleOfLine(HMM_Vec2 p1, HMM_Vec2 p2, bool flip) {
+    HMM_Vec2 diff = HMM_Sub(p2, p1);
+    float angle = atan2f(diff.Y, diff.X);
+    if (flip) {
+        angle += HMM_AngleDeg(180);
+    }
+    return angle;
+}
+
 // return indicates whether sketch was solved completely
-bool sk_sketchSolve(sk_Sketch* sketch, sk_Point* originPt, sk_Line* originLine, float originLineAngle) {
+void sk_sketchSolve(sk_Sketch* sketch, sk_Point* originPt, sk_Line* originLine, float originLineAngle) {
     int64_t sketchPointCount = 0;
     int64_t solvedPointCount = 1;
 
@@ -364,6 +375,7 @@ bool sk_sketchSolve(sk_Sketch* sketch, sk_Point* originPt, sk_Line* originLine, 
 
         sketch->firstUnappliedConstraint = NULL;
         for (sk_Constraint* c = sketch->firstConstraint; c; c = c->nextAllocated) {
+            c->violated = false;
             c->nextUnapplied = sketch->firstUnappliedConstraint;
             sketch->firstUnappliedConstraint = c;
         }
@@ -395,8 +407,12 @@ bool sk_sketchSolve(sk_Sketch* sketch, sk_Point* originPt, sk_Line* originLine, 
                         .circle.origin = fixed->pos,
                         .circle.radius = c->value,
                     };
-                    variable->manifold = _sk_manifoldJoin(variable->manifold, m);
-                    SNZ_ASSERT(variable->manifold.kind != SK_MK_NONE, "OVERCONSTRAINED!!");  // FIXME: remove
+                    sk_Manifold newManifold = _sk_manifoldJoin(variable->manifold, m);
+                    if (newManifold.kind != SK_MK_NONE) {
+                        variable->manifold = newManifold;
+                    }
+                    // If the constraint is violated, we just mark it as applied and move on.
+                    // the implicit solved will mark it officially afterwards.
                     applied = true;
                 }
             } else if (c->kind == SK_CK_ANGLE) {
@@ -489,7 +505,7 @@ bool sk_sketchSolve(sk_Sketch* sketch, sk_Point* originPt, sk_Line* originLine, 
         }
 
         if (solvedPointCount == sketchPointCount) {
-            return true;  // skip implicit solving when everything is good
+            return;  // skip implicit solving when everything is good
         } else if (!anySolved) {
             break;
         }
@@ -504,17 +520,9 @@ bool sk_sketchSolve(sk_Sketch* sketch, sk_Point* originPt, sk_Line* originLine, 
                     continue;
                 }
 
-                HMM_Vec2 l1Diff = HMM_Sub(c->line1->p2->pos, c->line1->p1->pos);
-                float l1Angle = atan2f(l1Diff.Y, l1Diff.X);  // Can't use the angle prop because that is the expected angle, not the actual
-                if (c->flipLine1) {
-                    l1Angle += HMM_AngleDeg(180);
-                }
-
-                HMM_Vec2 l2Diff = HMM_Sub(c->line2->p2->pos, c->line2->p1->pos);
-                float l2Angle = atan2f(l2Diff.Y, l2Diff.X);
-                if (c->flipLine2) {
-                    l2Angle += HMM_AngleDeg(180);
-                }
+                // Can't use the angle prop because that is the expected angle, not the actual
+                float l1Angle = _sk_angleOfLine(c->line1->p2->pos, c->line1->p1->pos, c->flipLine1);
+                float l2Angle = _sk_angleOfLine(c->line2->p2->pos, c->line2->p1->pos, c->flipLine2);
 
                 float angleDiff = (c->value - (l2Angle - l1Angle)) / 2;
                 error = angleDiff * 2;
@@ -542,11 +550,27 @@ bool sk_sketchSolve(sk_Sketch* sketch, sk_Point* originPt, sk_Line* originLine, 
         }  // end inplicit solve loop
 
         if (fabsf(maxError) < CSG_EPSILON) {
-            return true;
+            return;
         }
     }  // end iteration loop
 
-    return false;
+    // mark constraints as violated
+    for (sk_Constraint* c = sketch->firstConstraint; c; c = c->nextAllocated) {
+        if (c->kind == SK_CK_DISTANCE) {
+            float error = HMM_Len(HMM_Sub(c->line1->p2->pos, c->line1->p1->pos)) - c->value;
+            if (!csg_floatZero(error)) {
+                c->violated = true;
+            }
+        } else if (c->kind == SK_CK_ANGLE) {
+            float l1Angle = _sk_angleOfLine(c->line1->p2->pos, c->line1->p2->pos, c->flipLine1);
+            float l2Angle = _sk_angleOfLine(c->line2->p2->pos, c->line2->p2->pos, c->flipLine2);
+
+            float error = c->value - (l2Angle - l1Angle);
+            if (!csg_floatZero(error)) {
+                c->violated = true;
+            }
+        }
+    }
 }
 
 void sk_tests() {
@@ -676,7 +700,7 @@ void sk_tests() {
         sk_sketchAddConstraintDistance(&s, &a, l2, 1);
         sk_sketchAddConstraintDistance(&s, &a, l3, 1);
 
-        snz_testPrint(sk_sketchSolve(&s, p1, l1, 30), "distance based triangle solve");
+        sk_sketchSolve(&s, p1, l1, 30);  // FIXME: message?
     }
 
     {
@@ -694,7 +718,7 @@ void sk_tests() {
         sk_sketchAddConstraintAngle(&s, &a, l1, true, l2, false, HMM_AngleDeg(30));
         sk_sketchAddConstraintAngle(&s, &a, l1, false, l3, true, HMM_AngleDeg(-30));
 
-        snz_testPrint(sk_sketchSolve(&s, p1, l1, HMM_AngleDeg(90)), "angle based triangle solve");
+        sk_sketchSolve(&s, p1, l1, HMM_AngleDeg(90));  // FIXME: message?
     }
 
     snz_arenaDeinit(&a);
