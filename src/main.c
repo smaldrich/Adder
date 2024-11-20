@@ -36,32 +36,20 @@ void main_init(snz_Arena* scratch) {
 
     {
         sketch = sk_sketchInit();
-        sk_Point* p1 = sk_sketchAddPoint(&sketch, &sketchArena, HMM_V2(0, 0));
-        sk_Point* p2 = sk_sketchAddPoint(&sketch, &sketchArena, HMM_V2(0, 0));
-        sk_Point* p3 = sk_sketchAddPoint(&sketch, &sketchArena, HMM_V2(0, 0));
+        sk_Point* originPt = sk_sketchAddPoint(&sketch, &sketchArena, HMM_V2(0, 0));
+        sk_Point* left = sk_sketchAddPoint(&sketch, &sketchArena, HMM_V2(-1, 0));
+        sk_Point* right = sk_sketchAddPoint(&sketch, &sketchArena, HMM_V2(1, 0));
+        sk_Point* up = sk_sketchAddPoint(&sketch, &sketchArena, HMM_V2(0, 1));
 
-        sk_Line* l1 = sk_sketchAddLine(&sketch, &sketchArena, p1, p2);
-        sk_Line* l2 = sk_sketchAddLine(&sketch, &sketchArena, p2, p3);
-        sk_sketchAddLine(&sketch, &sketchArena, p3, p1);
+        sk_Line* vertical = sk_sketchAddLine(&sketch, &sketchArena, originPt, up);
+        sk_sketchAddConstraintDistance(&sketch, &sketchArena, vertical, 0.5);
 
-        sk_sketchAddConstraintDistance(&sketch, &sketchArena, l1, 1.5);
-        sk_sketchAddConstraintDistance(&sketch, &sketchArena, l2, 2);
-        sk_sketchAddConstraintAngle(&sketch, &sketchArena, l1, l2, HMM_AngleDeg(120));
+        sk_Line* leftLine = sk_sketchAddLine(&sketch, &sketchArena, left, originPt);
+        sk_sketchAddConstraintAngle(&sketch, &sketchArena, vertical, false, leftLine, true, HMM_AngleDeg(90));
+        sk_Line* rightLine = sk_sketchAddLine(&sketch, &sketchArena, originPt, right);
+        sk_sketchAddConstraintAngle(&sketch, &sketchArena, rightLine, false, vertical, false, HMM_AngleDeg(90));
 
-        sk_Point* other = sk_sketchAddPoint(&sketch, &sketchArena, HMM_V2(0, 10));
-        sk_Line* lother = sk_sketchAddLine(&sketch, &sketchArena, other, p1);
-        sk_sketchAddConstraintDistance(&sketch, &sketchArena, lother, 1);
-
-        sk_Point* o1 = sk_sketchAddPoint(&sketch, &sketchArena, HMM_V2(-0.4, -0.4));
-        sk_Point* o2 = sk_sketchAddPoint(&sketch, &sketchArena, HMM_V2(-0.6, 0.4));
-        sk_sketchAddLine(&sketch, &sketchArena, o1, o2);
-
-        sk_Line* lo1 = sk_sketchAddLine(&sketch, &sketchArena, o1, p2);
-        sk_sketchAddLine(&sketch, &sketchArena, o2, p2);
-        sk_sketchAddConstraintAngle(&sketch, &sketchArena, lo1, l2, HMM_AngleDeg(90));
-        // sk_sketchAddConstraintAngle(&sketch, &sketchArena, l1, lother, HMM_AngleDeg(90));
-
-        sk_sketchSolve(&sketch, p2, l1, HMM_AngleDeg(0));
+        sk_sketchSolve(&sketch, originPt, vertical, HMM_AngleDeg(90));
 
         // sketchOrigin = final->first->a;
         // HMM_Vec3 baseNormal = HMM_V3(0, 0, -1);

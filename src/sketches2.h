@@ -49,7 +49,7 @@ struct sk_Line {
     sk_Line* next;
     bool angleApplied;
     bool angleSolved;
-    float angle;
+    float angle; // The angle expected from this line, from p1 to p2, may not be normalized
 };
 
 typedef enum {
@@ -63,6 +63,11 @@ struct sk_Constraint {
     sk_ConstraintKind kind;
     sk_Line* line1;
     sk_Line* line2;
+    // By default, the angle of a line is from p1 to p2.
+    // if an angle constraint wants to use two lines, but have the angle between them sit on the lines p2s,
+    // these values indicate that
+    bool flipLine1;
+    bool flipLine2;
     float value;
     sk_Constraint* nextAllocated;
     sk_Constraint* nextUnsolved;
@@ -130,12 +135,14 @@ sk_Constraint* sk_sketchAddConstraintDistance(sk_Sketch* sketch, snz_Arena* aren
     return c;
 }
 
-sk_Constraint* sk_sketchAddConstraintAngle(sk_Sketch* sketch, snz_Arena* arena, sk_Line* line1, sk_Line* line2, float angle) {
+sk_Constraint* sk_sketchAddConstraintAngle(sk_Sketch* sketch, snz_Arena* arena, sk_Line* line1, bool flipLine1, sk_Line* line2, bool flipLine2, float angle) {
     sk_Constraint* c = SNZ_ARENA_PUSH(arena, sk_Constraint);
     *c = (sk_Constraint){
         .kind = SK_CK_ANGLE,
         .line1 = line1,
         .line2 = line2,
+        .flipLine1 = flipLine1,
+        .flipLine2 = flipLine2,
         .value = angle,
         .nextAllocated = sketch->firstConstraint,
     };
@@ -243,9 +250,14 @@ static sk_Manifold _sk_manifoldJoin(sk_Manifold a, sk_Manifold b) {
             return (sk_Manifold) { .kind = SK_MK_NONE };
         }
 
+        float u = num / denom;
+        if (u < 0) {
+            return (sk_Manifold) { .kind = SK_MK_NONE };
+        }
+        // FIXME: check for out of bounds on the other line
         sk_Manifold out = (sk_Manifold){
             .kind = SK_MK_POINT,
-            .point = HMM_Lerp(a.line.origin, num / denom, aOther),
+            .point = HMM_Lerp(a.line.origin, u, aOther),
         };
         return out;
     } else if (circleCount == 2) {
@@ -369,17 +381,29 @@ void sk_sketchSolve(sk_Sketch* sketch, sk_Point* originPt, sk_Line* originLine, 
                     applied = true;
                 }
             } else if (c->kind == SK_CK_ANGLE) {
-                if (c->line1->angleSolved && !c->line2->angleSolved) {
-                    // c's value meaning a CW rotation from 1 to 2
-                    // FIXME: this is bad? document/express better in code?
-                    c->line2->angle = c->line1->angle + c->value;
-                    c->line2->angleSolved = true;
-                    applied = true;
-                } else if (c->line2->angleSolved && !c->line1->angleSolved) {
-                    c->line1->angle = c->line2->angle - c->value;
-                    c->line1->angleSolved = true;
-                    applied = true;
+                bool fixedIsLine1 = c->line1->angleSolved;
+                sk_Line* fixed = c->line1->angleSolved ? c->line1 : c->line2;
+                sk_Line* variable = c->line1->angleSolved ? c->line2 : c->line1;
+                float fixedAngle = fixed->angle;
+
+                if (fixedIsLine1 && c->flipLine1) {
+                    fixedAngle += HMM_AngleDeg(180);
+                } else if (!fixedIsLine1 && c->flipLine2) {
+                    fixedAngle += HMM_AngleDeg(180);
                 }
+
+                float variableAngle = fixedAngle + c->value * (fixedIsLine1 ? 1 : -1);
+                // if fixed is l1, and the angle indicated is from l1 to l2, then variables angle is l1 + val,
+                // otherwise, variable is line1, and l1s angle is fixed - val
+                if (!fixedIsLine1 && c->flipLine1) {
+                    variableAngle += HMM_AngleDeg(180);
+                } else if (fixedIsLine1 && c->flipLine2) {
+                    variableAngle += HMM_AngleDeg(180);
+                }
+
+                variable->angleSolved = true;
+                variable->angle = variableAngle;
+                applied = true;
             }
 
             if (applied) {
@@ -398,7 +422,7 @@ void sk_sketchSolve(sk_Sketch* sketch, sk_Point* originPt, sk_Line* originLine, 
             int ptSolvedCount = line->p1->solved + line->p2->solved;
             if (!line->angleSolved && ptSolvedCount == 2) {
                 HMM_Vec2 diff = HMM_Sub(line->p2->pos, line->p1->pos);
-                line->angle = atan2f(diff.Y, diff.X);  // FIXME: orientation of lines can be wrong and then this breaks things?
+                line->angle = atan2f(diff.Y, diff.X);
                 line->angleSolved = true;
                 anySolved = true;
             } else if (line->angleSolved && ptSolvedCount == 1) {
@@ -411,7 +435,8 @@ void sk_sketchSolve(sk_Sketch* sketch, sk_Point* originPt, sk_Line* originLine, 
                 sk_Manifold m = (sk_Manifold){
                     .kind = SK_MK_LINE,
                     .line.origin = fixed->pos,
-                    .line.direction = HMM_RotateV2(HMM_V2(1, 0), line->angle),
+                    // invert direction of the variable manifold if it is p1, because the angle is indicating p1 -> p2
+                    .line.direction = HMM_RotateV2(HMM_V2(fixed == line->p1 ? 1 : -1, 0), line->angle),
                 };
                 sk_Manifold startManifold = variable->manifold;
                 variable->manifold = _sk_manifoldJoin(startManifold, m);
@@ -438,7 +463,6 @@ void sk_sketchSolve(sk_Sketch* sketch, sk_Point* originPt, sk_Line* originLine, 
                 p->solved = true;
                 solvedPointCount++;
                 anySolved = true;
-                // FIXME: weird things happen often here with >90 degree angles solving the wrong way. Find a solution.
             }
         }
 
@@ -547,8 +571,8 @@ void sk_tests() {
         out = _sk_manifoldJoin(
             (sk_Manifold) {
             .kind = SK_MK_LINE,
-                .line.origin = HMM_V2(-1, 1),
-                .line.direction = HMM_V2(-3, 2),
+                .line.origin = HMM_V2(1, 0),
+                .line.direction = HMM_V2(-3, 0),
         },
             (sk_Manifold) {
             .kind = SK_MK_CIRCLE,
@@ -556,9 +580,8 @@ void sk_tests() {
                 .circle.radius = 2,
         });
         comp = (sk_Manifold){
-            .kind = SK_MK_TWO_POINTS,
-            .twoPoints.a = HMM_V2(-0.80187, 0.86791),
-            .twoPoints.b = HMM_V2(2.49418, -1.32945),
+            .kind = SK_MK_POINT,
+            .point = HMM_V2(-1, 0),
         };
         snz_testPrint(_sk_manifoldEq(out, comp), "circle/line manifold join");
 
