@@ -37,7 +37,7 @@ void main_init(snz_Arena* scratch) {
     {
         sketch = sk_sketchInit();
         sk_Point* originPt = sk_sketchAddPoint(&sketch, &sketchArena, HMM_V2(0, 0));
-        sk_Point* left = sk_sketchAddPoint(&sketch, &sketchArena, HMM_V2(-1, 0));
+        sk_Point* left = sk_sketchAddPoint(&sketch, &sketchArena, HMM_V2(-1, -1));
         sk_Point* right = sk_sketchAddPoint(&sketch, &sketchArena, HMM_V2(1, 0));
         sk_Point* up = sk_sketchAddPoint(&sketch, &sketchArena, HMM_V2(0, 1));
 
@@ -45,7 +45,7 @@ void main_init(snz_Arena* scratch) {
         sk_sketchAddConstraintDistance(&sketch, &sketchArena, vertical, 0.5);
 
         sk_Line* leftLine = sk_sketchAddLine(&sketch, &sketchArena, left, originPt);
-        sk_sketchAddConstraintAngle(&sketch, &sketchArena, vertical, false, leftLine, true, HMM_AngleDeg(60));
+        sk_sketchAddConstraintAngle(&sketch, &sketchArena, vertical, false, leftLine, true, HMM_AngleDeg(90));
         sk_Line* rightLine = sk_sketchAddLine(&sketch, &sketchArena, originPt, right);
         sk_sketchAddConstraintDistance(&sketch, &sketchArena, rightLine, 1);
         // sk_sketchAddConstraintAngle(&sketch, &sketchArena, rightLine, false, vertical, false, HMM_AngleDeg(90));
@@ -129,7 +129,7 @@ void main_drawDemoScene(HMM_Vec2 panelSize, snz_Arena* scratch) {
         if (kind == SK_MK_POINT) {
             continue;
         } else if (kind == SK_MK_CIRCLE) {
-            int ptCount = 10;
+            int ptCount = 11;
             HMM_Vec2* pts = SNZ_ARENA_PUSH_ARR(scratch, ptCount, HMM_Vec2);
 
             float angleRange = HMM_AngleDeg(40);
