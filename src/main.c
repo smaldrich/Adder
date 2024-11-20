@@ -45,9 +45,12 @@ void main_init(snz_Arena* scratch) {
         sk_sketchAddConstraintDistance(&sketch, &sketchArena, vertical, 0.5);
 
         sk_Line* leftLine = sk_sketchAddLine(&sketch, &sketchArena, left, originPt);
-        sk_sketchAddConstraintAngle(&sketch, &sketchArena, vertical, false, leftLine, true, HMM_AngleDeg(90));
+        sk_sketchAddConstraintAngle(&sketch, &sketchArena, vertical, false, leftLine, true, HMM_AngleDeg(60));
         sk_Line* rightLine = sk_sketchAddLine(&sketch, &sketchArena, originPt, right);
-        sk_sketchAddConstraintAngle(&sketch, &sketchArena, rightLine, false, vertical, false, HMM_AngleDeg(90));
+        sk_sketchAddConstraintDistance(&sketch, &sketchArena, rightLine, 1);
+        // sk_sketchAddConstraintAngle(&sketch, &sketchArena, rightLine, false, vertical, false, HMM_AngleDeg(90));
+
+        sk_sketchAddLine(&sketch, &sketchArena, up, right);
 
         sk_sketchSolve(&sketch, originPt, vertical, HMM_AngleDeg(90));
 
@@ -168,8 +171,7 @@ void main_drawDemoScene(HMM_Vec2 panelSize, snz_Arena* scratch) {
             HMM_Vec2 p1 = c->line1->p1->pos;
             HMM_Vec2 p2 = c->line1->p2->pos;
             HMM_Vec2 diff = HMM_NormV2(HMM_SubV2(p2, p1));
-            p2 = HMM_Sub(p2, HMM_Mul(diff, 0.3f));
-            HMM_Vec2 offset = HMM_Mul(HMM_V2(-diff.Y, diff.X), distConstraintVisualOffset);
+            HMM_Vec2 offset = HMM_Mul(HMM_V2(diff.Y, -diff.X), distConstraintVisualOffset);
             p1 = HMM_Add(p1, offset);
             p2 = HMM_Add(p2, offset);
             HMM_Vec2 points[] = { p1, p2 };
