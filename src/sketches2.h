@@ -47,6 +47,7 @@ struct sk_Line {
     sk_Point* p1;
     sk_Point* p2;
     sk_Line* next;
+    bool angleApplied;
     bool angleSolved;
     float angle;
 };
@@ -220,6 +221,10 @@ static sk_Manifold _sk_manifoldJoin(sk_Manifold a, sk_Manifold b) {
         SNZ_ASSERTF(false, "unreachable case: %d", positiveCount);
         return (sk_Manifold) { .kind = SK_MK_NONE };
     } else if (lineCount == 2) {
+        if (csg_v2Equal(a.line.origin, b.line.origin) && csg_v2Equal(a.line.direction, b.line.direction)) {
+            return a; // coincident, return the starting manifold
+        }
+
         // stolen: https://en.wikipedia.org/wiki/Line%E2%80%93line_intersection
         HMM_Vec2 aOther = HMM_Add(a.line.origin, a.line.direction);
         HMM_Vec2 bOther = HMM_Add(b.line.origin, b.line.direction);
@@ -335,6 +340,10 @@ void sk_sketchSolve(sk_Sketch* sketch, sk_Point* originPt, sk_Line* originLine, 
         originLine->angle = originLineAngle;
         originLine->angleSolved = true;
         originPt->solved = true;
+        originPt->manifold = (sk_Manifold){
+            .kind = SK_MK_POINT,
+            .point = originPt->pos,
+        };
     }
 
     while (true) {  // FIXME: cutoff
@@ -393,6 +402,10 @@ void sk_sketchSolve(sk_Sketch* sketch, sk_Point* originPt, sk_Line* originLine, 
                 line->angleSolved = true;
                 anySolved = true;
             } else if (line->angleSolved && ptSolvedCount == 1) {
+                if (line->angleApplied) {
+                    continue;
+                }
+
                 sk_Point* fixed = line->p1->solved ? line->p1 : line->p2;
                 sk_Point* variable = line->p1->solved ? line->p2 : line->p1;
                 sk_Manifold m = (sk_Manifold){
@@ -403,6 +416,7 @@ void sk_sketchSolve(sk_Sketch* sketch, sk_Point* originPt, sk_Line* originLine, 
                 sk_Manifold startManifold = variable->manifold;
                 variable->manifold = _sk_manifoldJoin(startManifold, m);
                 SNZ_ASSERT(variable->manifold.kind != SK_MK_NONE, "OVERCONSTRAINED!!");  // FIXME: remove
+                line->angleApplied = true;
                 anySolved = true;
             }
         }

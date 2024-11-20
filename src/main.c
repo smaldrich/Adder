@@ -10,9 +10,7 @@
 
 snz_Arena fontArena;
 
-ren3d_Mesh mesh;
 snzr_FrameBuffer sceneFB;
-
 sk_Sketch sketch;
 snz_Arena sketchArena;
 
@@ -33,36 +31,6 @@ void main_init(snz_Arena* scratch) {
     docs_init();
 
     snz_arenaClear(scratch);
-    csg_TriList* final = NULL;
-    {
-        csg_TriList cubeA = csg_cube(scratch);
-        csg_TriList cubeB = csg_cube(scratch);
-        csg_triListTransform(&cubeB, HMM_Rotate_RH(HMM_AngleDeg(30), HMM_V3(1, 1, 1)));
-        csg_triListTransform(&cubeB, HMM_Translate(HMM_V3(1, 1, 1)));
-
-        csg_BSPNode* treeA = csg_triListToBSP(&cubeA, scratch);
-        csg_BSPNode* treeB = csg_triListToBSP(&cubeB, scratch);
-
-        csg_TriList* aClipped = csg_bspClipTris(true, &cubeA, treeB, scratch);
-        csg_TriList* bClipped = csg_bspClipTris(true, &cubeB, treeA, scratch);
-        final = csg_triListJoin(aClipped, bClipped);
-        csg_triListRecoverNonBroken(&final, scratch);
-
-        PoolAlloc pool = poolAllocInit();
-        ren3d_Vert* verts = poolAllocAlloc(&pool, 0);
-        int64_t vertCount = 0;
-
-        for (csg_TriListNode* tri = final->first; tri; tri = tri->next) {
-            HMM_Vec3 triNormal = csg_triNormal(tri->a, tri->b, tri->c);
-            for (int i = 0; i < 3; i++) {
-                *poolAllocPushArray(&pool, verts, vertCount, ren3d_Vert) = (ren3d_Vert){
-                    .pos = tri->elems[i],
-                    .normal = triNormal,
-                };
-            }
-        }
-        mesh = ren3d_meshInit(verts, vertCount);
-    }  // end mesh for testing
 
     sceneFB = snzr_frameBufferInit(snzr_textureInitRBGA(500, 500, NULL));
 
@@ -82,8 +50,16 @@ void main_init(snz_Arena* scratch) {
 
         sk_Point* other = sk_sketchAddPoint(&sketch, &sketchArena, HMM_V2(0, 10));
         sk_Line* lother = sk_sketchAddLine(&sketch, &sketchArena, other, p1);
-        sk_sketchAddConstraintDistance(&sketch, &sketchArena, lother, 0.5);
-        sk_sketchAddConstraintAngle(&sketch, &sketchArena, l1, lother, HMM_AngleDeg(90));
+        sk_sketchAddConstraintDistance(&sketch, &sketchArena, lother, 1);
+
+        sk_Point* o1 = sk_sketchAddPoint(&sketch, &sketchArena, HMM_V2(-0.4, -0.4));
+        sk_Point* o2 = sk_sketchAddPoint(&sketch, &sketchArena, HMM_V2(-0.6, 0.4));
+        sk_sketchAddLine(&sketch, &sketchArena, o1, o2);
+
+        sk_Line* lo1 = sk_sketchAddLine(&sketch, &sketchArena, o1, p2);
+        sk_sketchAddLine(&sketch, &sketchArena, o2, p2);
+        sk_sketchAddConstraintAngle(&sketch, &sketchArena, lo1, l2, HMM_AngleDeg(90));
+        // sk_sketchAddConstraintAngle(&sketch, &sketchArena, l1, lother, HMM_AngleDeg(90));
 
         sk_sketchSolve(&sketch, p2, l1, HMM_AngleDeg(0));
 
@@ -132,7 +108,7 @@ void main_drawDemoScene(HMM_Vec2 panelSize, snz_Arena* scratch) {
     float aspect = panelSize.X / panelSize.Y;
     HMM_Mat4 proj = HMM_Perspective_RH_NO(HMM_AngleDeg(90), aspect, 0.001, 100000);
 
-    HMM_Mat4 model = HMM_Translate(HMM_V3(0, 0, 0));
+    // HMM_Mat4 model = HMM_Translate(HMM_V3(0, 0, 0));
 
     uint32_t w = (uint32_t)panelSize.X;
     uint32_t h = (uint32_t)panelSize.Y;
@@ -146,7 +122,7 @@ void main_drawDemoScene(HMM_Vec2 panelSize, snz_Arena* scratch) {
     snzr_callGLFnOrError(glViewport(0, 0, w, h));
     snzr_callGLFnOrError(glClearColor(1, 1, 1, 1));
     snzr_callGLFnOrError(glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT));
-    ren3d_drawMesh(&mesh, HMM_MulM4(proj, view), model, HMM_V3(-1, -1, -1));
+    // ren3d_drawMesh(&mesh, HMM_MulM4(proj, view), model, HMM_V3(-1, -1, -1));
     // FIXME: highlight edges :) + debug view of geometry
 
     // HMM_Mat4 sketchVP = HMM_Translate(sketchOrigin);
@@ -155,6 +131,48 @@ void main_drawDemoScene(HMM_Vec2 panelSize, snz_Arena* scratch) {
     HMM_Mat4 sketchVP = HMM_Mul(proj, view);
 
     glDisable(GL_DEPTH_TEST);
+
+    // MANIFOLDS
+    for (sk_Point* p = sketch.firstPoint; p; p = p->next) {
+        sk_ManifoldKind kind = p->manifold.kind;
+        if (kind == SK_MK_POINT) {
+            continue;
+        } else if (kind == SK_MK_CIRCLE) {
+            int ptCount = 10;
+            HMM_Vec2* pts = SNZ_ARENA_PUSH_ARR(scratch, ptCount, HMM_Vec2);
+
+            float angleRange = HMM_AngleDeg(40);
+            HMM_Vec2 diff = HMM_Sub(p->pos, p->manifold.circle.origin);
+            float startAngle = atan2f(diff.Y, diff.X);
+            for (int i = 0; i < ptCount; i++) {
+                float angle = startAngle + (i - (ptCount / 2)) * (angleRange / ptCount);
+                pts[i] = HMM_RotateV2(HMM_V2(p->manifold.circle.radius, 0), angle);
+                pts[i] = HMM_Add(pts[i], p->manifold.circle.origin);
+            }
+            snzr_drawLine(pts, ptCount, UI_ACCENT_COLOR, 4, sketchVP);
+        } else if (kind == SK_MK_LINE) {
+            HMM_Vec2 pts[2] = {
+                p->pos,
+                HMM_Add(p->pos, HMM_Mul(HMM_Norm(p->manifold.line.direction), 0.4f)),
+            };
+            snzr_drawLine(pts, 2, UI_ACCENT_COLOR, 4, sketchVP);
+        } else if (kind == SK_MK_ANY) {
+            HMM_Vec2 pts[4] = {
+                HMM_V2(-1, 0),
+                HMM_V2(1, 0),
+                HMM_V2(0, -1),
+                HMM_V2(0, 1),
+            };
+            for (int i = 0; i < 4; i++) {
+                pts[i] = HMM_MulV2F(pts[i], 0.2);
+                pts[i] = HMM_RotateV2(pts[i], HMM_AngleDeg(10));
+                pts[i] = HMM_AddV2(pts[i], p->pos);
+            }
+            snzr_drawLine(pts, 2, UI_ACCENT_COLOR, 4, sketchVP);
+            snzr_drawLine(&pts[2], 2, UI_ACCENT_COLOR, 4, sketchVP);
+        }
+    }
+
     for (sk_Constraint* c = sketch.firstConstraint; c; c = c->nextAllocated) {
         float angleConstraintVisualOffset = 0.05 * orbitPos->Z;  // FIXME: is this still correct when panning?
         float distConstraintVisualOffset = 0.025 * orbitPos->Z;
@@ -211,6 +229,7 @@ void main_drawDemoScene(HMM_Vec2 panelSize, snz_Arena* scratch) {
         };
         snzr_drawLine(points, 2, UI_TEXT_COLOR, 2, sketchVP);
     }
+
     glEnable(GL_DEPTH_TEST);
 }
 
