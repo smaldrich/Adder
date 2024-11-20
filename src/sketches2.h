@@ -347,7 +347,7 @@ static void _sk_rotatePtsWhenUnsolved(sk_Point* const p1, sk_Point* const p2, fl
 }
 
 // return indicates whether sketch was solved completely
-void sk_sketchSolve(sk_Sketch* sketch, sk_Point* originPt, sk_Line* originLine, float originLineAngle) {
+bool sk_sketchSolve(sk_Sketch* sketch, sk_Point* originPt, sk_Line* originLine, float originLineAngle) {
     int64_t sketchPointCount = 0;
     int64_t solvedPointCount = 1;
 
@@ -486,14 +486,16 @@ void sk_sketchSolve(sk_Sketch* sketch, sk_Point* originPt, sk_Line* originLine, 
         }
 
         if (solvedPointCount == sketchPointCount) {
-            return;  // skip implicit solving when everything is good
+            return true;  // skip implicit solving when everything is good
         } else if (!anySolved) {
             break;
         }
     }  // end solve loop
 
     for (int i = 0; i < 1000; i++) {
+        float maxError = 0;
         for (sk_Constraint* c = sketch->firstConstraint; c; c = c->nextAllocated) {
+            float error = 0;
             if (c->kind == SK_CK_ANGLE) {
                 if (c->line1->p1->solved && c->line1->p2->solved && c->line2->p1->solved && c->line2->p2->solved) {
                     continue;
@@ -512,21 +514,36 @@ void sk_sketchSolve(sk_Sketch* sketch, sk_Point* originPt, sk_Line* originLine, 
                 }
 
                 float angleDiff = (c->value - (l2Angle - l1Angle)) / 2;
+                error = angleDiff * 2;
                 _sk_rotatePtsWhenUnsolved(c->line1->p1, c->line1->p2, -angleDiff);
                 _sk_rotatePtsWhenUnsolved(c->line2->p1, c->line2->p2, angleDiff);
             } else if (c->kind == SK_CK_DISTANCE) {
-                HMM_Vec2 diff = HMM_Norm(HMM_Sub(c->line1->p2->pos, c->line1->p1->pos));
-                HMM_Vec2 midpt = HMM_DivV2F(HMM_Add(c->line1->p2->pos, c->line1->p1->pos), 2);
+                HMM_Vec2* const p1 = &c->line1->p1->pos;
+                HMM_Vec2* const p2 = &c->line1->p2->pos;
+                HMM_Vec2 diff = HMM_Norm(HMM_Sub(*p2, *p1));
+                HMM_Vec2 midpt = HMM_DivV2F(HMM_Add(*p2, *p1), 2);
 
                 if (!c->line1->p1->solved) {
-                    c->line1->p1->pos = HMM_Sub(midpt, HMM_Mul(diff, c->value / 2));
+                    *p1 = HMM_Sub(midpt, HMM_Mul(diff, c->value / 2));
                 }
                 if (!c->line1->p2->solved) {
-                    c->line1->p2->pos = HMM_Add(midpt, HMM_Mul(diff, c->value / 2));
+                    *p2 = HMM_Add(midpt, HMM_Mul(diff, c->value / 2));
                 }
+                error = HMM_Len(HMM_Sub(*p2, *p1)) - c->value;
             }  // end constraint kind switch
+
+            error = fabsf(error);
+            if (error > maxError) {
+                maxError = error;
+            }
         }  // end inplicit solve loop
+
+        if (fabsf(maxError) < CSG_EPSILON) {
+            return true;
+        }
     }  // end iteration loop
+
+    return false;
 }
 
 void sk_tests() {
@@ -641,21 +658,41 @@ void sk_tests() {
 
     snz_Arena a = snz_arenaInit(1000000, "sk testing arena");
 
-    sk_Sketch s = sk_sketchInit();
+    {
+        sk_Sketch s = sk_sketchInit();
 
-    sk_Point* p1 = sk_sketchAddPoint(&s, &a, HMM_V2(0, 0));
-    sk_Point* p2 = sk_sketchAddPoint(&s, &a, HMM_V2(2, 0));
-    sk_Point* p3 = sk_sketchAddPoint(&s, &a, HMM_V2(0, 2));
+        sk_Point* p1 = sk_sketchAddPoint(&s, &a, HMM_V2(0, 0));
+        sk_Point* p2 = sk_sketchAddPoint(&s, &a, HMM_V2(2, 0));
+        sk_Point* p3 = sk_sketchAddPoint(&s, &a, HMM_V2(0, 2));
 
-    sk_Line* l1 = sk_sketchAddLine(&s, &a, p1, p2);
-    sk_Line* l2 = sk_sketchAddLine(&s, &a, p2, p3);
-    sk_Line* l3 = sk_sketchAddLine(&s, &a, p3, p1);
+        sk_Line* l1 = sk_sketchAddLine(&s, &a, p1, p2);
+        sk_Line* l2 = sk_sketchAddLine(&s, &a, p2, p3);
+        sk_Line* l3 = sk_sketchAddLine(&s, &a, p3, p1);
 
-    sk_sketchAddConstraintDistance(&s, &a, l1, 1);
-    sk_sketchAddConstraintDistance(&s, &a, l2, 1);
-    sk_sketchAddConstraintDistance(&s, &a, l3, 1);
+        sk_sketchAddConstraintDistance(&s, &a, l1, 1);
+        sk_sketchAddConstraintDistance(&s, &a, l2, 1);
+        sk_sketchAddConstraintDistance(&s, &a, l3, 1);
 
-    sk_sketchSolve(&s, p1, l1, 30); // FIXME: test res?
+        snz_testPrint(sk_sketchSolve(&s, p1, l1, 30), "distance based triangle solve");
+    }
+
+    {
+        sk_Sketch s = sk_sketchInit();
+
+        sk_Point* p1 = sk_sketchAddPoint(&s, &a, HMM_V2(0, 0));
+        sk_Point* p2 = sk_sketchAddPoint(&s, &a, HMM_V2(0, 0));
+        sk_Point* p3 = sk_sketchAddPoint(&s, &a, HMM_V2(0, 0));
+
+        sk_Line* l1 = sk_sketchAddLine(&s, &a, p1, p2);
+        sk_Line* l2 = sk_sketchAddLine(&s, &a, p2, p3);
+        sk_Line* l3 = sk_sketchAddLine(&s, &a, p3, p1);
+
+        sk_sketchAddConstraintDistance(&s, &a, l1, 1);
+        sk_sketchAddConstraintAngle(&s, &a, l1, false, l2, false, 30);
+        sk_sketchAddConstraintAngle(&s, &a, l1, false, l3, true, 30);
+
+        snz_testPrint(sk_sketchSolve(&s, p1, l1, 30), "angle based triangle solve");
+    }
 
     snz_arenaDeinit(&a);
 }
