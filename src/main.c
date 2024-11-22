@@ -130,11 +130,16 @@ void main_drawDemoScene(HMM_Vec2 panelSize, snz_Arena* scratch) {
     // MANIFOLDS
     for (sk_Point* p = sketch.firstPoint; p; p = p->next) {
         sk_ManifoldKind kind = p->manifold.kind;
+
+        HMM_Vec3 fadeOrigin = HMM_V3(0, 0, 0);
+        HMM_Vec2* pts = NULL;
+        int ptCount = 0;
+
         if (kind == SK_MK_POINT) {
             continue;
         } else if (kind == SK_MK_CIRCLE) {
-            int ptCount = 11;
-            HMM_Vec2* pts = SNZ_ARENA_PUSH_ARR(scratch, ptCount, HMM_Vec2);
+            ptCount = 11;
+            pts = SNZ_ARENA_PUSH_ARR(scratch, ptCount, HMM_Vec2);
 
             float angleRange = HMM_AngleDeg(40);
             HMM_Vec2 diff = HMM_Sub(p->pos, p->manifold.circle.origin);
@@ -144,28 +149,40 @@ void main_drawDemoScene(HMM_Vec2 panelSize, snz_Arena* scratch) {
                 pts[i] = HMM_RotateV2(HMM_V2(p->manifold.circle.radius, 0), angle);
                 pts[i] = HMM_Add(pts[i], p->manifold.circle.origin);
             }
-            snzr_drawLine(pts, ptCount, UI_ACCENT_COLOR, 4, sketchVP);
+            fadeOrigin = (HMM_Vec3){.XY = p->pos, .Z = 0};
         } else if (kind == SK_MK_LINE) {
-            HMM_Vec2 pts[2] = {
+            ptCount = 2;
+            HMM_Vec2 ptsArr[2] = {
                 p->pos,
                 HMM_Add(p->pos, HMM_Mul(HMM_Norm(p->manifold.line.direction), 0.4f)),
             };
-            snzr_drawLine(pts, 2, UI_ACCENT_COLOR, 4, sketchVP);
+            pts = ptsArr;
+            fadeOrigin = (HMM_Vec3){.XY = p->pos, .Z = 0};
         } else if (kind == SK_MK_ANY) {
-            HMM_Vec2 pts[4] = {
+            HMM_Vec2 ptsArr[4] = {
                 HMM_V2(-1, 0),
                 HMM_V2(1, 0),
                 HMM_V2(0, -1),
                 HMM_V2(0, 1),
             };
-            for (int i = 0; i < 4; i++) {
+            ptCount = 4;
+            pts = ptsArr;
+            for (int i = 0; i < ptCount; i++) {
                 pts[i] = HMM_MulV2F(pts[i], 0.2);
                 pts[i] = HMM_RotateV2(pts[i], HMM_AngleDeg(10));
                 pts[i] = HMM_AddV2(pts[i], p->pos);
             }
-            snzr_drawLine(pts, 2, UI_ACCENT_COLOR, 4, sketchVP);
-            snzr_drawLine(&pts[2], 2, UI_ACCENT_COLOR, 4, sketchVP);
+            fadeOrigin = (HMM_Vec3){.XY = p->pos, .Z = 0};
+        } else {
+            SNZ_ASSERTF(false, "unreachable. kind was: %d", kind);
         }
+
+        // FIXME: when doing sketch orientation, add a separate model matric param
+        // FIXME: factor this it's gross
+        snzr_drawLineFaded(
+            pts, ptCount,
+            UI_ACCENT_COLOR, 4,
+            sketchVP, fadeOrigin, 1.1, 0.01);
     }
 
     // Drawing actual constraints

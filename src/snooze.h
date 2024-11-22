@@ -535,11 +535,13 @@ static void _snzr_init(snz_Arena* scratchArena) {
             "uniform vec4 uColor;"
             "uniform vec2 uResolution;"
             "in vec3 vFragPos;"
+            "uniform vec3 uFalloffOrigin;"
+            "uniform float uFalloffOffset;"
+            "uniform float uFalloffDuration;"
+
             "void main() {"
-            "    float falloffDist = 1;"
-            "    float falloffOffset = 1;"
-            "    vec3 diffVec = vFragPos;"
-            "    float alpha = min(1, 1 + (1 / falloffDist) * (-length(diffVec) + falloffOffset));"
+            "    vec3 diffVec = vFragPos - uFalloffOrigin;"
+            "    float alpha = min(1, 1 + (1 / uFalloffDuration) * (-length(diffVec) + uFalloffOffset));"
             "    color = vec4(uColor.xyz, alpha);"
             "};";
 
@@ -722,12 +724,19 @@ void snzr_drawText(HMM_Vec2 start,
     }
 }
 
-// end miters automatically added, pointing straight away
-void snzr_drawLine(HMM_Vec2* pts, uint64_t ptCount, HMM_Vec4 color, float thickness, HMM_Mat4 vp) {
+// FIXME: disgusting hack on the shader for this
+void snzr_drawLineFaded(
+    HMM_Vec2* pts,
+    uint64_t ptCount,
+    HMM_Vec4 color,
+    float thickness,
+    HMM_Mat4 vp,
+    HMM_Vec3 falloffOrigin,
+    float falloffOffset,
+    float falloffDuration) {
     if (ptCount < 2) {
         return;
     }
-
     snzr_callGLFnOrError(glUseProgram(_snzr_globs.lineShaderId));
 
     int loc = glGetUniformLocation(_snzr_globs.lineShaderId, "uColor");
@@ -740,6 +749,13 @@ void snzr_drawLine(HMM_Vec2* pts, uint64_t ptCount, HMM_Vec4 color, float thickn
     glUniform1f(loc, 0);
     loc = glGetUniformLocation(_snzr_globs.lineShaderId, "uResolution");
     glUniform2f(loc, _snzr_globs.screenSize.X, _snzr_globs.screenSize.Y);
+
+    loc = glGetUniformLocation(_snzr_globs.lineShaderId, "uFalloffOrigin");
+    glUniform3f(loc, falloffOrigin.X, falloffOrigin.Y, falloffOrigin.Z);
+    loc = glGetUniformLocation(_snzr_globs.lineShaderId, "uFalloffOffset");
+    glUniform1f(loc, falloffOffset);
+    loc = glGetUniformLocation(_snzr_globs.lineShaderId, "uFalloffDuration");
+    glUniform1f(loc, falloffDuration);
 
     snzr_callGLFnOrError(glBindBuffer(GL_SHADER_STORAGE_BUFFER, _snzr_globs.lineShaderSSBOId));
     snzr_callGLFnOrError(glBufferData(GL_SHADER_STORAGE_BUFFER, sizeof(HMM_Vec2) * (ptCount + 2), NULL, GL_DYNAMIC_DRAW));
@@ -756,6 +772,11 @@ void snzr_drawLine(HMM_Vec2* pts, uint64_t ptCount, HMM_Vec4 color, float thickn
 
     snzr_callGLFnOrError(glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, _snzr_globs.lineShaderSSBOId));
     snzr_callGLFnOrError(glDrawArrays(GL_TRIANGLES, 0, (ptCount - 1) * 6));
+}
+
+// end miters automatically added, pointing straight away
+void snzr_drawLine(HMM_Vec2* pts, uint64_t ptCount, HMM_Vec4 color, float thickness, HMM_Mat4 vp) {
+    snzr_drawLineFaded(pts, ptCount, color, thickness, vp, HMM_V3(0, 0, 0), INFINITY, INFINITY);
 }
 
 // RENDER ======================================================================
