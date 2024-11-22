@@ -490,6 +490,8 @@ static void _snzr_init(snz_Arena* scratchArena) {
             "uniform vec2 uResolution;"
             "uniform float uThickness;"
 
+            "out vec3 vFragPos;"
+
             "/* STOLEN FROM HERE: https://stackoverflow.com/questions/60440682/drawing-a-line-in-modern-opengl */"
             "void main() {"
             "    int line_i = gl_VertexID / 6;"
@@ -513,6 +515,7 @@ static void _snzr_init(snz_Arena* scratchArena) {
             "        vec2 v_miter = normalize(nv_line + vec2(-v_pred.y, v_pred.x));"
             "        pos = va[1];"
             "        pos.xy += v_miter * uThickness * (tri_i == 1 ? -0.5 : 0.5) / dot(v_miter, nv_line);"
+            "        vFragPos = (vec4(verts[line_i + 1].pos, uZ, 1)).xyz;"  // FIXME: technically this isn't accounting for the width of the line in determning frag position, but I don't care rn
             "    }"
             "    else"
             "    {"
@@ -520,6 +523,7 @@ static void _snzr_init(snz_Arena* scratchArena) {
             "        vec2 v_miter = normalize(nv_line + vec2(-v_succ.y, v_succ.x));"
             "        pos = va[2];"
             "        pos.xy += v_miter * uThickness * (tri_i == 5 ? 0.5 : -0.5) / dot(v_miter, nv_line);"
+            "        vFragPos = (vec4(verts[line_i + 2].pos, uZ, 1)).xyz;"  // FIXME: technically this isn't accounting for the width of the line in determning frag position, but I don't care rn
             "    }"
             "    pos.xy = pos.xy / uResolution * 2.0 - 1.0;"
             "    pos.xyz *= pos.w;"
@@ -529,9 +533,14 @@ static void _snzr_init(snz_Arena* scratchArena) {
             "#version 330 core\n"
             "out vec4 color;"
             "uniform vec4 uColor;"
-            ""
+            "uniform vec2 uResolution;"
+            "in vec3 vFragPos;"
             "void main() {"
-            "    color = uColor;"
+            "    float falloffDist = 1;"
+            "    float falloffOffset = 1;"
+            "    vec3 diffVec = vFragPos;"
+            "    float alpha = min(1, 1 + (1 / falloffDist) * (-length(diffVec) + falloffOffset));"
+            "    color = vec4(uColor.xyz, alpha);"
             "};";
 
         _snzr_globs.lineShaderId = snzr_shaderInit(vertSrc, fragSrc, scratchArena);
