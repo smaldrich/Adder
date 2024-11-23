@@ -141,10 +141,10 @@ void main_init(snz_Arena* scratch) {
     }
 }
 
-void main_drawSketch(HMM_Mat4 vp, snz_Arena* scratch, HMM_Vec3 cameraPos) {
+void main_drawSketch(HMM_Mat4 vp, HMM_Mat4 model, snz_Arena* scratch, HMM_Vec3 cameraPos) {
     glDisable(GL_DEPTH_TEST);
 
-    vp = HMM_Mul(vp, main_alignToM4(sketchAlign));
+    HMM_Mat4 mvp = HMM_Mul(vp, model);
 
     // MANIFOLDS
     for (sk_Point* p = sketch.firstPoint; p; p = p->next) {
@@ -195,7 +195,6 @@ void main_drawSketch(HMM_Mat4 vp, snz_Arena* scratch, HMM_Vec3 cameraPos) {
             SNZ_ASSERTF(false, "unreachable. kind was: %d", kind);
         }
 
-        // FIXME: when doing sketch orientation, add a separate model matric param
         if (kind != SK_MK_CIRCLE) {
             scaleFactor *= 0.07;
         } else {
@@ -207,7 +206,7 @@ void main_drawSketch(HMM_Mat4 vp, snz_Arena* scratch, HMM_Vec3 cameraPos) {
         snzr_drawLineFaded(
             pts, ptCount,
             UI_ACCENT_COLOR, 4,
-            vp, HMM_V3(p->pos.X, p->pos.Y, 0), scaleFactor, scaleFactor);
+            mvp, HMM_V3(p->pos.X, p->pos.Y, 0), scaleFactor, scaleFactor);
     }
 
     // Drawing actual constraints
@@ -227,7 +226,8 @@ void main_drawSketch(HMM_Mat4 vp, snz_Arena* scratch, HMM_Vec3 cameraPos) {
             } else {
                 SNZ_ASSERTF(false, "unreachable case. kind: %d", c->kind);
             }
-            scaleFactor = HMM_Len(HMM_Sub(cameraPos, HMM_V3(visualCenter.X, visualCenter.Y, 0)));
+            HMM_Vec3 transformedCenter = HMM_Mul(model, HMM_V4(visualCenter.X, visualCenter.Y, 0, 1)).XYZ;
+            scaleFactor = HMM_Len(HMM_Sub(cameraPos, transformedCenter));
         }
         float angleConstraintVisualOffset = 0.05 * scaleFactor;
         float distConstraintVisualOffset = 0.025 * scaleFactor;
@@ -240,7 +240,7 @@ void main_drawSketch(HMM_Mat4 vp, snz_Arena* scratch, HMM_Vec3 cameraPos) {
             p1 = HMM_Add(p1, offset);
             p2 = HMM_Add(p2, offset);
             HMM_Vec2 points[] = { p1, p2 };
-            snzr_drawLine(points, 2, color, 4, vp);
+            snzr_drawLine(points, 2, color, 4, mvp);
 
             float drawnHeight = 0.04 * scaleFactor;
             const char* str = snz_arenaFormatStr(scratch, "%.2fm", c->value);
@@ -252,7 +252,7 @@ void main_drawSketch(HMM_Mat4 vp, snz_Arena* scratch, HMM_Vec3 cameraPos) {
                 start,
                 HMM_V2(-100000, -100000), HMM_V2(100000, 100000),
                 UI_TEXT_COLOR, str, strlen(str), ui_titleFont,
-                vp, drawnHeight, false, true);
+                mvp, drawnHeight, false, true);
 
         } else if (c->kind == SK_CK_ANGLE) {
             sk_Point* joint = NULL;
@@ -274,7 +274,7 @@ void main_drawSketch(HMM_Mat4 vp, snz_Arena* scratch, HMM_Vec3 cameraPos) {
                     HMM_Add(joint->pos, HMM_Add(offset1, offset2)),
                     HMM_Add(joint->pos, offset2),
                 };
-                snzr_drawLine(pts, 3, color, 4, vp);
+                snzr_drawLine(pts, 3, color, 4, mvp);
             } else {
                 sk_Point* otherOnLine1 = (c->line1->p1 == joint) ? c->line1->p2 : c->line1->p1;
                 HMM_Vec2 diff = HMM_Sub(otherOnLine1->pos, joint->pos);
@@ -285,7 +285,7 @@ void main_drawSketch(HMM_Mat4 vp, snz_Arena* scratch, HMM_Vec3 cameraPos) {
                     HMM_Vec2 offset = HMM_RotateV2(HMM_V2(angleConstraintVisualOffset, 0), startAngle + (i * c->value / (ptCount - 1)));
                     linePts[i] = HMM_Add(joint->pos, offset);
                 }
-                snzr_drawLine(linePts, ptCount, color, 4, vp);
+                snzr_drawLine(linePts, ptCount, color, 4, mvp);
             }
         }  // end constraint kind switch
     }  // end constraint draw loop
@@ -295,7 +295,7 @@ void main_drawSketch(HMM_Mat4 vp, snz_Arena* scratch, HMM_Vec3 cameraPos) {
             l->p1->pos,
             l->p2->pos,
         };
-        snzr_drawLine(points, 2, UI_TEXT_COLOR, 2, vp);
+        snzr_drawLine(points, 2, UI_TEXT_COLOR, 2, mvp);
     }
 
     glEnable(GL_DEPTH_TEST);
@@ -354,11 +354,8 @@ void main_drawDemoScene(HMM_Vec2 panelSize, snz_Arena* scratch) {
     ren3d_drawMesh(&mesh, HMM_MulM4(proj, view), model, HMM_V3(-1, -1, -1));
     // FIXME: highlight edges :) + debug view of geometry
 
-    // HMM_Mat4 sketchVP = HMM_Translate(sketchOrigin);
-    // sketchVP = HMM_Mul(sketchVP, HMM_QToM4(sketchOrientation));
-    // sketchVP = HMM_Mul(HMM_Mul(proj, view), sketchVP);
     HMM_Mat4 sketchVP = HMM_Mul(proj, view);
-    main_drawSketch(sketchVP, scratch, cameraPos);
+    main_drawSketch(sketchVP, main_alignToM4(sketchAlign), scratch, cameraPos);
 }
 
 typedef enum {
