@@ -322,7 +322,10 @@ void main_drawDemoScene(HMM_Vec2 panelSize, snz_Arena* scratch) {
     if (snzu_useMemIsPrevNew()) {
         *orbitDistance = 5;
     }
-    main_Align* const orbitOrigin = SNZU_USE_MEM(main_Align, "orbitVertical");
+    main_Align* const orbitOrigin = SNZU_USE_MEM(main_Align, "orbitOrigin");
+    // FIXME: a Look at cmd so that panning isn't so annoying
+    // FIXME: automagic redo of the origin
+
     if (snzu_useMemIsPrevNew()) {
         *orbitOrigin = (main_Align){
             .startNormal = HMM_V3(0, 0, 1),
