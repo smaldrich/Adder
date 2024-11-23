@@ -376,9 +376,9 @@ static void _snzr_init(snz_Arena* scratchArena) {
         snzr_callGLFnOrError(glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA));
         snzr_callGLFnOrError(glEnable(GL_DEBUG_OUTPUT));
 
-        snzr_callGLFnOrError(glEnable(GL_CULL_FACE));
-        snzr_callGLFnOrError(glCullFace(GL_BACK));
-        snzr_callGLFnOrError(glFrontFace(GL_CCW));
+        // snzr_callGLFnOrError(glEnable(GL_CULL_FACE));
+        // snzr_callGLFnOrError(glCullFace(GL_BACK));
+        // snzr_callGLFnOrError(glFrontFace(GL_CCW));
         snzr_callGLFnOrError(glEnable(GL_MULTISAMPLE));
         snzr_callGLFnOrError(glDebugMessageCallback(_snzr_glDebugCallback, 0));
 
@@ -453,7 +453,7 @@ static void _snzr_init(snz_Arena* scratchArena) {
             "uniform vec4 uBorderColor;"
 
             "float roundedRectSDF(float r) {"
-            "    vec2 d2 = abs(vCenterFromFragPos) - vRectHalfSize + vec2(r, r);"
+            "    vec2 d2 = abs(vCenterFromFragPos) - abs(vRectHalfSize) + vec2(r, r);"
             "    return min(max(d2.x, d2.y), 0.0) + length(max(d2, 0.0)) - r;"
             "}"
 
@@ -645,14 +645,19 @@ HMM_Vec2 snzr_strSize(const snzr_Font* font, const char* str, uint64_t charCount
     return HMM_V2(x, lineCount * font->renderedSize);
 }
 
-void snzr_drawText(HMM_Vec2 start,
+// FIXME: disgusting function all the way down
+// flipVertical, when false, draws with +down, when true, +up
+// when snap is on, rects per char get snapped to integer lines
+void snzr_drawTextScaled(HMM_Vec2 start,
                    HMM_Vec2 clipStart,
                    HMM_Vec2 clipEnd,
                    HMM_Vec4 color,
                    const char* str,
                    uint64_t charCount,
                    snzr_Font font,
-                   HMM_Mat4 vp) {
+                   HMM_Mat4 vp,
+                   float targetSize,
+                   bool snap, bool flipVertical) {
     // FIXME: layering system
     // FIXME: safe gl calls
     snzr_callGLFnOrError(glUseProgram(_snzr_globs.rectShaderId));
@@ -679,6 +684,9 @@ void snzr_drawText(HMM_Vec2 start,
     loc = glGetUniformLocation(_snzr_globs.rectShaderId, "uClipEnd");
     glUniform2f(loc, clipEnd.X, clipEnd.Y);
 
+    float scaleFactor = targetSize / font.renderedSize;
+    float verticalFlip = flipVertical ? -1 : 1;
+
     HMM_Vec2 drawPos = HMM_V2(start.X, start.Y);
     assert(charCount < INT64_MAX);
     for (const char* c = str; *c != 0; c++) {
@@ -686,7 +694,7 @@ void snzr_drawText(HMM_Vec2 start,
             break;
         }
         if (*c == '\n') {
-            drawPos.Y += font.lineGap + font.ascent - font.descent;
+            drawPos.Y += (verticalFlip) * (font.lineGap + font.ascent - font.descent) * scaleFactor;
             drawPos.X = start.X;
             continue;
         } else if (*c == '\r') {
@@ -700,16 +708,22 @@ void snzr_drawText(HMM_Vec2 start,
         {
             const stbtt_packedchar* b = _snzr_getGylphFromChar(&font, *c);
 
-            HMM_Vec2 s = HMM_V2(b->xoff, b->yoff);
-            HMM_Vec2 e = HMM_V2(b->xoff2, b->yoff2);
+            HMM_Vec2 s = HMM_MulV2F(HMM_V2(b->xoff, b->yoff * verticalFlip), scaleFactor);
+            HMM_Vec2 e = HMM_MulV2F(HMM_V2(b->xoff2, b->yoff2 * verticalFlip), scaleFactor);
             dstStart = HMM_AddV2(drawPos, s);
-            dstEnd = HMM_AddV2(dstStart, HMM_SubV2(e, s));
+            dstEnd = HMM_AddV2(dstStart, HMM_Sub(e, s));
 
             HMM_Vec2 uvScale = HMM_V2(1.0f / font.atlas.width, 1.0f / font.atlas.height);
             srcStart = HMM_MulV2(HMM_V2(b->x0, b->y0), uvScale);
             srcEnd = HMM_MulV2(HMM_V2(b->x1, b->y1), uvScale);
 
-            drawPos.X += b->xadvance;
+            drawPos.X += b->xadvance * scaleFactor;
+        }
+        if (snap) {
+            dstStart.X = (int)dstStart.X;
+            dstStart.Y = (int)dstStart.Y;
+            dstEnd.X = (int)dstEnd.X;
+            dstEnd.Y = (int)dstEnd.Y;
         }
 
         loc = glGetUniformLocation(_snzr_globs.rectShaderId, "uSrcStart");
@@ -717,11 +731,23 @@ void snzr_drawText(HMM_Vec2 start,
         loc = glGetUniformLocation(_snzr_globs.rectShaderId, "uSrcEnd");
         glUniform2f(loc, srcEnd.X, srcEnd.Y);
         loc = glGetUniformLocation(_snzr_globs.rectShaderId, "uDstStart");
-        glUniform2f(loc, (int)dstStart.X, (int)dstStart.Y);
+        glUniform2f(loc, dstStart.X, dstStart.Y);
         loc = glGetUniformLocation(_snzr_globs.rectShaderId, "uDstEnd");
-        glUniform2f(loc, (int)dstEnd.X, (int)dstEnd.Y);
+        glUniform2f(loc, dstEnd.X, dstEnd.Y);
         snzr_callGLFnOrError(glDrawArrays(GL_TRIANGLES, 0, 6));
     }
+}
+
+// default to use for UI in 2d pixel space
+void snzr_drawText(HMM_Vec2 start,
+                   HMM_Vec2 clipStart,
+                   HMM_Vec2 clipEnd,
+                   HMM_Vec4 color,
+                   const char* str,
+                   uint64_t charCount,
+                   snzr_Font font,
+                   HMM_Mat4 vp) {
+    snzr_drawTextScaled(start, clipStart, clipEnd, color, str, charCount, font, vp, font.renderedSize, true, false);
 }
 
 // FIXME: disgusting hack on the shader for this

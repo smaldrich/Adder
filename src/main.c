@@ -78,7 +78,7 @@ void main_init(snz_Arena* scratch) {
         sk_sketchAddConstraintDistance(&sketch, &sketchArena, vertical, 0.5);
 
         sk_Line* leftLine = sk_sketchAddLine(&sketch, &sketchArena, left, originPt);
-        sk_sketchAddConstraintAngle(&sketch, &sketchArena, vertical, false, leftLine, true, HMM_AngleDeg(120));
+        sk_sketchAddConstraintAngle(&sketch, &sketchArena, vertical, false, leftLine, true, HMM_AngleDeg(90));
         sk_sketchAddConstraintDistance(&sketch, &sketchArena, leftLine, 0.8);
         sk_Line* rightLine = sk_sketchAddLine(&sketch, &sketchArena, originPt, right);
         sk_sketchAddConstraintDistance(&sketch, &sketchArena, rightLine, 1);
@@ -86,7 +86,7 @@ void main_init(snz_Arena* scratch) {
         sk_Point* other = sk_sketchAddPoint(&sketch, &sketchArena, HMM_V2(-1, 1));
         sk_Line* l = sk_sketchAddLine(&sketch, &sketchArena, left, other);
         sk_sketchAddConstraintAngle(&sketch, &sketchArena, l, false, leftLine, false, HMM_AngleDeg(-120));
-        // sk_sketchAddConstraintDistance(&sketch, &sketchArena, l, 0.2);
+        sk_sketchAddConstraintDistance(&sketch, &sketchArena, l, 0.2);
 
         sk_sketchAddLine(&sketch, &sketchArena, up, right);
 
@@ -176,9 +176,9 @@ void main_drawSketch(HMM_Mat4 vp, snz_Arena* scratch, HMM_Vec3 cameraPos) {
             color = UI_RED;
         }
 
+        HMM_Vec2 visualCenter = HMM_V2(0, 0);
         float scaleFactor = 0;
         {
-            HMM_Vec2 visualCenter = HMM_V2(0, 0);
             if (c->kind == SK_CK_ANGLE) {
                 visualCenter = c->flipLine1 ? c->line1->p2->pos : c->line1->p1->pos;
             } else if (c->kind == SK_CK_DISTANCE) {
@@ -200,6 +200,18 @@ void main_drawSketch(HMM_Mat4 vp, snz_Arena* scratch, HMM_Vec3 cameraPos) {
             p2 = HMM_Add(p2, offset);
             HMM_Vec2 points[] = { p1, p2 };
             snzr_drawLine(points, 2, color, 4, vp);
+
+            float drawnHeight = 0.04 * scaleFactor;
+            const char* str = snz_arenaFormatStr(scratch, "%.2fm", c->value);
+            HMM_Vec2 start = HMM_Add(visualCenter, HMM_Mul(offset, 2.0f));
+            start.Y -= drawnHeight / 2;
+            // FIXME: move labels if camera is on the other side
+            snzr_drawTextScaled(
+                start,
+                HMM_V2(-100000, -100000), HMM_V2(100000, 100000),
+                UI_TEXT_COLOR, str, strlen(str), ui_titleFont,
+                vp, drawnHeight, false, true);
+
         } else if (c->kind == SK_CK_ANGLE) {
             sk_Point* joint = NULL;
             if (c->line1->p1 == c->line2->p1 || c->line1->p1 == c->line2->p2) {
