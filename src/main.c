@@ -148,6 +148,20 @@ void main_init(snz_Arena* scratch) {
     }
 }
 
+// returns the normal of the ray starting at cameraPos
+HMM_Vec3 main_rayFromCamera(float fov, HMM_Mat4 cameraTransform, HMM_Vec2 mousePosPx, HMM_Vec2 resolution) {
+    HMM_Vec2 mousePosProportional = HMM_MulV2F(HMM_DivV2(mousePosPx, resolution), 2);
+    mousePosProportional = HMM_Sub(mousePosProportional, HMM_V2(1, 1));
+
+    float aspect = resolution.X / resolution.Y;
+    float halfHeight = tanf(fov / 2);
+    float halfWidth = halfHeight * aspect;
+
+    HMM_Vec3 v = HMM_V3(halfWidth * mousePosProportional.X, halfHeight * -mousePosProportional.Y, -1);
+    v = HMM_MulM4V4(cameraTransform, HMM_V4(v.X, v.Y, v.Z, 0)).XYZ;
+    return HMM_Norm(v);
+}
+
 void main_drawSketch(HMM_Mat4 vp, HMM_Mat4 model, snz_Arena* scratch, HMM_Vec3 cameraPos) {
     glDisable(GL_DEPTH_TEST);
 
@@ -380,6 +394,8 @@ void main_drawDemoScene(HMM_Vec2 panelSize, snz_Arena* scratch) {
     view = HMM_MulM4(main_alignToM4(*orbitOrigin), view);
     HMM_Vec3 cameraPos = HMM_MulM4V4(view, HMM_V4(0, 0, 0, 1)).XYZ;
 
+    HMM_Vec3 rayNormal = main_rayFromCamera(HMM_AngleDeg(90), view, inter->mousePosLocal, panelSize);
+
     view = HMM_InvGeneral(view);
 
     float aspect = panelSize.X / panelSize.Y;
@@ -392,6 +408,7 @@ void main_drawDemoScene(HMM_Vec2 panelSize, snz_Arena* scratch) {
         sceneFB = snzr_frameBufferInit(snzr_textureInitRBGA(w, h, NULL));
     }
 
+
     // FIXME: opengl here is gross
     snzr_callGLFnOrError(glBindFramebuffer(GL_FRAMEBUFFER, sceneFB.glId));
     snzr_callGLFnOrError(glViewport(0, 0, w, h));
@@ -403,6 +420,13 @@ void main_drawDemoScene(HMM_Vec2 panelSize, snz_Arena* scratch) {
 
     // FIXME: highlight edges :) + debug view of geometry
     ren3d_drawMesh(&mesh, vp, model, HMM_V3(-1, -1, -1));
+
+    {
+        HMM_Mat4 m = HMM_Translate(HMM_Add(HMM_Mul(rayNormal, 1.0f), cameraPos));
+        m = HMM_Mul(m, HMM_Scale(HMM_V3(0.01, 0.01, 0.01)));
+        ren3d_drawMesh(&mesh, vp, m, HMM_V3(-1, -1, -1));
+    }
+
     main_drawSketch(vp, main_alignToM4(sketchAlign), scratch, cameraPos);
 }
 
