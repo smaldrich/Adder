@@ -244,7 +244,7 @@ uint32_t snzr_shaderInit(const char* vertChars, const char* fragChars, snz_Arena
 // data does not need to be kept alive after this call
 // may be null to indicate undefined contents
 snzr_Texture snzr_textureInitRBGA(int32_t width, int32_t height, uint8_t* data) {
-    snzr_Texture out = {.width = width, .height = height};
+    snzr_Texture out = { .width = width, .height = height };
     snzr_callGLFnOrError(glGenTextures(1, &out.glId));
     snzr_callGLFnOrError(glBindTexture(GL_TEXTURE_2D, out.glId));
     snzr_callGLFnOrError(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR));
@@ -257,7 +257,7 @@ snzr_Texture snzr_textureInitRBGA(int32_t width, int32_t height, uint8_t* data) 
 
 // data does not need to be kept alive after this call
 snzr_Texture snzr_textureInitGrayscale(int32_t width, int32_t height, uint8_t* data) {
-    snzr_Texture out = {.width = width, .height = height};
+    snzr_Texture out = { .width = width, .height = height };
     snzr_callGLFnOrError(glGenTextures(1, &out.glId));
     snzr_callGLFnOrError(glBindTexture(GL_TEXTURE_2D, out.glId));
     snzr_callGLFnOrError(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR));
@@ -312,7 +312,7 @@ void snzr_frameBufferDeinit(snzr_FrameBuffer* fb) {
 #define _SNZR_FONT_UNKNOWN_CHAR 9633  // white box, see: https://www.fileformat.info/info/unicode/char/25a1/index.htm
 
 snzr_Font snzr_fontInit(snz_Arena* dataArena, snz_Arena* scratch, const char* path, float size) {
-    snzr_Font out = {.renderedSize = size};
+    snzr_Font out = { .renderedSize = size };
 
     uint8_t* fileData;
     {
@@ -338,11 +338,11 @@ snzr_Font snzr_fontInit(snz_Arena* dataArena, snz_Arena* scratch, const char* pa
     stbtt_pack_context ctx;
     uint8_t* atlasData = SNZ_ARENA_PUSH_ARR(scratch, _SNZR_FONT_ATLAS_W * _SNZR_FONT_ATLAS_H, uint8_t);
     assert(stbtt_PackBegin(&ctx, atlasData,
-                           _SNZR_FONT_ATLAS_W,
-                           _SNZR_FONT_ATLAS_H,
-                           _SNZR_FONT_ATLAS_W,
-                           1,
-                           NULL));
+        _SNZR_FONT_ATLAS_W,
+        _SNZR_FONT_ATLAS_H,
+        _SNZR_FONT_ATLAS_W,
+        1,
+        NULL));
     stbtt_PackSetOversampling(&ctx, 1, 1);
 
     const int glyphCount = _SNZR_FONT_ASCII_CHAR_COUNT + 1;
@@ -515,7 +515,7 @@ static void _snzr_init(snz_Arena* scratchArena) {
             "        vec2 v_miter = normalize(nv_line + vec2(-v_pred.y, v_pred.x));"
             "        pos = va[1];"
             "        pos.xy += v_miter * uThickness * (tri_i == 1 ? -0.5 : 0.5) / dot(v_miter, nv_line);"
-            "        vFragPos = (vec4(verts[line_i + 1].pos, uZ, 1)).xyz;"  // FIXME: technically this isn't accounting for the width of the line in determning frag position, but I don't care rn
+            "        vFragPos = vec3(verts[line_i + 1].pos, uZ);"  // FIXME: technically this isn't accounting for the width of the line in determning frag position, but I don't care rn
             "    }"
             "    else"
             "    {"
@@ -523,7 +523,7 @@ static void _snzr_init(snz_Arena* scratchArena) {
             "        vec2 v_miter = normalize(nv_line + vec2(-v_succ.y, v_succ.x));"
             "        pos = va[2];"
             "        pos.xy += v_miter * uThickness * (tri_i == 5 ? 0.5 : -0.5) / dot(v_miter, nv_line);"
-            "        vFragPos = (vec4(verts[line_i + 2].pos, uZ, 1)).xyz;"  // FIXME: technically this isn't accounting for the width of the line in determning frag position, but I don't care rn
+            "        vFragPos = vec3(verts[line_i + 2].pos, uZ);"  // FIXME: technically this isn't accounting for the width of the line in determning frag position, but I don't care rn
             "    }"
             "    pos.xy = pos.xy / uResolution * 2.0 - 1.0;"
             "    pos.xyz *= pos.w;"
@@ -552,7 +552,7 @@ static void _snzr_init(snz_Arena* scratchArena) {
     snzr_callGLFnOrError(glBindBuffer(GL_SHADER_STORAGE_BUFFER, _snzr_globs.lineShaderSSBOId));
     snzr_callGLFnOrError(glBufferData(GL_SHADER_STORAGE_BUFFER, 0, NULL, GL_DYNAMIC_DRAW));
 
-    uint8_t solidTexData[] = {255, 255, 255, 255};
+    uint8_t solidTexData[] = { 255, 255, 255, 255 };
     _snzr_globs.solidTex = snzr_textureInitRBGA(1, 1, solidTexData);
 }
 

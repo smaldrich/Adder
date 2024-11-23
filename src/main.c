@@ -131,7 +131,6 @@ void main_drawDemoScene(HMM_Vec2 panelSize, snz_Arena* scratch) {
     for (sk_Point* p = sketch.firstPoint; p; p = p->next) {
         sk_ManifoldKind kind = p->manifold.kind;
 
-        HMM_Vec3 fadeOrigin = HMM_V3(0, 0, 0);
         HMM_Vec2* pts = NULL;
         int ptCount = 0;
 
@@ -149,7 +148,6 @@ void main_drawDemoScene(HMM_Vec2 panelSize, snz_Arena* scratch) {
                 pts[i] = HMM_RotateV2(HMM_V2(p->manifold.circle.radius, 0), angle);
                 pts[i] = HMM_Add(pts[i], p->manifold.circle.origin);
             }
-            fadeOrigin = (HMM_Vec3){.XY = p->pos, .Z = 0};
         } else if (kind == SK_MK_LINE) {
             ptCount = 2;
             HMM_Vec2 ptsArr[2] = {
@@ -157,32 +155,29 @@ void main_drawDemoScene(HMM_Vec2 panelSize, snz_Arena* scratch) {
                 HMM_Add(p->pos, HMM_Mul(HMM_Norm(p->manifold.line.direction), 0.4f)),
             };
             pts = ptsArr;
-            fadeOrigin = (HMM_Vec3){.XY = p->pos, .Z = 0};
         } else if (kind == SK_MK_ANY) {
+            // make it really big so the cross line is entirely faded out
             HMM_Vec2 ptsArr[4] = {
-                HMM_V2(-1, 0),
-                HMM_V2(1, 0),
-                HMM_V2(0, -1),
-                HMM_V2(0, 1),
+                HMM_V2(-3, 0),
+                HMM_V2(3, 0),
+                HMM_V2(0, -3),
+                HMM_V2(0, 3),
             };
             ptCount = 4;
             pts = ptsArr;
             for (int i = 0; i < ptCount; i++) {
-                pts[i] = HMM_MulV2F(pts[i], 0.2);
                 pts[i] = HMM_RotateV2(pts[i], HMM_AngleDeg(10));
                 pts[i] = HMM_AddV2(pts[i], p->pos);
             }
-            fadeOrigin = (HMM_Vec3){.XY = p->pos, .Z = 0};
         } else {
             SNZ_ASSERTF(false, "unreachable. kind was: %d", kind);
         }
 
         // FIXME: when doing sketch orientation, add a separate model matric param
-        // FIXME: factor this it's gross
         snzr_drawLineFaded(
             pts, ptCount,
             UI_ACCENT_COLOR, 4,
-            sketchVP, fadeOrigin, 1.1, 0.01);
+            sketchVP, HMM_V3(p->pos.X, p->pos.Y, 0), 0.1, 0.1);
     }
 
     // Drawing actual constraints
@@ -201,7 +196,7 @@ void main_drawDemoScene(HMM_Vec2 panelSize, snz_Arena* scratch) {
             HMM_Vec2 offset = HMM_Mul(HMM_V2(diff.Y, -diff.X), distConstraintVisualOffset);
             p1 = HMM_Add(p1, offset);
             p2 = HMM_Add(p2, offset);
-            HMM_Vec2 points[] = {p1, p2};
+            HMM_Vec2 points[] = { p1, p2 };
             snzr_drawLine(points, 2, color, 4, sketchVP);
         } else if (c->kind == SK_CK_ANGLE) {
             sk_Point* joint = NULL;
