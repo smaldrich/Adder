@@ -73,7 +73,7 @@ void ren3d_drawMesh(const ren3d_Mesh* mesh, HMM_Mat4 vp, HMM_Mat4 model, HMM_Vec
     snzr_callGLFnOrError(glUniformMatrix4fv(loc, 1, false, (float*)&model));
 
     loc = glGetUniformLocation(_ren3d_shaderId, "uColor");
-    snzr_callGLFnOrError(glUniform3f(loc, 0.8, 0.8, 0.8));
+    snzr_callGLFnOrError(glUniform3f(loc, 1, 1, 1));
 
     loc = glGetUniformLocation(_ren3d_shaderId, "uLightColor");
     snzr_callGLFnOrError(glUniform3f(loc, 1, 1, 1));
