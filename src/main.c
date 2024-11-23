@@ -16,6 +16,39 @@ snz_Arena sketchArena;
 
 ren3d_Mesh mesh;
 
+typedef struct {
+    HMM_Vec3 startPt;
+    HMM_Vec3 startNormal;
+    HMM_Vec3 startVertical;
+
+    HMM_Vec3 endPt;
+    HMM_Vec3 endNormal;
+    HMM_Vec3 endVertical;
+} main_Align;
+main_Align sketchAlign;
+
+float main_angleBetweenV3(HMM_Vec3 a, HMM_Vec3 b) {
+    return acosf(HMM_Dot(a, b) / (HMM_Len(a) * HMM_Len(b)));
+}
+
+HMM_Mat4 main_alignToM4(main_Align a) {
+    HMM_Vec3 normalCross = HMM_Cross(a.startNormal, a.endNormal);
+    float normalAngle = main_angleBetweenV3(a.startNormal, a.endNormal);
+    HMM_Quat planeRotate = HMM_QFromAxisAngle_RH(normalCross, normalAngle);
+
+    HMM_Vec3 postRotateVertical = HMM_MulM4V4(HMM_QToM4(planeRotate), HMM_V4(a.startVertical.X, a.startVertical.Y, a.startVertical.Z, 1)).XYZ;
+    // stolen: https://stackoverflow.com/questions/5188561/signed-angle-between-two-3d-vectors-with-same-origin-within-the-same-plane
+    // tysm internet
+    float y = HMM_Dot(HMM_Cross(postRotateVertical, a.endVertical), a.endNormal);
+    float x = HMM_Dot(postRotateVertical, a.endVertical);
+    float postRotateAngle = atan2(y, x);
+    HMM_Quat postRotate = HMM_QFromAxisAngle_RH(a.endNormal, postRotateAngle);
+    HMM_Mat4 rotate = HMM_QToM4(HMM_MulQ(postRotate, planeRotate));
+
+    HMM_Mat4 translate = HMM_Translate(HMM_Sub(a.endPt, a.startPt));
+    return HMM_Mul(translate, rotate);
+}
+
 void main_init(snz_Arena* scratch) {
     _poolAllocTests();
     sk_tests();
@@ -54,6 +87,7 @@ void main_init(snz_Arena* scratch) {
         ren3d_Vert* verts = poolAllocAlloc(&pool, 0);
         int64_t vertCount = 0;
 
+        int triIdx = 0;
         for (csg_TriListNode* tri = final->first; tri; tri = tri->next) {
             HMM_Vec3 triNormal = csg_triNormal(tri->a, tri->b, tri->c);
             for (int i = 0; i < 3; i++) {
@@ -62,6 +96,18 @@ void main_init(snz_Arena* scratch) {
                     .normal = triNormal,
                 };
             }
+            if (triIdx == 7) {
+                sketchAlign = (main_Align){
+                    .startPt = HMM_V3(0, 0, 0),
+                    .startNormal = HMM_V3(0, 0, 1),
+                    .startVertical = HMM_V3(0, 1, 0),
+
+                    .endPt = tri->a,
+                    .endNormal = triNormal,
+                    .endVertical = HMM_Norm(HMM_Sub(tri->b, tri->a)),
+                };
+            }
+            triIdx++;
         }
         mesh = ren3d_meshInit(verts, vertCount);
         poolAllocDeinit(&pool);
@@ -92,19 +138,13 @@ void main_init(snz_Arena* scratch) {
         sk_sketchAddLine(&sketch, &sketchArena, up, right);
 
         sk_sketchSolve(&sketch, originPt, vertical, HMM_AngleDeg(90));
-
-        // sketchOrigin = final->first->a;
-        // HMM_Vec3 baseNormal = HMM_V3(0, 0, -1);
-        // HMM_Vec3 newNormal = csg_triNormal(final->first->a, final->first->b, final->first->c);
-
-        // HMM_Vec3 axis = HMM_Cross(baseNormal, newNormal);
-        // float angle = acosf(HMM_Dot(baseNormal, newNormal) / (HMM_Len(baseNormal) * HMM_Len(newNormal)));
-        // sketchOrientation = HMM_QFromAxisAngle_RH(axis, angle);
     }
 }
 
 void main_drawSketch(HMM_Mat4 vp, snz_Arena* scratch, HMM_Vec3 cameraPos) {
     glDisable(GL_DEPTH_TEST);
+
+    vp = HMM_Mul(vp, main_alignToM4(sketchAlign));
 
     // MANIFOLDS
     for (sk_Point* p = sketch.firstPoint; p; p = p->next) {
@@ -310,7 +350,7 @@ void main_drawDemoScene(HMM_Vec2 panelSize, snz_Arena* scratch) {
     snzr_callGLFnOrError(glClearColor(1, 1, 1, 1));
     snzr_callGLFnOrError(glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT));
 
-    HMM_Mat4 model = HMM_Translate(HMM_V3(1, 1, -1));
+    HMM_Mat4 model = HMM_Translate(HMM_V3(0, 0, 0));
     ren3d_drawMesh(&mesh, HMM_MulM4(proj, view), model, HMM_V3(-1, -1, -1));
     // FIXME: highlight edges :) + debug view of geometry
 
