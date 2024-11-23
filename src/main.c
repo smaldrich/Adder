@@ -82,6 +82,7 @@ void main_init(snz_Arena* scratch) {
         sk_sketchAddConstraintDistance(&sketch, &sketchArena, leftLine, 0.8);
         sk_Line* rightLine = sk_sketchAddLine(&sketch, &sketchArena, originPt, right);
         sk_sketchAddConstraintDistance(&sketch, &sketchArena, rightLine, 1);
+        sk_sketchAddConstraintAngle(&sketch, &sketchArena, rightLine, false, vertical, false, HMM_AngleDeg(120));
 
         sk_Point* other = sk_sketchAddPoint(&sketch, &sketchArena, HMM_V2(-1, 1));
         sk_Line* l = sk_sketchAddLine(&sketch, &sketchArena, left, other);
@@ -206,6 +207,7 @@ void main_drawSketch(HMM_Mat4 vp, snz_Arena* scratch, HMM_Vec3 cameraPos) {
             HMM_Vec2 start = HMM_Add(visualCenter, HMM_Mul(offset, 2.0f));
             start.Y -= drawnHeight / 2;
             // FIXME: move labels if camera is on the other side
+            // FIXME: less self intersection on angled lines
             snzr_drawTextScaled(
                 start,
                 HMM_V2(-100000, -100000), HMM_V2(100000, 100000),
