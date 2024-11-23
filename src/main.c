@@ -35,6 +35,9 @@ HMM_Mat4 main_alignToM4(main_Align a) {
     HMM_Vec3 normalCross = HMM_Cross(a.startNormal, a.endNormal);
     float normalAngle = main_angleBetweenV3(a.startNormal, a.endNormal);
     HMM_Quat planeRotate = HMM_QFromAxisAngle_RH(normalCross, normalAngle);
+    if (csg_floatEqual(normalAngle, 0)) {
+        planeRotate = HMM_QFromAxisAngle_RH(HMM_V3(0, 0, 1), 0);
+    }
 
     HMM_Vec3 postRotateVertical = HMM_MulM4V4(HMM_QToM4(planeRotate), HMM_V4(a.startVertical.X, a.startVertical.Y, a.startVertical.Z, 1)).XYZ;
     // stolen: https://stackoverflow.com/questions/5188561/signed-angle-between-two-3d-vectors-with-same-origin-within-the-same-plane
@@ -308,30 +311,59 @@ void main_drawDemoScene(HMM_Vec2 panelSize, snz_Arena* scratch) {
 
     snzu_Interaction* inter = SNZU_USE_MEM(snzu_Interaction, "inter");
     snzu_boxSetInteractionOutput(inter, SNZU_IF_HOVER | SNZU_IF_MOUSE_BUTTONS | SNZU_IF_MOUSE_SCROLL);
-    HMM_Vec3* const orbitPos = SNZU_USE_MEM(HMM_Vec3, "orbitPos");
+
+    HMM_Vec2* const orbitAngle = SNZU_USE_MEM(HMM_Vec2, "orbitAngle");
+    // ^^ X meaning rotation around X axis
+    float* const orbitDistance = SNZU_USE_MEM(float, "orbitDistance");
     if (snzu_useMemIsPrevNew()) {
-        orbitPos->Z = 4;
+        *orbitDistance = 5;
+    }
+    main_Align* const orbitOrigin = SNZU_USE_MEM(main_Align, "orbitVertical");
+    if (snzu_useMemIsPrevNew()) {
+        *orbitOrigin = (main_Align){
+            .startNormal = HMM_V3(0, 0, 1),
+            .startPt = HMM_V3(0, 0, 0),
+            .startVertical = HMM_V3(0, 1, 0),
+            .endNormal = HMM_V3(0, 0, 1),
+            .endPt = HMM_V3(0, 0, 0),
+            .endVertical = HMM_V3(0, 1, 0),
+        };
+        *orbitOrigin = sketchAlign;
+        // Note that the start component of this is indended to stay as what it's initialized to,
+        // the end indicates orientation/position of the camera's orbit origin
+        // normal points towards the camera when it has a angle of 0, 0
     }
 
     HMM_Vec2* const lastMousePos = SNZU_USE_MEM(HMM_Vec2, "lastMousePos");
-
-    if (inter->mouseActions[SNZU_MB_LEFT] == SNZU_ACT_DOWN) {
+    if (inter->mouseActions[SNZU_MB_MIDDLE] == SNZU_ACT_DOWN) {
         *lastMousePos = inter->mousePosGlobal;
     }
-    if (inter->dragged) {
+    if (inter->mouseActions[SNZU_MB_MIDDLE] == SNZU_ACT_DRAG) {
         HMM_Vec2 diff = HMM_SubV2(inter->mousePosGlobal, *lastMousePos);
-        *lastMousePos = inter->mousePosGlobal;
-        orbitPos->XY = HMM_AddV2(orbitPos->XY, diff);
+        if (inter->keyMods & KMOD_SHIFT) {
+            // HMM_Vec2 diffWithinPlane = HMM_MulV2F(diff, 0.01 * orbitAngle->Z);
+        } else {
+            diff = HMM_V2(diff.Y, diff.X); // switch so that rotations are repective to their axis
+            diff = HMM_Mul(diff, -0.01f); // sens
+            *orbitAngle = HMM_AddV2(*orbitAngle, diff);
+
+            if (orbitAngle->X < HMM_AngleDeg(-90)) {
+                orbitAngle->X = HMM_AngleDeg(-90);
+            } else if (orbitAngle->X > HMM_AngleDeg(90)) {
+                orbitAngle->X = HMM_AngleDeg(90);
+            }
+        }
     }
+    *lastMousePos = inter->mousePosGlobal;
 
-    // FIXME: panning
-    // FIXME: live orbit point selection by raycast
-    orbitPos->Z += inter->mouseScrollY * orbitPos->Z * 0.05;
+    *orbitDistance += inter->mouseScrollY * (*orbitDistance) * 0.05;
 
-    HMM_Mat4 view = HMM_Translate(HMM_V3(0, 0, orbitPos->Z));
-    view = HMM_MulM4(HMM_Rotate_RH(orbitPos->Y * 0.01, HMM_V3(-1, 0, 0)), view);
-    view = HMM_MulM4(HMM_Rotate_RH(orbitPos->X * 0.01, HMM_V3(0, -1, 0)), view);
+    HMM_Mat4 view = HMM_Translate(HMM_V3(0, 0, *orbitDistance));
+    view = HMM_MulM4(HMM_Rotate_RH(orbitAngle->X, HMM_V3(1, 0, 0)), view);
+    view = HMM_MulM4(HMM_Rotate_RH(orbitAngle->Y, HMM_V3(0, 1, 0)), view);
+    view = HMM_MulM4(main_alignToM4(*orbitOrigin), view);
     HMM_Vec3 cameraPos = HMM_MulM4V4(view, HMM_V4(0, 0, 0, 1)).XYZ;
+
     view = HMM_InvGeneral(view);
 
     float aspect = panelSize.X / panelSize.Y;
@@ -351,11 +383,11 @@ void main_drawDemoScene(HMM_Vec2 panelSize, snz_Arena* scratch) {
     snzr_callGLFnOrError(glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT));
 
     HMM_Mat4 model = HMM_Translate(HMM_V3(0, 0, 0));
-    ren3d_drawMesh(&mesh, HMM_MulM4(proj, view), model, HMM_V3(-1, -1, -1));
-    // FIXME: highlight edges :) + debug view of geometry
+    HMM_Mat4 vp = HMM_MulM4(proj, view);
 
-    HMM_Mat4 sketchVP = HMM_Mul(proj, view);
-    main_drawSketch(sketchVP, main_alignToM4(sketchAlign), scratch, cameraPos);
+    // FIXME: highlight edges :) + debug view of geometry
+    ren3d_drawMesh(&mesh, vp, model, HMM_V3(-1, -1, -1));
+    main_drawSketch(vp, main_alignToM4(sketchAlign), scratch, cameraPos);
 }
 
 typedef enum {
