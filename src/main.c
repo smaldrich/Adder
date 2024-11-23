@@ -31,7 +31,7 @@ float main_angleBetweenV3(HMM_Vec3 a, HMM_Vec3 b) {
     return acosf(HMM_Dot(a, b) / (HMM_Len(a) * HMM_Len(b)));
 }
 
-HMM_Mat4 main_alignToM4(main_Align a) {
+HMM_Quat main_alignToQuat(main_Align a) {
     HMM_Vec3 normalCross = HMM_Cross(a.startNormal, a.endNormal);
     float normalAngle = main_angleBetweenV3(a.startNormal, a.endNormal);
     HMM_Quat planeRotate = HMM_QFromAxisAngle_RH(normalCross, normalAngle);
@@ -46,10 +46,14 @@ HMM_Mat4 main_alignToM4(main_Align a) {
     float x = HMM_Dot(postRotateVertical, a.endVertical);
     float postRotateAngle = atan2(y, x);
     HMM_Quat postRotate = HMM_QFromAxisAngle_RH(a.endNormal, postRotateAngle);
-    HMM_Mat4 rotate = HMM_QToM4(HMM_MulQ(postRotate, planeRotate));
 
+    return HMM_MulQ(postRotate, planeRotate);
+}
+
+HMM_Mat4 main_alignToM4(main_Align a) {
+    HMM_Quat q = main_alignToQuat(a);
     HMM_Mat4 translate = HMM_Translate(HMM_Sub(a.endPt, a.startPt));
-    return HMM_Mul(translate, rotate);
+    return HMM_Mul(translate, HMM_QToM4(q));
 }
 
 void main_init(snz_Arena* scratch) {
@@ -341,7 +345,16 @@ void main_drawDemoScene(HMM_Vec2 panelSize, snz_Arena* scratch) {
     if (inter->mouseActions[SNZU_MB_MIDDLE] == SNZU_ACT_DRAG) {
         HMM_Vec2 diff = HMM_SubV2(inter->mousePosGlobal, *lastMousePos);
         if (inter->keyMods & KMOD_SHIFT) {
-            // HMM_Vec2 diffWithinPlane = HMM_MulV2F(diff, 0.01 * orbitAngle->Z);
+            HMM_Quat cameraRot = HMM_QFromAxisAngle_RH(HMM_V3(1, 0, 0), orbitAngle->X);
+            cameraRot = HMM_MulQ(HMM_QFromAxisAngle_RH(HMM_V3(0, 1, 0), orbitAngle->Y), cameraRot);
+            HMM_Quat originRot = main_alignToQuat(*orbitOrigin);
+
+            HMM_Quat rotation = HMM_MulQ(originRot, cameraRot);
+
+            diff = HMM_MulV2F(diff, -0.001 * (*orbitDistance));
+            HMM_Vec4 diffInSpace = HMM_V4(diff.X, -diff.Y, 0, 1);
+            diffInSpace = HMM_Mul(HMM_QToM4(rotation), diffInSpace);
+            orbitOrigin->endPt = HMM_Add(orbitOrigin->endPt, diffInSpace.XYZ);
         } else {
             diff = HMM_V2(diff.Y, diff.X); // switch so that rotations are repective to their axis
             diff = HMM_Mul(diff, -0.01f); // sens
