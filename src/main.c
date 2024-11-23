@@ -101,6 +101,151 @@ void main_init(snz_Arena* scratch) {
     }
 }
 
+void main_drawSketch(HMM_Mat4 vp, snz_Arena* scratch, HMM_Vec3 cameraPos) {
+    glDisable(GL_DEPTH_TEST);
+
+    // MANIFOLDS
+    for (sk_Point* p = sketch.firstPoint; p; p = p->next) {
+        sk_ManifoldKind kind = p->manifold.kind;
+
+        HMM_Vec2* pts = NULL;
+        int ptCount = 0;
+
+        float distToCamera = HMM_Len(HMM_Sub(cameraPos, HMM_V3(p->pos.X, p->pos.Y, 0)));
+        float scaleFactor = distToCamera; // FIXME: ortho switch
+
+        if (kind == SK_MK_POINT) {
+            continue;
+        } else if (kind == SK_MK_CIRCLE) {
+            ptCount = 11;
+            pts = SNZ_ARENA_PUSH_ARR(scratch, ptCount, HMM_Vec2);
+
+            float angleRange = HMM_AngleDeg(40);
+            HMM_Vec2 diff = HMM_Sub(p->pos, p->manifold.circle.origin);
+            float startAngle = atan2f(diff.Y, diff.X);
+            for (int i = 0; i < ptCount; i++) {
+                float angle = startAngle + (i - (ptCount / 2)) * (angleRange / ptCount);
+                pts[i] = HMM_RotateV2(HMM_V2(p->manifold.circle.radius, 0), angle);
+                pts[i] = HMM_Add(pts[i], p->manifold.circle.origin);
+            }
+        } else if (kind == SK_MK_LINE) {
+            ptCount = 2;
+            HMM_Vec2 ptsArr[2] = {
+                p->pos,
+                HMM_Add(p->pos, HMM_Mul(HMM_Norm(p->manifold.line.direction), 0.4f * scaleFactor)),
+            };
+            pts = ptsArr;
+        } else if (kind == SK_MK_ANY) {
+            // make it really big so the cross line is entirely faded out
+            HMM_Vec2 ptsArr[4] = {
+                HMM_V2(-1 * scaleFactor, 0),
+                HMM_V2(1 * scaleFactor, 0),
+                HMM_V2(0, -1 * scaleFactor),
+                HMM_V2(0, 1 * scaleFactor),
+            };
+            ptCount = 4;
+            pts = ptsArr;
+            for (int i = 0; i < ptCount; i++) {
+                pts[i] = HMM_RotateV2(pts[i], HMM_AngleDeg(10));
+                pts[i] = HMM_AddV2(pts[i], p->pos);
+            }
+        } else {
+            SNZ_ASSERTF(false, "unreachable. kind was: %d", kind);
+        }
+
+        // FIXME: when doing sketch orientation, add a separate model matric param
+        if (kind != SK_MK_CIRCLE) {
+            scaleFactor *= 0.07;
+        } else {
+            // When it's a circle, there's not really a great way to scale up the manifold visually
+            // and keep it's radius meaningful. So i'm leaving it like this for now.
+            // FIXME: could scale up the visible radius to a point tho, which would probs work
+            scaleFactor = 0.07;
+        }
+        snzr_drawLineFaded(
+            pts, ptCount,
+            UI_ACCENT_COLOR, 4,
+            vp, HMM_V3(p->pos.X, p->pos.Y, 0), scaleFactor, scaleFactor);
+    }
+
+    // Drawing actual constraints
+    for (sk_Constraint* c = sketch.firstConstraint; c; c = c->nextAllocated) {
+        HMM_Vec4 color = UI_TEXT_COLOR;
+        if (c->violated) {
+            color = UI_RED;
+        }
+
+        float scaleFactor = 0;
+        {
+            HMM_Vec2 visualCenter = HMM_V2(0, 0);
+            if (c->kind == SK_CK_ANGLE) {
+                visualCenter = c->flipLine1 ? c->line1->p2->pos : c->line1->p1->pos;
+            } else if (c->kind == SK_CK_DISTANCE) {
+                visualCenter = HMM_DivV2F(HMM_Add(c->line1->p1->pos, c->line1->p2->pos), 2);
+            } else {
+                SNZ_ASSERTF(false, "unreachable case. kind: %d", c->kind);
+            }
+            scaleFactor = HMM_Len(HMM_Sub(cameraPos, HMM_V3(visualCenter.X, visualCenter.Y, 0)));
+        }
+        float angleConstraintVisualOffset = 0.05 * scaleFactor;
+        float distConstraintVisualOffset = 0.025 * scaleFactor;
+
+        if (c->kind == SK_CK_DISTANCE) {
+            HMM_Vec2 p1 = c->line1->p1->pos;
+            HMM_Vec2 p2 = c->line1->p2->pos;
+            HMM_Vec2 diff = HMM_NormV2(HMM_SubV2(p2, p1));
+            HMM_Vec2 offset = HMM_Mul(HMM_V2(diff.Y, -diff.X), distConstraintVisualOffset);
+            p1 = HMM_Add(p1, offset);
+            p2 = HMM_Add(p2, offset);
+            HMM_Vec2 points[] = { p1, p2 };
+            snzr_drawLine(points, 2, color, 4, vp);
+        } else if (c->kind == SK_CK_ANGLE) {
+            sk_Point* joint = NULL;
+            if (c->line1->p1 == c->line2->p1 || c->line1->p1 == c->line2->p2) {
+                joint = c->line1->p1;
+            } else if (c->line1->p2 == c->line2->p1 || c->line1->p2 == c->line2->p2) {
+                joint = c->line1->p2;
+            } else {
+                continue;
+            }
+
+            if (csg_floatEqual(c->value, HMM_AngleDeg(90))) {
+                sk_Point* otherOnLine1 = (c->line1->p1 == joint) ? c->line1->p2 : c->line1->p1;
+                sk_Point* otherOnLine2 = (c->line2->p1 == joint) ? c->line2->p2 : c->line2->p1;
+                HMM_Vec2 offset1 = HMM_Mul(HMM_Norm(HMM_Sub(otherOnLine1->pos, joint->pos)), angleConstraintVisualOffset);
+                HMM_Vec2 offset2 = HMM_Mul(HMM_Norm(HMM_Sub(otherOnLine2->pos, joint->pos)), angleConstraintVisualOffset);
+                HMM_Vec2 pts[] = {
+                    HMM_Add(joint->pos, offset1),
+                    HMM_Add(joint->pos, HMM_Add(offset1, offset2)),
+                    HMM_Add(joint->pos, offset2),
+                };
+                snzr_drawLine(pts, 3, color, 4, vp);
+            } else {
+                sk_Point* otherOnLine1 = (c->line1->p1 == joint) ? c->line1->p2 : c->line1->p1;
+                HMM_Vec2 diff = HMM_Sub(otherOnLine1->pos, joint->pos);
+                float startAngle = atan2f(diff.Y, diff.X);
+                int ptCount = (int)(fabsf(c->value) / HMM_AngleDeg(10)) + 1;
+                HMM_Vec2* linePts = SNZ_ARENA_PUSH_ARR(scratch, ptCount, HMM_Vec2);
+                for (int i = 0; i < ptCount; i++) {
+                    HMM_Vec2 offset = HMM_RotateV2(HMM_V2(angleConstraintVisualOffset, 0), startAngle + (i * c->value / (ptCount - 1)));
+                    linePts[i] = HMM_Add(joint->pos, offset);
+                }
+                snzr_drawLine(linePts, ptCount, color, 4, vp);
+            }
+        }  // end constraint kind switch
+    }  // end constraint draw loop
+
+    for (sk_Line* l = sketch.firstLine; l; l = l->next) {
+        HMM_Vec2 points[] = {
+            l->p1->pos,
+            l->p2->pos,
+        };
+        snzr_drawLine(points, 2, UI_TEXT_COLOR, 2, vp);
+    }
+
+    glEnable(GL_DEPTH_TEST);
+}
+
 void main_drawDemoScene(HMM_Vec2 panelSize, snz_Arena* scratch) {
     snzu_boxNew("inner");
     snzu_boxFillParent();
@@ -131,6 +276,7 @@ void main_drawDemoScene(HMM_Vec2 panelSize, snz_Arena* scratch) {
     HMM_Mat4 view = HMM_Translate(HMM_V3(0, 0, orbitPos->Z));
     view = HMM_MulM4(HMM_Rotate_RH(orbitPos->Y * 0.01, HMM_V3(-1, 0, 0)), view);
     view = HMM_MulM4(HMM_Rotate_RH(orbitPos->X * 0.01, HMM_V3(0, -1, 0)), view);
+    HMM_Vec3 cameraPos = HMM_MulM4V4(view, HMM_V4(0, 0, 0, 1)).XYZ;
     view = HMM_InvGeneral(view);
 
     float aspect = panelSize.X / panelSize.Y;
@@ -157,125 +303,7 @@ void main_drawDemoScene(HMM_Vec2 panelSize, snz_Arena* scratch) {
     // sketchVP = HMM_Mul(sketchVP, HMM_QToM4(sketchOrientation));
     // sketchVP = HMM_Mul(HMM_Mul(proj, view), sketchVP);
     HMM_Mat4 sketchVP = HMM_Mul(proj, view);
-
-    glDisable(GL_DEPTH_TEST);
-
-    // MANIFOLDS
-    for (sk_Point* p = sketch.firstPoint; p; p = p->next) {
-        sk_ManifoldKind kind = p->manifold.kind;
-
-        HMM_Vec2* pts = NULL;
-        int ptCount = 0;
-
-        if (kind == SK_MK_POINT) {
-            continue;
-        } else if (kind == SK_MK_CIRCLE) {
-            ptCount = 11;
-            pts = SNZ_ARENA_PUSH_ARR(scratch, ptCount, HMM_Vec2);
-
-            float angleRange = HMM_AngleDeg(40);
-            HMM_Vec2 diff = HMM_Sub(p->pos, p->manifold.circle.origin);
-            float startAngle = atan2f(diff.Y, diff.X);
-            for (int i = 0; i < ptCount; i++) {
-                float angle = startAngle + (i - (ptCount / 2)) * (angleRange / ptCount);
-                pts[i] = HMM_RotateV2(HMM_V2(p->manifold.circle.radius, 0), angle);
-                pts[i] = HMM_Add(pts[i], p->manifold.circle.origin);
-            }
-        } else if (kind == SK_MK_LINE) {
-            ptCount = 2;
-            HMM_Vec2 ptsArr[2] = {
-                p->pos,
-                HMM_Add(p->pos, HMM_Mul(HMM_Norm(p->manifold.line.direction), 0.4f)),
-            };
-            pts = ptsArr;
-        } else if (kind == SK_MK_ANY) {
-            // make it really big so the cross line is entirely faded out
-            HMM_Vec2 ptsArr[4] = {
-                HMM_V2(-1.5, 0),
-                HMM_V2(1.5, 0),
-                HMM_V2(0, -1.5),
-                HMM_V2(0, 1.5),
-            };
-            ptCount = 4;
-            pts = ptsArr;
-            for (int i = 0; i < ptCount; i++) {
-                pts[i] = HMM_RotateV2(pts[i], HMM_AngleDeg(10));
-                pts[i] = HMM_AddV2(pts[i], p->pos);
-            }
-        } else {
-            SNZ_ASSERTF(false, "unreachable. kind was: %d", kind);
-        }
-
-        // FIXME: when doing sketch orientation, add a separate model matric param
-        snzr_drawLineFaded(
-            pts, ptCount,
-            UI_ACCENT_COLOR, 4,
-            sketchVP, HMM_V3(p->pos.X, p->pos.Y, 0), 0.1, 0.1);
-    }
-
-    // Drawing actual constraints
-    for (sk_Constraint* c = sketch.firstConstraint; c; c = c->nextAllocated) {
-        HMM_Vec4 color = UI_TEXT_COLOR;
-        if (c->violated) {
-            color = UI_RED;
-        }
-
-        float angleConstraintVisualOffset = 0.05 * orbitPos->Z;  // FIXME: is this still correct when panning?
-        float distConstraintVisualOffset = 0.025 * orbitPos->Z;
-        if (c->kind == SK_CK_DISTANCE) {
-            HMM_Vec2 p1 = c->line1->p1->pos;
-            HMM_Vec2 p2 = c->line1->p2->pos;
-            HMM_Vec2 diff = HMM_NormV2(HMM_SubV2(p2, p1));
-            HMM_Vec2 offset = HMM_Mul(HMM_V2(diff.Y, -diff.X), distConstraintVisualOffset);
-            p1 = HMM_Add(p1, offset);
-            p2 = HMM_Add(p2, offset);
-            HMM_Vec2 points[] = { p1, p2 };
-            snzr_drawLine(points, 2, color, 4, sketchVP);
-        } else if (c->kind == SK_CK_ANGLE) {
-            sk_Point* joint = NULL;
-            if (c->line1->p1 == c->line2->p1 || c->line1->p1 == c->line2->p2) {
-                joint = c->line1->p1;
-            } else if (c->line1->p2 == c->line2->p1 || c->line1->p2 == c->line2->p2) {
-                joint = c->line1->p2;
-            } else {
-                continue;
-            }
-
-            if (csg_floatEqual(c->value, HMM_AngleDeg(90))) {
-                sk_Point* otherOnLine1 = (c->line1->p1 == joint) ? c->line1->p2 : c->line1->p1;
-                sk_Point* otherOnLine2 = (c->line2->p1 == joint) ? c->line2->p2 : c->line2->p1;
-                HMM_Vec2 offset1 = HMM_Mul(HMM_Norm(HMM_Sub(otherOnLine1->pos, joint->pos)), angleConstraintVisualOffset);
-                HMM_Vec2 offset2 = HMM_Mul(HMM_Norm(HMM_Sub(otherOnLine2->pos, joint->pos)), angleConstraintVisualOffset);
-                HMM_Vec2 pts[] = {
-                    HMM_Add(joint->pos, offset1),
-                    HMM_Add(joint->pos, HMM_Add(offset1, offset2)),
-                    HMM_Add(joint->pos, offset2),
-                };
-                snzr_drawLine(pts, 3, color, 4, sketchVP);
-            } else {
-                sk_Point* otherOnLine1 = (c->line1->p1 == joint) ? c->line1->p2 : c->line1->p1;
-                HMM_Vec2 diff = HMM_Sub(otherOnLine1->pos, joint->pos);
-                float startAngle = atan2f(diff.Y, diff.X);
-                int ptCount = (int)(fabsf(c->value) / HMM_AngleDeg(10)) + 1;
-                HMM_Vec2* linePts = SNZ_ARENA_PUSH_ARR(scratch, ptCount, HMM_Vec2);
-                for (int i = 0; i < ptCount; i++) {
-                    HMM_Vec2 offset = HMM_RotateV2(HMM_V2(angleConstraintVisualOffset, 0), startAngle + (i * c->value / (ptCount - 1)));
-                    linePts[i] = HMM_Add(joint->pos, offset);
-                }
-                snzr_drawLine(linePts, ptCount, color, 4, sketchVP);
-            }
-        }  // end constraint kind switch
-    }  // end constraint draw loop
-
-    for (sk_Line* l = sketch.firstLine; l; l = l->next) {
-        HMM_Vec2 points[] = {
-            l->p1->pos,
-            l->p2->pos,
-        };
-        snzr_drawLine(points, 2, UI_TEXT_COLOR, 2, sketchVP);
-    }
-
-    glEnable(GL_DEPTH_TEST);
+    main_drawSketch(sketchVP, scratch, cameraPos);
 }
 
 typedef enum {
