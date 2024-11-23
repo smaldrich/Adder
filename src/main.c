@@ -14,6 +14,8 @@ snzr_FrameBuffer sceneFB;
 sk_Sketch sketch;
 snz_Arena sketchArena;
 
+ren3d_Mesh mesh;
+
 void main_init(snz_Arena* scratch) {
     _poolAllocTests();
     sk_tests();
@@ -33,6 +35,37 @@ void main_init(snz_Arena* scratch) {
     snz_arenaClear(scratch);
 
     sceneFB = snzr_frameBufferInit(snzr_textureInitRBGA(500, 500, NULL));
+
+    {
+        csg_TriList cubeA = csg_cube(scratch);
+        csg_TriList cubeB = csg_cube(scratch);
+        csg_triListTransform(&cubeB, HMM_Rotate_RH(HMM_AngleDeg(30), HMM_V3(1, 1, 1)));
+        csg_triListTransform(&cubeB, HMM_Translate(HMM_V3(1, 1, 1)));
+
+        csg_BSPNode* treeA = csg_triListToBSP(&cubeA, scratch);
+        csg_BSPNode* treeB = csg_triListToBSP(&cubeB, scratch);
+
+        csg_TriList* aClipped = csg_bspClipTris(true, &cubeA, treeB, scratch);
+        csg_TriList* bClipped = csg_bspClipTris(true, &cubeB, treeA, scratch);
+        csg_TriList* final = csg_triListJoin(aClipped, bClipped);
+        csg_triListRecoverNonBroken(&final, scratch);
+
+        PoolAlloc pool = poolAllocInit();
+        ren3d_Vert* verts = poolAllocAlloc(&pool, 0);
+        int64_t vertCount = 0;
+
+        for (csg_TriListNode* tri = final->first; tri; tri = tri->next) {
+            HMM_Vec3 triNormal = csg_triNormal(tri->a, tri->b, tri->c);
+            for (int i = 0; i < 3; i++) {
+                *poolAllocPushArray(&pool, verts, vertCount, ren3d_Vert) = (ren3d_Vert){
+                    .pos = tri->elems[i],
+                    .normal = triNormal,
+                };
+            }
+        }
+        mesh = ren3d_meshInit(verts, vertCount);
+        poolAllocDeinit(&pool);
+    }  // end mesh for testing
 
     {
         sketch = sk_sketchInit();
@@ -103,8 +136,6 @@ void main_drawDemoScene(HMM_Vec2 panelSize, snz_Arena* scratch) {
     float aspect = panelSize.X / panelSize.Y;
     HMM_Mat4 proj = HMM_Perspective_RH_NO(HMM_AngleDeg(90), aspect, 0.001, 100000);
 
-    // HMM_Mat4 model = HMM_Translate(HMM_V3(0, 0, 0));
-
     uint32_t w = (uint32_t)panelSize.X;
     uint32_t h = (uint32_t)panelSize.Y;
     if (w != sceneFB.texture.width || h != sceneFB.texture.height) {
@@ -117,7 +148,9 @@ void main_drawDemoScene(HMM_Vec2 panelSize, snz_Arena* scratch) {
     snzr_callGLFnOrError(glViewport(0, 0, w, h));
     snzr_callGLFnOrError(glClearColor(1, 1, 1, 1));
     snzr_callGLFnOrError(glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT));
-    // ren3d_drawMesh(&mesh, HMM_MulM4(proj, view), model, HMM_V3(-1, -1, -1));
+
+    HMM_Mat4 model = HMM_Translate(HMM_V3(1, 1, -1));
+    ren3d_drawMesh(&mesh, HMM_MulM4(proj, view), model, HMM_V3(-1, -1, -1));
     // FIXME: highlight edges :) + debug view of geometry
 
     // HMM_Mat4 sketchVP = HMM_Translate(sketchOrigin);
@@ -158,10 +191,10 @@ void main_drawDemoScene(HMM_Vec2 panelSize, snz_Arena* scratch) {
         } else if (kind == SK_MK_ANY) {
             // make it really big so the cross line is entirely faded out
             HMM_Vec2 ptsArr[4] = {
-                HMM_V2(-3, 0),
-                HMM_V2(3, 0),
-                HMM_V2(0, -3),
-                HMM_V2(0, 3),
+                HMM_V2(-1.5, 0),
+                HMM_V2(1.5, 0),
+                HMM_V2(0, -1.5),
+                HMM_V2(0, 1.5),
             };
             ptCount = 4;
             pts = ptsArr;
