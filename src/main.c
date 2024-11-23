@@ -79,17 +79,17 @@ void main_init(snz_Arena* scratch) {
 
         sk_Line* leftLine = sk_sketchAddLine(&sketch, &sketchArena, left, originPt);
         sk_sketchAddConstraintAngle(&sketch, &sketchArena, vertical, false, leftLine, true, HMM_AngleDeg(90));
+        sk_sketchAddConstraintDistance(&sketch, &sketchArena, leftLine, 1);
         sk_Line* rightLine = sk_sketchAddLine(&sketch, &sketchArena, originPt, right);
         sk_sketchAddConstraintDistance(&sketch, &sketchArena, rightLine, 1);
-        // sk_sketchAddConstraintAngle(&sketch, &sketchArena, rightLine, false, vertical, false, HMM_AngleDeg(90));
 
         sk_Point* other = sk_sketchAddPoint(&sketch, &sketchArena, HMM_V2(-1, 1));
         sk_Line* l = sk_sketchAddLine(&sketch, &sketchArena, left, other);
-        sk_sketchAddConstraintAngle(&sketch, &sketchArena, l, false, leftLine, false, 120);
+        sk_sketchAddConstraintAngle(&sketch, &sketchArena, l, false, leftLine, false, HMM_AngleDeg(120));
 
         sk_sketchAddLine(&sketch, &sketchArena, up, right);
 
-        sk_sketchSolve(&sketch, originPt, vertical, HMM_AngleDeg(90));
+        sk_sketchSolve(&sketch, originPt, vertical, HMM_AngleDeg(45));
 
         // sketchOrigin = final->first->a;
         // HMM_Vec3 baseNormal = HMM_V3(0, 0, -1);
