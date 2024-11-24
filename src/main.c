@@ -301,7 +301,7 @@ void main_drawDemoScene(HMM_Vec2 panelSize, snz_Arena* scratch) {
         HMM_V2(x, y),
         inter->mouseActions[SNZU_MB_LEFT],
         inter->keyMods & KMOD_SHIFT,
-        *smooth / *max);
+        *smooth / *max * 0.5);
 }
 
 typedef enum {
