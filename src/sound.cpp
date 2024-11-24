@@ -4,6 +4,7 @@
 #include <objbase.h>
 #include "assert.h"
 #include "sound.h"
+#include <inttypes.h>
 
 __CRT_UUID_DECL(IAudioMeterInformation, 0xC02216F6, 0x8C67, 0x4B5B, 0x9D, 0x00, 0xD0, 0x08, 0xE7, 0x3E, 0x00, 0x64);
 
@@ -35,17 +36,18 @@ static IAudioMeterInformation* _sound_info;
 static IMMDeviceEnumerator* _sound_enum;
 static IMMDevice* _sound_device;
 
-void sound_init() {
+extern "C" void sound_init() {
     HRESULT err = 0;
 
     CoInitialize(NULL);
 
     // Get enumerator for audio endpoint devices.
-    err = CoCreateInstance(__uuidof(IMMDeviceEnumerator),
+    err = CoCreateInstance(__uuidof(MMDeviceEnumerator),
                           NULL, CLSCTX_INPROC_SERVER,
                           __uuidof(IMMDeviceEnumerator),
                           (void**)&_sound_enum);
-    assert(SUCCEEDED(err));
+    uint32_t e = (uint32_t)err;
+    assert(SUCCEEDED(e));
 
     // Get peak meter for default audio-rendering device.
     err = _sound_enum->GetDefaultAudioEndpoint(eRender, eConsole, &_sound_device);
@@ -56,14 +58,14 @@ void sound_init() {
     assert(SUCCEEDED(err));
 }
 
-void sound_deinit() {
+extern "C" void sound_deinit() {
     SAFE_RELEASE(_sound_enum);
     SAFE_RELEASE(_sound_device);
     SAFE_RELEASE(_sound_info);
     CoUninitialize();
 }
 
-float sound_get() {
+extern "C" float sound_get() {
     float peak = 0;
     HRESULT err = _sound_info->GetPeakValue(&peak);
     assert(SUCCEEDED(err));
