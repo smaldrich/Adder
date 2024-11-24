@@ -3,23 +3,18 @@
 #include "ui.h"
 #include "sketches2.h"
 
-typedef struct {
-    bool selected;
-    float selectedAnim;
-    float hoverAnim;
-} _sku_ElementData;
-
-void _sku_elementDataUpdate(_sku_ElementData* data, bool hovered, snzu_Action mouseAct, bool shiftPressed) {
+void _sku_elementDataUpdate(sk_ElementUIInfo* data, bool hovered, snzu_Action mouseAct, bool shiftPressed, bool* dragging) {
     snzu_easeExp(&data->hoverAnim, hovered, 15);
 
     if (mouseAct == SNZU_ACT_DOWN) {
         if (hovered) {
             data->selected = !data->selected;
+            *dragging = false;
         } else if (!shiftPressed) {
             data->selected = false;
         }
     }
-    snzu_easeExp(&data->selectedAnim, data->selected, 15);
+    snzu_easeExp(&data->selectionAnim, data->selected, 15);
 }
 
 static float main_gridLineGap(float area, float visibleCount) {
@@ -202,6 +197,16 @@ static void _sku_drawConstraint(sk_Constraint* c, float scaleFactor, HMM_Vec2 vi
     }
 }
 
+static bool _sku_AABBContainsPt(HMM_Vec2 boxStart, HMM_Vec2 boxEnd, HMM_Vec2 pt) {
+    if (boxStart.X < pt.X && boxEnd.X > pt.X) {
+        if (boxStart.Y < pt.Y && boxEnd.Y > pt.Y) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// FIXME: sketch element selection persists too much
 void sku_drawSketch(sk_Sketch* sketch, HMM_Mat4 vp, HMM_Mat4 model, snz_Arena* scratch, HMM_Vec3 cameraPos, HMM_Vec2 mousePosInPlane, snzu_Action mouseAct, bool shiftPressed) {
     HMM_Mat4 mvp = HMM_Mul(vp, model);
 
@@ -233,6 +238,65 @@ void sku_drawSketch(sk_Sketch* sketch, HMM_Mat4 vp, HMM_Mat4 model, snz_Arena* s
             }
         }
     } // end grid
+
+    // FIXME: yuck but I can't think of a lighter way to factor it
+    bool* const dragging = SNZU_USE_MEM(bool, "dragging");
+
+    { // Dragging based selection
+        // doing this instead of snzu_Interaction.dragBeginning bc. mouse pos is projected
+        // FIXME: problems when this is really far away
+        HMM_Vec2* const dragOrigin = SNZU_USE_MEM(HMM_Vec2, "dragOrigin");
+
+        if (mouseAct == SNZU_ACT_DOWN) {
+            *dragOrigin = mousePosInPlane;
+            *dragging = true;
+        } else if (mouseAct == SNZU_ACT_DRAG && *dragging) {
+            HMM_Vec2 start = HMM_V2(0, 0);
+            HMM_Vec2 end = HMM_V2(0, 0);
+            start.X = SNZ_MIN(mousePosInPlane.X, dragOrigin->X);
+            start.Y = SNZ_MIN(mousePosInPlane.Y, dragOrigin->Y);
+            end.X = SNZ_MAX(mousePosInPlane.X, dragOrigin->X);
+            end.Y = SNZ_MAX(mousePosInPlane.Y, dragOrigin->Y);
+
+            // FIXME: direct lookup of connected elts would be lovely
+            for (sk_Point* p = sketch->firstPoint; p; p = p->next) {
+                p->uiInfo.selected = false;
+                if (_sku_AABBContainsPt(start, end, p->pos)) {
+                    p->uiInfo.selected = true;
+                }
+            } // end point loop
+
+            for (sk_Line* l = sketch->firstLine; l; l = l->next) {
+                l->uiInfo.selected = false;
+                if (l->p1->uiInfo.selected && l->p2->uiInfo.selected) {
+                    l->uiInfo.selected = true;
+                }
+            }
+
+            for (sk_Constraint* c = sketch->firstConstraint; c; c = c->nextAllocated) {
+                c->uiInfo.selected = false;
+                if (c->kind == SK_CK_ANGLE) {
+                    sk_Point* base1 = c->flipLine1 ? c->line1->p2 : c->line1->p1;
+                    sk_Point* base2 = c->flipLine2 ? c->line2->p2 : c->line2->p1;
+                    if (base1 == base2 && base1->uiInfo.selected) {
+                        c->uiInfo.selected = true;
+                    }
+                } else if (c->kind == SK_CK_DISTANCE) {
+                    if (c->line1->uiInfo.selected) {
+                        c->uiInfo.selected = true;
+                    }
+                }
+            }
+
+            HMM_Vec4 color = UI_ACCENT_COLOR;
+            color.A = 0.2;
+            snzr_drawRect(*dragOrigin, mousePosInPlane,
+                        HMM_V2(-100000, -100000), HMM_V2(100000, 100000),
+                        color,
+                        0, 0, HMM_V4(0, 0, 0, 0),
+                        mvp, _snzr_globs.solidTex); // FIXME: internals should be be hacked at like this
+        } // end drag check
+    }
 
     // MANIFOLDS
     for (sk_Point* p = sketch->firstPoint; p; p = p->next) {
@@ -314,17 +378,15 @@ void sku_drawSketch(sk_Sketch* sketch, HMM_Mat4 vp, HMM_Mat4 model, snz_Arena* s
         }
 
         bool hovered = _sku_constraintHovered(c, scaleFactor, visualCenter, mousePosInPlane);
-        snzu_boxNew(snz_arenaFormatStr(scratch, "%p", c));
-        _sku_ElementData* data = SNZU_USE_MEM(_sku_ElementData, "data");
-        _sku_elementDataUpdate(data, hovered, mouseAct, shiftPressed);
+        _sku_elementDataUpdate(&c->uiInfo, hovered, mouseAct, shiftPressed, dragging);
 
         HMM_Vec4 color = UI_TEXT_COLOR;
         if (c->violated) {
             color = UI_RED;
         }
-        color = HMM_LerpV4(color, data->selectedAnim, UI_ACCENT_COLOR);
+        color = HMM_LerpV4(color, c->uiInfo.selectionAnim, UI_ACCENT_COLOR);
 
-        float thickness = HMM_Lerp(SKU_CONSTRAINT_THICKNESS, data->hoverAnim, SKU_CONSTRAINT_HOVERED_THICKNESS);
+        float thickness = HMM_Lerp(SKU_CONSTRAINT_THICKNESS, c->uiInfo.hoverAnim, SKU_CONSTRAINT_HOVERED_THICKNESS);
         _sku_drawConstraint(c, scaleFactor, visualCenter, color, thickness, scratch, mvp);
     }  // end constraint draw loop
 
@@ -337,16 +399,14 @@ void sku_drawSketch(sk_Sketch* sketch, HMM_Mat4 vp, HMM_Mat4 model, snz_Arena* s
             hovered = _sku_lineContainsPt(l->p1->pos, l->p2->pos, 0.01 * distToCamera, mousePosInPlane);
         }
 
-        snzu_boxNew(snz_arenaFormatStr(scratch, "%p", l));
-        _sku_ElementData* data = SNZU_USE_MEM(_sku_ElementData, "data");
-        _sku_elementDataUpdate(data, hovered, mouseAct, shiftPressed);
+        _sku_elementDataUpdate(&l->uiInfo, hovered, mouseAct, shiftPressed, dragging);
 
         HMM_Vec2 points[] = {
             l->p1->pos,
             l->p2->pos,
         };
-        float thickness = HMM_Lerp(2.0f, data->hoverAnim, 5.0f);
-        HMM_Vec4 color = HMM_LerpV4(UI_TEXT_COLOR, data->selectedAnim, UI_ACCENT_COLOR);
+        float thickness = HMM_Lerp(2.0f, l->uiInfo.hoverAnim, 5.0f);
+        HMM_Vec4 color = HMM_LerpV4(UI_TEXT_COLOR, l->uiInfo.selectionAnim, UI_ACCENT_COLOR);
         snzr_drawLine(points, 2, color, thickness, mvp);
     }
 
