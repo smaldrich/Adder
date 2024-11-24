@@ -201,8 +201,9 @@ void main_drawSketch(HMM_Mat4 vp, HMM_Mat4 model, snz_Arena* scratch, HMM_Vec3 c
         float scaleFactor = HMM_LenV3(HMM_Sub(main_MulM4V3(model, mousePos), cameraPos));
 
         // FIXME: jarring switches in gaplen
+        // FIXME: unpleasant clipping into coplanar geometry
         int lineCount = 13; // FIXME: batch all of these verts into one line
-        float lineGap = main_gridLineGap(scaleFactor * 1.5, lineCount);
+        float lineGap = main_gridLineGap(scaleFactor * 2, lineCount);
         for (int ax = 0; ax < 2; ax++) {
             float axOffset = fmod(mousePosInPlane.Elements[ax], lineGap);
             for (int i = 0; i < lineCount; i++) {
@@ -367,11 +368,39 @@ void main_drawSketch(HMM_Mat4 vp, HMM_Mat4 model, snz_Arena* scratch, HMM_Vec3 c
     }  // end constraint draw loop
 
     for (sk_Line* l = sketch.firstLine; l; l = l->next) {
+        snzu_boxNew(snz_arenaFormatStr(scratch, "%p", l));
+
+        bool hovered = true;
+        {
+            HMM_Vec2 midpt = HMM_DivV2F(HMM_Add(l->p1->pos, l->p2->pos), 2.0f);
+            HMM_Vec3 transformedCenter = HMM_MulM4V4(model, HMM_V4(midpt.X, midpt.Y, 0, 1)).XYZ;
+            float distToCamera = HMM_Len(HMM_Sub(transformedCenter, cameraPos));
+            float epsilon = 0.01 * distToCamera;
+
+            HMM_Vec2 diff = HMM_Sub(l->p2->pos, l->p1->pos);
+            float length = HMM_Len(diff);
+            HMM_Vec2 norm = HMM_Norm(diff);
+            float t = HMM_Dot(HMM_Sub(mousePosInPlane, l->p1->pos), norm);
+            if (t < -epsilon || t > length + epsilon) {
+                hovered = false;
+            }
+
+            HMM_Vec2 projectedPt = HMM_Add(l->p1->pos, HMM_Mul(norm, t));
+            float distFromLine = HMM_Len(HMM_Sub(projectedPt, mousePosInPlane));
+            if (distFromLine > epsilon) {
+                hovered = false;
+            }
+        }
+
+        float* const selectedAnim = SNZU_USE_MEM(float, "selectedAnim");
+        snzu_easeExp(selectedAnim, hovered, 10);
+
         HMM_Vec2 points[] = {
             l->p1->pos,
             l->p2->pos,
         };
-        snzr_drawLine(points, 2, UI_TEXT_COLOR, 2, mvp);
+        float thickness = HMM_Lerp(2.0f, *selectedAnim, 5.0f);
+        snzr_drawLine(points, 2, UI_TEXT_COLOR, thickness, mvp);
     }
 
     glEnable(GL_DEPTH_TEST);
