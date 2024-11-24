@@ -545,6 +545,7 @@ static void _snzr_init(snz_Arena* scratchArena) {
             "    color = vec4(uColor.xyz, alpha);"
             "};";
 
+        // FIXME: issues when lines go off screen
         _snzr_globs.lineShaderId = snzr_shaderInit(vertSrc, fragSrc, scratchArena);
     }
 

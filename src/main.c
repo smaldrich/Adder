@@ -140,7 +140,7 @@ void main_init(snz_Arena* scratch) {
         sk_Point* other = sk_sketchAddPoint(&sketch, &sketchArena, HMM_V2(-1, 1));
         sk_Line* l = sk_sketchAddLine(&sketch, &sketchArena, left, other);
         sk_sketchAddConstraintAngle(&sketch, &sketchArena, l, false, leftLine, false, HMM_AngleDeg(-120));
-        sk_sketchAddConstraintDistance(&sketch, &sketchArena, l, 0.2);
+        // sk_sketchAddConstraintDistance(&sketch, &sketchArena, l, 0.2);
 
         sk_sketchAddLine(&sketch, &sketchArena, up, right);
 
@@ -162,10 +162,65 @@ HMM_Vec3 main_rayFromCamera(float fov, HMM_Mat4 cameraTransform, HMM_Vec2 mouseP
     return HMM_Norm(v);
 }
 
-void main_drawSketch(HMM_Mat4 vp, HMM_Mat4 model, snz_Arena* scratch, HMM_Vec3 cameraPos) {
+float main_gridLineGap(float area, float visibleCount) {
+    float lineGap = area / visibleCount;
+
+    float dec = lineGap;  // get the base ten decimal/exponents
+    int exp = 0;
+    while (dec < 1) {
+        dec *= 10;
+        exp--;
+    }
+    while (dec > 10) {
+        dec /= 10;
+        exp++;
+    }
+
+    int roundingTargets[] = { 5, 2, 1 };
+    for (int i = 0; i < 3; i++) {
+        if (dec > roundingTargets[i]) {
+            dec = (float)roundingTargets[i];
+            break;
+        }
+    }
+
+    return dec * powf(10, (float)exp);
+}
+
+HMM_Vec3 main_MulM4V3(HMM_Mat4 m, HMM_Vec3 v) {
+    return HMM_Mul(m, HMM_V4(v.X, v.Y, v.Z, 1)).XYZ;
+}
+
+void main_drawSketch(HMM_Mat4 vp, HMM_Mat4 model, snz_Arena* scratch, HMM_Vec3 cameraPos, HMM_Vec2 mousePosInPlane) {
+    HMM_Mat4 mvp = HMM_Mul(vp, model);
+
     glDisable(GL_DEPTH_TEST);
 
-    HMM_Mat4 mvp = HMM_Mul(vp, model);
+    { // grid around the cursor
+        HMM_Vec3 mousePos = HMM_V3(mousePosInPlane.X, mousePosInPlane.Y, 0);
+        float scaleFactor = HMM_LenV3(HMM_Sub(main_MulM4V3(model, mousePos), cameraPos));
+
+        // FIXME: jarring switches in gaplen
+        int lineCount = 13; // FIXME: batch all of these verts into one line
+        float lineGap = main_gridLineGap(scaleFactor * 1.5, lineCount);
+        for (int ax = 0; ax < 2; ax++) {
+            float axOffset = fmod(mousePosInPlane.Elements[ax], lineGap);
+            for (int i = 0; i < lineCount; i++) {
+                float x = (i - (lineCount / 2)) * lineGap;
+                x -= axOffset;
+                HMM_Vec2 pts[] = { mousePosInPlane, mousePosInPlane };
+                pts[0].Elements[ax] += x;
+                pts[0].Elements[!ax] += 1.5 * scaleFactor;
+                pts[1].Elements[ax] += x;
+                pts[1].Elements[!ax] += -1.5 * scaleFactor;
+
+                HMM_Vec3 fadeOrigin = { 0 };
+                fadeOrigin.XY = mousePosInPlane;
+                // FIXME: have this invert color when behind smth in the scene
+                snzr_drawLineFaded(pts, 2, HMM_V4(0.9, 0.9, 0.9, 1), 1, mvp, fadeOrigin, 0, 0.5 * scaleFactor);
+            }
+        }
+    } // end grid
 
     // MANIFOLDS
     for (sk_Point* p = sketch.firstPoint; p; p = p->next) {
@@ -174,7 +229,7 @@ void main_drawSketch(HMM_Mat4 vp, HMM_Mat4 model, snz_Arena* scratch, HMM_Vec3 c
         HMM_Vec2* pts = NULL;
         int ptCount = 0;
 
-        float distToCamera = HMM_Len(HMM_Sub(cameraPos, HMM_V3(p->pos.X, p->pos.Y, 0)));
+        float distToCamera = HMM_Len(HMM_Sub(cameraPos, main_MulM4V3(model, HMM_V3(p->pos.X, p->pos.Y, 0))));
         float scaleFactor = distToCamera; // FIXME: ortho switch
 
         if (kind == SK_MK_POINT) {
@@ -247,7 +302,7 @@ void main_drawSketch(HMM_Mat4 vp, HMM_Mat4 model, snz_Arena* scratch, HMM_Vec3 c
             } else {
                 SNZ_ASSERTF(false, "unreachable case. kind: %d", c->kind);
             }
-            HMM_Vec3 transformedCenter = HMM_Mul(model, HMM_V4(visualCenter.X, visualCenter.Y, 0, 1)).XYZ;
+            HMM_Vec3 transformedCenter = main_MulM4V3(model, HMM_V3(visualCenter.X, visualCenter.Y, 0));
             scaleFactor = HMM_Len(HMM_Sub(cameraPos, transformedCenter));
         }
         float angleConstraintVisualOffset = 0.05 * scaleFactor;
@@ -421,13 +476,18 @@ void main_drawDemoScene(HMM_Vec2 panelSize, snz_Arena* scratch) {
     // FIXME: highlight edges :) + debug view of geometry
     ren3d_drawMesh(&mesh, vp, model, HMM_V3(-1, -1, -1));
 
-    {
-        HMM_Mat4 m = HMM_Translate(HMM_Add(HMM_Mul(rayNormal, 1.0f), cameraPos));
-        m = HMM_Mul(m, HMM_Scale(HMM_V3(0.01, 0.01, 0.01)));
-        ren3d_drawMesh(&mesh, vp, m, HMM_V3(-1, -1, -1));
+    float t = 0;
+    bool hit = csg_planeLineIntersection(sketchAlign.endPt, sketchAlign.endNormal, cameraPos, rayNormal, &t);
+    HMM_Vec3 point = HMM_Add(cameraPos, HMM_Mul(rayNormal, t));
+    if (!hit) {
+        point = HMM_V3(INFINITY, INFINITY, INFINITY);
     }
+    point = HMM_Sub(point, sketchAlign.endPt);
+    HMM_Vec3 xAxis = HMM_Cross(sketchAlign.endVertical, sketchAlign.endNormal);
+    float x = HMM_Dot(point, xAxis);
+    float y = HMM_Dot(point, sketchAlign.endVertical);
 
-    main_drawSketch(vp, main_alignToM4(sketchAlign), scratch, cameraPos);
+    main_drawSketch(vp, main_alignToM4(sketchAlign), scratch, cameraPos, HMM_V2(x, y));
 }
 
 typedef enum {
