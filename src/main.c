@@ -287,10 +287,18 @@ void main_drawDemoScene(HMM_Vec2 panelSize, snz_Arena* scratch) {
     float y = HMM_Dot(point, sketchAlign.endVertical);
 
     float* const max = SNZU_USE_MEM(float, "max");
+    float* const min = SNZU_USE_MEM(float, "min");
+    float* const minTime = SNZU_USE_MEM(float, "minTime");
     float* const smooth = SNZU_USE_MEM(float, "smooth");
     float cur = sound_get();
     *max = SNZ_MAX(*max, cur);
-    snzu_easeExpUnbounded(smooth, cur, 30);
+    *min = SNZ_MIN(*min, cur);
+    snzu_easeExpUnbounded(smooth, cur * (*max - *min), 30);
+    *minTime += 0.0001;
+    if (*minTime > 1) {
+        *minTime = 0;
+        *min = cur;
+    }
 
     sku_drawSketch(
         &sketch,
@@ -301,7 +309,7 @@ void main_drawDemoScene(HMM_Vec2 panelSize, snz_Arena* scratch) {
         HMM_V2(x, y),
         inter->mouseActions[SNZU_MB_LEFT],
         inter->keyMods & KMOD_SHIFT,
-        *smooth / *max * 0.5);
+        (*smooth / *max - 0.5) * 0.25);
 }
 
 typedef enum {
