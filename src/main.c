@@ -57,7 +57,7 @@ HMM_Mat4 main_alignToM4(main_Align a) {
     return HMM_Mul(translate, HMM_QToM4(q));
 }
 
-void main_init(snz_Arena* scratch) {
+void main_init(snz_Arena* scratch, SDL_Window* window) {
     _poolAllocTests();
     sk_tests();
     ser_tests();
@@ -69,6 +69,15 @@ void main_init(snz_Arena* scratch) {
     ui_titleFont = snzr_fontInit(&fontArena, scratch, "res/fonts/AzeretMono-Regular.ttf", 48);
     ui_paragraphFont = snzr_fontInit(&fontArena, scratch, "res/fonts/OpenSans-Light.ttf", 16);
     ui_labelFont = snzr_fontInit(&fontArena, scratch, "res/fonts/AzeretMono-LightItalic.ttf", 20);
+
+    {
+        SDL_Surface* s = SDL_LoadBMP("res/textures/icon.bmp");
+        char buf[1000] = { 0 };
+        const char* err = SDL_GetErrorMsg(buf, 1000);
+        printf("%s", err);
+        SNZ_ASSERT(s != NULL, "icon load failed.");
+        SDL_SetWindowIcon(window, s);
+    }
 
     ren3d_init(scratch);
     docs_init();

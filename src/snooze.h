@@ -1627,7 +1627,7 @@ void snzu_boxHighlightByAnim(float* anim, HMM_Vec4 baseColor, float diff) {
 // MAIN LOOP HANDLING + SDL ====================================================
 // MAIN LOOP HANDLING + SDL ====================================================
 
-typedef void (*snz_InitFunc)(snz_Arena* scratch);
+typedef void (*snz_InitFunc)(snz_Arena* scratch, SDL_Window* window);
 typedef void (*snz_FrameFunc)(float dt, snz_Arena* frameArena);
 
 void snz_main(const char* windowTitle, snz_InitFunc initFunc, snz_FrameFunc frameFunc) {
@@ -1650,7 +1650,7 @@ void snz_main(const char* windowTitle, snz_InitFunc initFunc, snz_FrameFunc fram
 
     _snzr_init(&frameArena);
     snz_arenaClear(&frameArena);
-    initFunc(&frameArena);
+    initFunc(&frameArena, window);
     snz_arenaClear(&frameArena);
 
     bool quit = false;

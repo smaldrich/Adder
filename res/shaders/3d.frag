@@ -22,10 +22,10 @@ void main()
     vec3 lightDir = normalize(uLightDir);
     // vec3 viewDir = normalize(uViewDir);
 
-    vec3 ambient = uLightColor * 0.7;
+    vec3 ambient = uLightColor * 0.8;
 
     float diff = clamp(dot(-normal, lightDir), 0.0, 1.0);
-    vec3 diffuse = uLightColor * 0.2 * diff;
+    vec3 diffuse = uLightColor * 0.15 * diff;
 
     // vec3 reflectDir = reflect(lightDir, normal);
     // float spec = pow(max(dot(-viewDir, reflectDir), 0.0), 25);
