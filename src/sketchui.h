@@ -244,12 +244,12 @@ void sku_drawSketch(sk_Sketch* sketch, HMM_Mat4 vp, HMM_Mat4 model, snz_Arena* s
 
     { // Dragging based selection
         // doing this instead of snzu_Interaction.dragBeginning bc. mouse pos is projected
-        // FIXME: problems when this is really far away
         HMM_Vec2* const dragOrigin = SNZU_USE_MEM(HMM_Vec2, "dragOrigin");
 
         if (mouseAct == SNZU_ACT_DOWN) {
             *dragOrigin = mousePosInPlane;
             *dragging = true;
+            // FIXME: what happens on the border of mouse not being projectable??
         } else if (mouseAct == SNZU_ACT_DRAG && *dragging) {
             HMM_Vec2 start = HMM_V2(0, 0);
             HMM_Vec2 end = HMM_V2(0, 0);
