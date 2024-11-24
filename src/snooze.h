@@ -308,7 +308,7 @@ void snzr_frameBufferDeinit(snzr_FrameBuffer* fb) {
 }
 
 #define _SNZR_FONT_FIRST_ASCII 32
-#define _SNZR_FONT_ASCII_CHAR_COUNT 96
+#define _SNZR_FONT_ASCII_CHAR_COUNT (255 - _SNZR_FONT_FIRST_ASCII)
 #define _SNZR_FONT_UNKNOWN_CHAR 9633  // white box, see: https://www.fileformat.info/info/unicode/char/25a1/index.htm
 
 snzr_Font snzr_fontInit(snz_Arena* dataArena, snz_Arena* scratch, const char* path, float size) {

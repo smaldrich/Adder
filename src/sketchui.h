@@ -137,6 +137,9 @@ static bool _sku_constraintHovered(sk_Constraint* c, float scaleFactor, HMM_Vec2
 }
 
 static void _sku_drawConstraint(sk_Constraint* c, float scaleFactor, HMM_Vec2 visualCenter, HMM_Vec4 color, float thickness, snz_Arena* scratch, HMM_Mat4 mvp) {
+    HMM_Vec2 textTopLeft = HMM_V2(0, 0);
+    const char* text = NULL;
+
     if (c->kind == SK_CK_DISTANCE) {
         HMM_Vec2 p1 = c->line1->p1->pos;
         HMM_Vec2 p2 = c->line1->p2->pos;
@@ -147,18 +150,8 @@ static void _sku_drawConstraint(sk_Constraint* c, float scaleFactor, HMM_Vec2 vi
         HMM_Vec2 points[] = { p1, p2 };
         snzr_drawLine(points, 2, color, thickness, mvp);
 
-        float drawnHeight = SKU_LABEL_SIZE * scaleFactor;
-        const char* str = snz_arenaFormatStr(scratch, "%.2fm", c->value);
-        HMM_Vec2 start = HMM_Add(visualCenter, HMM_Mul(offset, 2.0f));
-        start.Y -= drawnHeight / 2;
-        // FIXME: move labels if camera is on the other side
-        // FIXME: less self intersection on angled lines
-        snzr_drawTextScaled(
-            start,
-            HMM_V2(-100000, -100000), HMM_V2(100000, 100000),
-            color, str, strlen(str), ui_titleFont,
-            mvp, drawnHeight, false, true);
-
+        textTopLeft = HMM_Add(visualCenter, HMM_Mul(offset, 2.0f));
+        text = snz_arenaFormatStr(scratch, "%.2fm", c->value);
     } else if (c->kind == SK_CK_ANGLE) {
         sk_Point* joint = NULL;
         if (c->line1->p1 == c->line2->p1 || c->line1->p1 == c->line2->p2) {
@@ -181,6 +174,7 @@ static void _sku_drawConstraint(sk_Constraint* c, float scaleFactor, HMM_Vec2 vi
                 HMM_Add(joint->pos, offset2),
             };
             snzr_drawLine(pts, 3, color, thickness, mvp);
+            return;
         } else {
             HMM_Vec2 angles = _sku_angleOfLinesInAngleConstraint(c);
             float startAngle = angles.X;
@@ -193,8 +187,24 @@ static void _sku_drawConstraint(sk_Constraint* c, float scaleFactor, HMM_Vec2 vi
                 linePts[i] = HMM_Add(joint->pos, o);
             }
             snzr_drawLine(linePts, ptCount, color, thickness, mvp);
+
+            textTopLeft = HMM_RotateV2(HMM_V2(offset * 1.5, 0), startAngle + angleRange / 2);
+            textTopLeft = HMM_Add(textTopLeft, visualCenter);
+            text = snz_arenaFormatStr(scratch, "%.1fdeg", HMM_ToDeg(fabsf(c->value)));
+            // FIXME: ^^ unicode + the degree symol
         }
     }
+
+    float drawnHeight = SKU_LABEL_SIZE * scaleFactor;
+    textTopLeft.Y -= drawnHeight / 2;
+
+    // FIXME: move labels if camera is on the other side
+    // FIXME: less self intersection on angled lines
+    snzr_drawTextScaled(
+        textTopLeft,
+        HMM_V2(-100000, -100000), HMM_V2(100000, 100000),
+        color, text, strlen(text), ui_titleFont,
+        mvp, drawnHeight, false, true);
 }
 
 static bool _sku_AABBContainsPt(HMM_Vec2 boxStart, HMM_Vec2 boxEnd, HMM_Vec2 pt) {
