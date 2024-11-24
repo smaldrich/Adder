@@ -1,0 +1,261 @@
+#include "HMM/HandmadeMath.h"
+#include "snooze.h"
+#include "ui.h"
+#include "sketches2.h"
+
+static float main_gridLineGap(float area, float visibleCount) {
+    float lineGap = area / visibleCount;
+
+    float dec = lineGap;  // get the base ten decimal/exponents
+    int exp = 0;
+    while (dec < 1) {
+        dec *= 10;
+        exp--;
+    }
+    while (dec > 10) {
+        dec /= 10;
+        exp++;
+    }
+
+    int roundingTargets[] = { 5, 2, 1 };
+    for (int i = 0; i < 3; i++) {
+        if (dec > roundingTargets[i]) {
+            dec = (float)roundingTargets[i];
+            break;
+        }
+    }
+
+    return dec * powf(10, (float)exp);
+}
+
+static HMM_Vec3 _sku_mulM4V3(HMM_Mat4 m, HMM_Vec3 v) {
+    return HMM_Mul(m, HMM_V4(v.X, v.Y, v.Z, 1)).XYZ;
+}
+
+void sku_drawSketch(sk_Sketch* sketch, HMM_Mat4 vp, HMM_Mat4 model, snz_Arena* scratch, HMM_Vec3 cameraPos, HMM_Vec2 mousePosInPlane, snzu_Action mouseAct, bool shiftPressed) {
+    HMM_Mat4 mvp = HMM_Mul(vp, model);
+
+    glDisable(GL_DEPTH_TEST);
+
+    { // grid around the cursor
+        HMM_Vec3 mousePos = HMM_V3(mousePosInPlane.X, mousePosInPlane.Y, 0);
+        float scaleFactor = HMM_LenV3(HMM_Sub(_sku_mulM4V3(model, mousePos), cameraPos));
+
+        // FIXME: jarring switches in gaplen
+        // FIXME: unpleasant clipping into coplanar geometry
+        int lineCount = 13; // FIXME: batch all of these verts into one line
+        float lineGap = main_gridLineGap(scaleFactor * 2, lineCount);
+        for (int ax = 0; ax < 2; ax++) {
+            float axOffset = fmod(mousePosInPlane.Elements[ax], lineGap);
+            for (int i = 0; i < lineCount; i++) {
+                float x = (i - (lineCount / 2)) * lineGap;
+                x -= axOffset;
+                HMM_Vec2 pts[] = { mousePosInPlane, mousePosInPlane };
+                pts[0].Elements[ax] += x;
+                pts[0].Elements[!ax] += 1.5 * scaleFactor;
+                pts[1].Elements[ax] += x;
+                pts[1].Elements[!ax] += -1.5 * scaleFactor;
+
+                HMM_Vec3 fadeOrigin = { 0 };
+                fadeOrigin.XY = mousePosInPlane;
+                // FIXME: have this invert color when behind smth in the scene
+                snzr_drawLineFaded(pts, 2, UI_ALMOST_BACKGROUND_COLOR, 1, mvp, fadeOrigin, 0, 0.5 * scaleFactor);
+            }
+        }
+    } // end grid
+
+    // MANIFOLDS
+    for (sk_Point* p = sketch->firstPoint; p; p = p->next) {
+        sk_ManifoldKind kind = p->manifold.kind;
+
+        HMM_Vec2* pts = NULL;
+        int ptCount = 0;
+
+        float distToCamera = HMM_Len(HMM_Sub(cameraPos, _sku_mulM4V3(model, HMM_V3(p->pos.X, p->pos.Y, 0))));
+        float scaleFactor = distToCamera; // FIXME: ortho switch
+
+        if (kind == SK_MK_POINT) {
+            continue;
+        } else if (kind == SK_MK_CIRCLE) {
+            ptCount = 11;
+            pts = SNZ_ARENA_PUSH_ARR(scratch, ptCount, HMM_Vec2);
+
+            float angleRange = HMM_AngleDeg(40);
+            HMM_Vec2 diff = HMM_Sub(p->pos, p->manifold.circle.origin);
+            float startAngle = atan2f(diff.Y, diff.X);
+            for (int i = 0; i < ptCount; i++) {
+                float angle = startAngle + (i - (ptCount / 2)) * (angleRange / ptCount);
+                pts[i] = HMM_RotateV2(HMM_V2(p->manifold.circle.radius, 0), angle);
+                pts[i] = HMM_Add(pts[i], p->manifold.circle.origin);
+            }
+        } else if (kind == SK_MK_LINE) {
+            ptCount = 2;
+            HMM_Vec2 ptsArr[2] = {
+                p->pos,
+                HMM_Add(p->pos, HMM_Mul(HMM_Norm(p->manifold.line.direction), 0.4f * scaleFactor)),
+            };
+            pts = ptsArr;
+        } else if (kind == SK_MK_ANY) {
+            // make it really big so the cross line is entirely faded out
+            HMM_Vec2 ptsArr[4] = {
+                HMM_V2(-1 * scaleFactor, 0),
+                HMM_V2(1 * scaleFactor, 0),
+                HMM_V2(0, -1 * scaleFactor),
+                HMM_V2(0, 1 * scaleFactor),
+            };
+            ptCount = 4;
+            pts = ptsArr;
+            for (int i = 0; i < ptCount; i++) {
+                pts[i] = HMM_RotateV2(pts[i], HMM_AngleDeg(10));
+                pts[i] = HMM_AddV2(pts[i], p->pos);
+            }
+        } else {
+            SNZ_ASSERTF(false, "unreachable. kind was: %d", kind);
+        }
+
+        if (kind != SK_MK_CIRCLE) {
+            scaleFactor *= 0.07;
+        } else {
+            // When it's a circle, there's not really a great way to scale up the manifold visually
+            // and keep it's radius meaningful. So i'm leaving it like this for now.
+            // FIXME: could scale up the visible radius to a point tho, which would probs work
+            scaleFactor = 0.07;
+        }
+        snzr_drawLineFaded(
+            pts, ptCount,
+            UI_ACCENT_COLOR, 4,
+            mvp, HMM_V3(p->pos.X, p->pos.Y, 0), scaleFactor, scaleFactor);
+    }
+
+    // Drawing actual constraints
+    for (sk_Constraint* c = sketch->firstConstraint; c; c = c->nextAllocated) {
+        HMM_Vec4 color = UI_TEXT_COLOR;
+        if (c->violated) {
+            color = UI_RED;
+        }
+
+        HMM_Vec2 visualCenter = HMM_V2(0, 0);
+        float scaleFactor = 0;
+        {
+            if (c->kind == SK_CK_ANGLE) {
+                visualCenter = c->flipLine1 ? c->line1->p2->pos : c->line1->p1->pos;
+            } else if (c->kind == SK_CK_DISTANCE) {
+                visualCenter = HMM_DivV2F(HMM_Add(c->line1->p1->pos, c->line1->p2->pos), 2);
+            } else {
+                SNZ_ASSERTF(false, "unreachable case. kind: %d", c->kind);
+            }
+            HMM_Vec3 transformedCenter = _sku_mulM4V3(model, HMM_V3(visualCenter.X, visualCenter.Y, 0));
+            scaleFactor = HMM_Len(HMM_Sub(cameraPos, transformedCenter));
+        }
+        float angleConstraintVisualOffset = 0.05 * scaleFactor;
+        float distConstraintVisualOffset = 0.025 * scaleFactor;
+
+        if (c->kind == SK_CK_DISTANCE) {
+            HMM_Vec2 p1 = c->line1->p1->pos;
+            HMM_Vec2 p2 = c->line1->p2->pos;
+            HMM_Vec2 diff = HMM_NormV2(HMM_SubV2(p2, p1));
+            HMM_Vec2 offset = HMM_Mul(HMM_V2(diff.Y, -diff.X), distConstraintVisualOffset);
+            p1 = HMM_Add(p1, offset);
+            p2 = HMM_Add(p2, offset);
+            HMM_Vec2 points[] = { p1, p2 };
+            snzr_drawLine(points, 2, color, 4, mvp);
+
+            float drawnHeight = 0.04 * scaleFactor;
+            const char* str = snz_arenaFormatStr(scratch, "%.2fm", c->value);
+            HMM_Vec2 start = HMM_Add(visualCenter, HMM_Mul(offset, 2.0f));
+            start.Y -= drawnHeight / 2;
+            // FIXME: move labels if camera is on the other side
+            // FIXME: less self intersection on angled lines
+            snzr_drawTextScaled(
+                start,
+                HMM_V2(-100000, -100000), HMM_V2(100000, 100000),
+                UI_TEXT_COLOR, str, strlen(str), ui_titleFont,
+                mvp, drawnHeight, false, true);
+
+        } else if (c->kind == SK_CK_ANGLE) {
+            sk_Point* joint = NULL;
+            if (c->line1->p1 == c->line2->p1 || c->line1->p1 == c->line2->p2) {
+                joint = c->line1->p1;
+            } else if (c->line1->p2 == c->line2->p1 || c->line1->p2 == c->line2->p2) {
+                joint = c->line1->p2;
+            } else {
+                continue;
+            }
+
+            if (csg_floatEqual(c->value, HMM_AngleDeg(90))) {
+                sk_Point* otherOnLine1 = (c->line1->p1 == joint) ? c->line1->p2 : c->line1->p1;
+                sk_Point* otherOnLine2 = (c->line2->p1 == joint) ? c->line2->p2 : c->line2->p1;
+                HMM_Vec2 offset1 = HMM_Mul(HMM_Norm(HMM_Sub(otherOnLine1->pos, joint->pos)), angleConstraintVisualOffset);
+                HMM_Vec2 offset2 = HMM_Mul(HMM_Norm(HMM_Sub(otherOnLine2->pos, joint->pos)), angleConstraintVisualOffset);
+                HMM_Vec2 pts[] = {
+                    HMM_Add(joint->pos, offset1),
+                    HMM_Add(joint->pos, HMM_Add(offset1, offset2)),
+                    HMM_Add(joint->pos, offset2),
+                };
+                snzr_drawLine(pts, 3, color, 4, mvp);
+            } else {
+                sk_Point* otherOnLine1 = (c->line1->p1 == joint) ? c->line1->p2 : c->line1->p1;
+                HMM_Vec2 diff = HMM_Sub(otherOnLine1->pos, joint->pos);
+                float startAngle = atan2f(diff.Y, diff.X);
+                int ptCount = (int)(fabsf(c->value) / HMM_AngleDeg(10)) + 1;
+                HMM_Vec2* linePts = SNZ_ARENA_PUSH_ARR(scratch, ptCount, HMM_Vec2);
+                for (int i = 0; i < ptCount; i++) {
+                    HMM_Vec2 offset = HMM_RotateV2(HMM_V2(angleConstraintVisualOffset, 0), startAngle + (i * c->value / (ptCount - 1)));
+                    linePts[i] = HMM_Add(joint->pos, offset);
+                }
+                snzr_drawLine(linePts, ptCount, color, 4, mvp);
+            }
+        }  // end constraint kind switch
+    }  // end constraint draw loop
+
+    for (sk_Line* l = sketch->firstLine; l; l = l->next) {
+        bool hovered = true;
+        {
+            HMM_Vec2 midpt = HMM_DivV2F(HMM_Add(l->p1->pos, l->p2->pos), 2.0f);
+            HMM_Vec3 transformedCenter = HMM_MulM4V4(model, HMM_V4(midpt.X, midpt.Y, 0, 1)).XYZ;
+            float distToCamera = HMM_Len(HMM_Sub(transformedCenter, cameraPos));
+            float epsilon = 0.01 * distToCamera;
+
+            HMM_Vec2 diff = HMM_Sub(l->p2->pos, l->p1->pos);
+            float length = HMM_Len(diff);
+            HMM_Vec2 norm = HMM_Norm(diff);
+            float t = HMM_Dot(HMM_Sub(mousePosInPlane, l->p1->pos), norm);
+            if (t < -epsilon || t > length + epsilon) {
+                hovered = false;
+            }
+
+            HMM_Vec2 projectedPt = HMM_Add(l->p1->pos, HMM_Mul(norm, t));
+            float distFromLine = HMM_Len(HMM_Sub(projectedPt, mousePosInPlane));
+            if (distFromLine > epsilon) {
+                hovered = false;
+            }
+        }
+
+        snzu_boxNew(snz_arenaFormatStr(scratch, "%p", l));
+
+        // FIXME: remove usemems, move instance vars to the line struct itself
+        float* const hoverAnim = SNZU_USE_MEM(float, "hoverAnim");
+        snzu_easeExp(hoverAnim, hovered, 15);
+
+        bool* const selected = SNZU_USE_MEM(bool, "selected");
+        if (mouseAct == SNZU_ACT_DOWN) {
+            if (hovered) {
+                *selected = !*selected;
+            } else if (!shiftPressed) {
+                *selected = false;
+            }
+        }
+        float* const selectedAnim = SNZU_USE_MEM(float, "selectedAnim");
+        snzu_easeExp(selectedAnim, *selected, 15);
+
+        HMM_Vec2 points[] = {
+            l->p1->pos,
+            l->p2->pos,
+        };
+        float thickness = HMM_Lerp(2.0f, *hoverAnim, 5.0f);
+        HMM_Vec4 color = HMM_LerpV4(UI_TEXT_COLOR, *selectedAnim, UI_ACCENT_COLOR);
+        snzr_drawLine(points, 2, color, thickness, mvp);
+    }
+
+    glEnable(GL_DEPTH_TEST);
+}
