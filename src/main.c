@@ -8,6 +8,7 @@
 #include "stb/stb_image.h"
 #include "ui.h"
 #include "sketchui.h"
+#include "sound.h"
 
 snz_Arena fontArena;
 
@@ -62,6 +63,8 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
     sk_tests();
     ser_tests();
     csg_tests();
+
+    sound_init();
 
     fontArena = snz_arenaInit(10000000, "main font arena");
     sketchArena = snz_arenaInit(10000000, "main sketch arena");
@@ -305,6 +308,9 @@ void main_frame(float dt, snz_Arena* scratch) {
     assert(scratch || !scratch);
     assert(dt || !dt);
 
+    float peak = sound_get();
+    printf("%f\n", peak);
+
     HMM_Vec2 rightPanelSize = HMM_V2(0, 0);
 
     snzu_boxNew("parent");
@@ -385,5 +391,6 @@ void main_frame(float dt, snz_Arena* scratch) {
 
 int main() {
     snz_main("ADDER V0.0", main_init, main_frame);
+    sound_deinit();
     return 0;
 }
