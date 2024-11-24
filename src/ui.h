@@ -11,6 +11,7 @@ snzr_Font ui_labelFont;
 #define UI_ACCENT_COLOR HMM_V4(221 / 255.0, 255 / 255.0, 178 / 255.0, 1)
 #define UI_RED HMM_V4(181 / 255.0, 55 / 255.0, 93 / 255.0, 1);
 #define UI_BACKGROUND_COLOR HMM_V4(1, 1, 1, 1)
+#define UI_ALMOST_BACKGROUND_COLOR HMM_V4(0.9, 0.9, 0.9, 1)
 #define UI_BORDER_THICKNESS 4
 
 // returns true on the frame it is clicked

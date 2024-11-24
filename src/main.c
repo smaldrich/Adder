@@ -191,7 +191,7 @@ HMM_Vec3 main_MulM4V3(HMM_Mat4 m, HMM_Vec3 v) {
     return HMM_Mul(m, HMM_V4(v.X, v.Y, v.Z, 1)).XYZ;
 }
 
-void main_drawSketch(HMM_Mat4 vp, HMM_Mat4 model, snz_Arena* scratch, HMM_Vec3 cameraPos, HMM_Vec2 mousePosInPlane) {
+void main_drawSketch(HMM_Mat4 vp, HMM_Mat4 model, snz_Arena* scratch, HMM_Vec3 cameraPos, HMM_Vec2 mousePosInPlane, snzu_Action mouseAct) {
     HMM_Mat4 mvp = HMM_Mul(vp, model);
 
     glDisable(GL_DEPTH_TEST);
@@ -218,7 +218,7 @@ void main_drawSketch(HMM_Mat4 vp, HMM_Mat4 model, snz_Arena* scratch, HMM_Vec3 c
                 HMM_Vec3 fadeOrigin = { 0 };
                 fadeOrigin.XY = mousePosInPlane;
                 // FIXME: have this invert color when behind smth in the scene
-                snzr_drawLineFaded(pts, 2, HMM_V4(0.9, 0.9, 0.9, 1), 1, mvp, fadeOrigin, 0, 0.5 * scaleFactor);
+                snzr_drawLineFaded(pts, 2, UI_ALMOST_BACKGROUND_COLOR, 1, mvp, fadeOrigin, 0, 0.5 * scaleFactor);
             }
         }
     } // end grid
@@ -392,15 +392,23 @@ void main_drawSketch(HMM_Mat4 vp, HMM_Mat4 model, snz_Arena* scratch, HMM_Vec3 c
             }
         }
 
+        float* const hoverAnim = SNZU_USE_MEM(float, "hoverAnim");
+        snzu_easeExp(hoverAnim, hovered, 15);
+
+        bool* const selected = SNZU_USE_MEM(bool, "selected");
+        if (mouseAct == SNZU_ACT_DOWN) {
+            *selected = hovered;
+        }
         float* const selectedAnim = SNZU_USE_MEM(float, "selectedAnim");
-        snzu_easeExp(selectedAnim, hovered, 10);
+        snzu_easeExp(selectedAnim, *selected, 10);
 
         HMM_Vec2 points[] = {
             l->p1->pos,
             l->p2->pos,
         };
-        float thickness = HMM_Lerp(2.0f, *selectedAnim, 5.0f);
-        snzr_drawLine(points, 2, UI_TEXT_COLOR, thickness, mvp);
+        float thickness = HMM_Lerp(2.0f, *hoverAnim, 5.0f);
+        HMM_Vec4 color = HMM_LerpV4(UI_TEXT_COLOR, *selectedAnim, UI_ACCENT_COLOR);
+        snzr_drawLine(points, 2, color, thickness, mvp);
     }
 
     glEnable(GL_DEPTH_TEST);
@@ -516,7 +524,7 @@ void main_drawDemoScene(HMM_Vec2 panelSize, snz_Arena* scratch) {
     float x = HMM_Dot(point, xAxis);
     float y = HMM_Dot(point, sketchAlign.endVertical);
 
-    main_drawSketch(vp, main_alignToM4(sketchAlign), scratch, cameraPos, HMM_V2(x, y));
+    main_drawSketch(vp, main_alignToM4(sketchAlign), scratch, cameraPos, HMM_V2(x, y), inter->mouseActions[SNZU_MB_LEFT]);
 }
 
 typedef enum {
