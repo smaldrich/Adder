@@ -277,14 +277,18 @@ void sku_drawSketch(sk_Sketch* sketch, HMM_Mat4 vp, HMM_Mat4 model, snz_Arena* s
             } // end point loop
 
             for (sk_Line* l = sketch->firstLine; l; l = l->next) {
-                l->uiInfo.selected = false;
+                if (!shiftPressed) {
+                    l->uiInfo.selected = false;
+                }
                 if (l->p1->uiInfo.selected && l->p2->uiInfo.selected) {
                     l->uiInfo.selected = true;
                 }
             }
 
             for (sk_Constraint* c = sketch->firstConstraint; c; c = c->nextAllocated) {
-                c->uiInfo.selected = false;
+                if (!shiftPressed) {
+                    c->uiInfo.selected = false;
+                }
                 if (c->kind == SK_CK_ANGLE) {
                     sk_Point* base1 = c->flipLine1 ? c->line1->p2 : c->line1->p1;
                     sk_Point* base2 = c->flipLine2 ? c->line2->p2 : c->line2->p1;
