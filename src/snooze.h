@@ -542,7 +542,7 @@ static void _snzr_init(snz_Arena* scratchArena) {
             "void main() {"
             "    vec3 diffVec = vFragPos - uFalloffOrigin;"
             "    float alpha = min(1, 1 + (1 / uFalloffDuration) * (-length(diffVec) + uFalloffOffset));"
-            "    color = vec4(uColor.xyz, alpha);"
+            "    color = vec4(uColor.xyz, alpha * uColor.w);"
             "};";
 
         // FIXME: issues when lines go off screen
@@ -1600,6 +1600,12 @@ float snzu_boxGetSizeToFitChildrenAx(snzu_Axis ax) {
         }
     }
     return max;
+}
+
+void snzu_easeExpUnbounded(float* in, float target, float pctPerSec) {
+    float diff = target - *in;
+    diff *= pctPerSec * _snzu_globs.timeSinceLastFrame;
+    *in += diff;
 }
 
 // eases a float closer to target (which should be between 0 and 1) (in will be clamped to this range, should not be null)

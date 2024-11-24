@@ -286,6 +286,12 @@ void main_drawDemoScene(HMM_Vec2 panelSize, snz_Arena* scratch) {
     float x = HMM_Dot(point, xAxis);
     float y = HMM_Dot(point, sketchAlign.endVertical);
 
+    float* const max = SNZU_USE_MEM(float, "max");
+    float* const smooth = SNZU_USE_MEM(float, "smooth");
+    float cur = sound_get();
+    *max = SNZ_MAX(*max, cur);
+    snzu_easeExpUnbounded(smooth, cur, 30);
+
     sku_drawSketch(
         &sketch,
         vp,
@@ -294,7 +300,8 @@ void main_drawDemoScene(HMM_Vec2 panelSize, snz_Arena* scratch) {
         cameraPos,
         HMM_V2(x, y),
         inter->mouseActions[SNZU_MB_LEFT],
-        inter->keyMods & KMOD_SHIFT);
+        inter->keyMods & KMOD_SHIFT,
+        *smooth / *max);
 }
 
 typedef enum {
@@ -307,9 +314,6 @@ main_View main_currentView;
 void main_frame(float dt, snz_Arena* scratch) {
     assert(scratch || !scratch);
     assert(dt || !dt);
-
-    float peak = sound_get();
-    printf("%f\n", peak);
 
     HMM_Vec2 rightPanelSize = HMM_V2(0, 0);
 

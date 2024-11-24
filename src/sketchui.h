@@ -136,7 +136,7 @@ static bool _sku_constraintHovered(sk_Constraint* c, float scaleFactor, HMM_Vec2
     return false;
 }
 
-static void _sku_drawConstraint(sk_Constraint* c, float scaleFactor, HMM_Vec2 visualCenter, HMM_Vec4 color, float thickness, snz_Arena* scratch, HMM_Mat4 mvp) {
+static void _sku_drawConstraint(sk_Constraint* c, float scaleFactor, HMM_Vec2 visualCenter, HMM_Vec4 color, float thickness, snz_Arena* scratch, HMM_Mat4 mvp, float soundPct) {
     HMM_Vec2 textTopLeft = HMM_V2(0, 0);
     const char* text = NULL;
 
@@ -144,7 +144,7 @@ static void _sku_drawConstraint(sk_Constraint* c, float scaleFactor, HMM_Vec2 vi
         HMM_Vec2 p1 = c->line1->p1->pos;
         HMM_Vec2 p2 = c->line1->p2->pos;
         HMM_Vec2 diff = HMM_NormV2(HMM_SubV2(p2, p1));
-        HMM_Vec2 offset = HMM_Mul(HMM_V2(diff.Y, -diff.X), SKU_DISTANCE_CONSTRAINT_OFFSET * scaleFactor);
+        HMM_Vec2 offset = HMM_Mul(HMM_V2(diff.Y, -diff.X), SKU_DISTANCE_CONSTRAINT_OFFSET * (1 + soundPct) * scaleFactor);
         p1 = HMM_Add(p1, offset);
         p2 = HMM_Add(p2, offset);
         HMM_Vec2 points[] = { p1, p2 };
@@ -162,7 +162,7 @@ static void _sku_drawConstraint(sk_Constraint* c, float scaleFactor, HMM_Vec2 vi
             return;
         }
 
-        float offset = SKU_ANGLE_CONSTRAINT_OFFSET * scaleFactor;
+        float offset = SKU_ANGLE_CONSTRAINT_OFFSET * (1 + soundPct) * scaleFactor;
         if (csg_floatEqual(c->value, HMM_AngleDeg(90))) {
             sk_Point* otherOnLine1 = (c->line1->p1 == joint) ? c->line1->p2 : c->line1->p1;
             sk_Point* otherOnLine2 = (c->line2->p1 == joint) ? c->line2->p2 : c->line2->p1;
@@ -216,8 +216,10 @@ static bool _sku_AABBContainsPt(HMM_Vec2 boxStart, HMM_Vec2 boxEnd, HMM_Vec2 pt)
     return false;
 }
 
+float max = 0;
+
 // FIXME: sketch element selection persists too much
-void sku_drawSketch(sk_Sketch* sketch, HMM_Mat4 vp, HMM_Mat4 model, snz_Arena* scratch, HMM_Vec3 cameraPos, HMM_Vec2 mousePosInPlane, snzu_Action mouseAct, bool shiftPressed) {
+void sku_drawSketch(sk_Sketch* sketch, HMM_Mat4 vp, HMM_Mat4 model, snz_Arena* scratch, HMM_Vec3 cameraPos, HMM_Vec2 mousePosInPlane, snzu_Action mouseAct, bool shiftPressed, float soundPct) {
     HMM_Mat4 mvp = HMM_Mul(vp, model);
 
     glDisable(GL_DEPTH_TEST);
@@ -401,7 +403,7 @@ void sku_drawSketch(sk_Sketch* sketch, HMM_Mat4 vp, HMM_Mat4 model, snz_Arena* s
         color = HMM_LerpV4(color, c->uiInfo.selectionAnim, UI_ACCENT_COLOR);
 
         float thickness = HMM_Lerp(SKU_CONSTRAINT_THICKNESS, c->uiInfo.hoverAnim, SKU_CONSTRAINT_HOVERED_THICKNESS);
-        _sku_drawConstraint(c, scaleFactor, visualCenter, color, thickness, scratch, mvp);
+        _sku_drawConstraint(c, scaleFactor, visualCenter, color, thickness, scratch, mvp, soundPct);
     }  // end constraint draw loop
 
     for (sk_Line* l = sketch->firstLine; l; l = l->next) {
