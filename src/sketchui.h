@@ -3,6 +3,25 @@
 #include "ui.h"
 #include "sketches2.h"
 
+typedef struct {
+    bool selected;
+    float selectedAnim;
+    float hoverAnim;
+} _sku_ElementData;
+
+void _sku_elementDataUpdate(_sku_ElementData* data, bool hovered, snzu_Action mouseAct, bool shiftPressed) {
+    snzu_easeExp(&data->hoverAnim, hovered, 15);
+
+    if (mouseAct == SNZU_ACT_DOWN) {
+        if (hovered) {
+            data->selected = !data->selected;
+        } else if (!shiftPressed) {
+            data->selected = false;
+        }
+    }
+    snzu_easeExp(&data->selectedAnim, data->selected, 15);
+}
+
 static float main_gridLineGap(float area, float visibleCount) {
     float lineGap = area / visibleCount;
 
@@ -30,6 +49,98 @@ static float main_gridLineGap(float area, float visibleCount) {
 
 static HMM_Vec3 _sku_mulM4V3(HMM_Mat4 m, HMM_Vec3 v) {
     return HMM_Mul(m, HMM_V4(v.X, v.Y, v.Z, 1)).XYZ;
+}
+
+#define SKU_LINE_THICKNESS 2.0f
+#define SKU_LINE_HOVERED_THICKNESS 5.0f
+#define SKU_CONSTRAINT_THICKNESS 4.0f
+#define SKU_CONSTRAINT_HOVERED_THICKNESS 7.0f
+#define SKU_LABEL_SIZE 0.04f
+#define SKU_ANGLE_CONSTRAINT_OFFSET 0.05f
+#define SKU_DISTANCE_CONSTRAINT_OFFSET 0.025f
+
+static bool _sku_lineContainsPt(HMM_Vec2 p1, HMM_Vec2 p2, float epsilon, HMM_Vec2 pt) {
+    HMM_Vec2 diff = HMM_Sub(p2, p1);
+    float length = HMM_Len(diff);
+    HMM_Vec2 normal = HMM_Norm(diff);
+
+    float t = HMM_Dot(HMM_Sub(pt, p1), normal);
+    if (t < -epsilon || t > length + epsilon) {
+        return false;
+    }
+
+    HMM_Vec2 projectedPt = HMM_Add(p1, HMM_Mul(normal, t));
+    float distFromLine = HMM_Len(HMM_Sub(projectedPt, pt));
+    if (distFromLine > epsilon) {
+        return false;
+    }
+
+    return true;
+}
+
+static bool _sku_constraintHovered(float scaleFactor, HMM_Vec2 visualCenter, HMM_Vec2 mousePos) {
+    float dist = HMM_Len(HMM_Sub(mousePos, visualCenter));
+    return dist < (0.05 * scaleFactor);
+}
+
+static void _sku_drawConstraint(sk_Constraint* c, float scaleFactor, HMM_Vec2 visualCenter, HMM_Vec4 color, float thickness, snz_Arena* scratch, HMM_Mat4 mvp) {
+    if (c->kind == SK_CK_DISTANCE) {
+        HMM_Vec2 p1 = c->line1->p1->pos;
+        HMM_Vec2 p2 = c->line1->p2->pos;
+        HMM_Vec2 diff = HMM_NormV2(HMM_SubV2(p2, p1));
+        HMM_Vec2 offset = HMM_Mul(HMM_V2(diff.Y, -diff.X), SKU_DISTANCE_CONSTRAINT_OFFSET * scaleFactor);
+        p1 = HMM_Add(p1, offset);
+        p2 = HMM_Add(p2, offset);
+        HMM_Vec2 points[] = { p1, p2 };
+        snzr_drawLine(points, 2, color, thickness, mvp);
+
+        float drawnHeight = SKU_LABEL_SIZE * scaleFactor;
+        const char* str = snz_arenaFormatStr(scratch, "%.2fm", c->value);
+        HMM_Vec2 start = HMM_Add(visualCenter, HMM_Mul(offset, 2.0f));
+        start.Y -= drawnHeight / 2;
+        // FIXME: move labels if camera is on the other side
+        // FIXME: less self intersection on angled lines
+        snzr_drawTextScaled(
+            start,
+            HMM_V2(-100000, -100000), HMM_V2(100000, 100000),
+            color, str, strlen(str), ui_titleFont,
+            mvp, drawnHeight, false, true);
+
+    } else if (c->kind == SK_CK_ANGLE) {
+        sk_Point* joint = NULL;
+        if (c->line1->p1 == c->line2->p1 || c->line1->p1 == c->line2->p2) {
+            joint = c->line1->p1;
+        } else if (c->line1->p2 == c->line2->p1 || c->line1->p2 == c->line2->p2) {
+            joint = c->line1->p2;
+        } else {
+            return;
+        }
+
+        float offset = SKU_ANGLE_CONSTRAINT_OFFSET * scaleFactor;
+        if (csg_floatEqual(c->value, HMM_AngleDeg(90))) {
+            sk_Point* otherOnLine1 = (c->line1->p1 == joint) ? c->line1->p2 : c->line1->p1;
+            sk_Point* otherOnLine2 = (c->line2->p1 == joint) ? c->line2->p2 : c->line2->p1;
+            HMM_Vec2 offset1 = HMM_Mul(HMM_Norm(HMM_Sub(otherOnLine1->pos, joint->pos)), offset);
+            HMM_Vec2 offset2 = HMM_Mul(HMM_Norm(HMM_Sub(otherOnLine2->pos, joint->pos)), offset);
+            HMM_Vec2 pts[] = {
+                HMM_Add(joint->pos, offset1),
+                HMM_Add(joint->pos, HMM_Add(offset1, offset2)),
+                HMM_Add(joint->pos, offset2),
+            };
+            snzr_drawLine(pts, 3, color, thickness, mvp);
+        } else {
+            sk_Point* otherOnLine1 = (c->line1->p1 == joint) ? c->line1->p2 : c->line1->p1;
+            HMM_Vec2 diff = HMM_Sub(otherOnLine1->pos, joint->pos);
+            float startAngle = atan2f(diff.Y, diff.X);
+            int ptCount = (int)(fabsf(c->value) / HMM_AngleDeg(10)) + 1;
+            HMM_Vec2* linePts = SNZ_ARENA_PUSH_ARR(scratch, ptCount, HMM_Vec2);
+            for (int i = 0; i < ptCount; i++) {
+                HMM_Vec2 o = HMM_RotateV2(HMM_V2(offset, 0), startAngle + (i * c->value / (ptCount - 1)));
+                linePts[i] = HMM_Add(joint->pos, o);
+            }
+            snzr_drawLine(linePts, ptCount, color, thickness, mvp);
+        }
+    }
 }
 
 void sku_drawSketch(sk_Sketch* sketch, HMM_Mat4 vp, HMM_Mat4 model, snz_Arena* scratch, HMM_Vec3 cameraPos, HMM_Vec2 mousePosInPlane, snzu_Action mouseAct, bool shiftPressed) {
@@ -129,11 +240,6 @@ void sku_drawSketch(sk_Sketch* sketch, HMM_Mat4 vp, HMM_Mat4 model, snz_Arena* s
 
     // Drawing actual constraints
     for (sk_Constraint* c = sketch->firstConstraint; c; c = c->nextAllocated) {
-        HMM_Vec4 color = UI_TEXT_COLOR;
-        if (c->violated) {
-            color = UI_RED;
-        }
-
         HMM_Vec2 visualCenter = HMM_V2(0, 0);
         float scaleFactor = 0;
         {
@@ -147,65 +253,20 @@ void sku_drawSketch(sk_Sketch* sketch, HMM_Mat4 vp, HMM_Mat4 model, snz_Arena* s
             HMM_Vec3 transformedCenter = _sku_mulM4V3(model, HMM_V3(visualCenter.X, visualCenter.Y, 0));
             scaleFactor = HMM_Len(HMM_Sub(cameraPos, transformedCenter));
         }
-        float angleConstraintVisualOffset = 0.05 * scaleFactor;
-        float distConstraintVisualOffset = 0.025 * scaleFactor;
 
-        if (c->kind == SK_CK_DISTANCE) {
-            HMM_Vec2 p1 = c->line1->p1->pos;
-            HMM_Vec2 p2 = c->line1->p2->pos;
-            HMM_Vec2 diff = HMM_NormV2(HMM_SubV2(p2, p1));
-            HMM_Vec2 offset = HMM_Mul(HMM_V2(diff.Y, -diff.X), distConstraintVisualOffset);
-            p1 = HMM_Add(p1, offset);
-            p2 = HMM_Add(p2, offset);
-            HMM_Vec2 points[] = { p1, p2 };
-            snzr_drawLine(points, 2, color, 4, mvp);
+        bool hovered = _sku_constraintHovered(scaleFactor, visualCenter, mousePosInPlane);
+        snzu_boxNew(snz_arenaFormatStr(scratch, "%p", c));
+        _sku_ElementData* data = SNZU_USE_MEM(_sku_ElementData, "data");
+        _sku_elementDataUpdate(data, hovered, mouseAct, shiftPressed);
 
-            float drawnHeight = 0.04 * scaleFactor;
-            const char* str = snz_arenaFormatStr(scratch, "%.2fm", c->value);
-            HMM_Vec2 start = HMM_Add(visualCenter, HMM_Mul(offset, 2.0f));
-            start.Y -= drawnHeight / 2;
-            // FIXME: move labels if camera is on the other side
-            // FIXME: less self intersection on angled lines
-            snzr_drawTextScaled(
-                start,
-                HMM_V2(-100000, -100000), HMM_V2(100000, 100000),
-                UI_TEXT_COLOR, str, strlen(str), ui_titleFont,
-                mvp, drawnHeight, false, true);
+        HMM_Vec4 color = UI_TEXT_COLOR;
+        if (c->violated) {
+            color = UI_RED;
+        }
+        color = HMM_LerpV4(color, data->selectedAnim, UI_ACCENT_COLOR);
 
-        } else if (c->kind == SK_CK_ANGLE) {
-            sk_Point* joint = NULL;
-            if (c->line1->p1 == c->line2->p1 || c->line1->p1 == c->line2->p2) {
-                joint = c->line1->p1;
-            } else if (c->line1->p2 == c->line2->p1 || c->line1->p2 == c->line2->p2) {
-                joint = c->line1->p2;
-            } else {
-                continue;
-            }
-
-            if (csg_floatEqual(c->value, HMM_AngleDeg(90))) {
-                sk_Point* otherOnLine1 = (c->line1->p1 == joint) ? c->line1->p2 : c->line1->p1;
-                sk_Point* otherOnLine2 = (c->line2->p1 == joint) ? c->line2->p2 : c->line2->p1;
-                HMM_Vec2 offset1 = HMM_Mul(HMM_Norm(HMM_Sub(otherOnLine1->pos, joint->pos)), angleConstraintVisualOffset);
-                HMM_Vec2 offset2 = HMM_Mul(HMM_Norm(HMM_Sub(otherOnLine2->pos, joint->pos)), angleConstraintVisualOffset);
-                HMM_Vec2 pts[] = {
-                    HMM_Add(joint->pos, offset1),
-                    HMM_Add(joint->pos, HMM_Add(offset1, offset2)),
-                    HMM_Add(joint->pos, offset2),
-                };
-                snzr_drawLine(pts, 3, color, 4, mvp);
-            } else {
-                sk_Point* otherOnLine1 = (c->line1->p1 == joint) ? c->line1->p2 : c->line1->p1;
-                HMM_Vec2 diff = HMM_Sub(otherOnLine1->pos, joint->pos);
-                float startAngle = atan2f(diff.Y, diff.X);
-                int ptCount = (int)(fabsf(c->value) / HMM_AngleDeg(10)) + 1;
-                HMM_Vec2* linePts = SNZ_ARENA_PUSH_ARR(scratch, ptCount, HMM_Vec2);
-                for (int i = 0; i < ptCount; i++) {
-                    HMM_Vec2 offset = HMM_RotateV2(HMM_V2(angleConstraintVisualOffset, 0), startAngle + (i * c->value / (ptCount - 1)));
-                    linePts[i] = HMM_Add(joint->pos, offset);
-                }
-                snzr_drawLine(linePts, ptCount, color, 4, mvp);
-            }
-        }  // end constraint kind switch
+        float thickness = HMM_Lerp(SKU_CONSTRAINT_THICKNESS, data->hoverAnim, SKU_CONSTRAINT_HOVERED_THICKNESS);
+        _sku_drawConstraint(c, scaleFactor, visualCenter, color, thickness, scratch, mvp);
     }  // end constraint draw loop
 
     for (sk_Line* l = sketch->firstLine; l; l = l->next) {
@@ -214,46 +275,19 @@ void sku_drawSketch(sk_Sketch* sketch, HMM_Mat4 vp, HMM_Mat4 model, snz_Arena* s
             HMM_Vec2 midpt = HMM_DivV2F(HMM_Add(l->p1->pos, l->p2->pos), 2.0f);
             HMM_Vec3 transformedCenter = HMM_MulM4V4(model, HMM_V4(midpt.X, midpt.Y, 0, 1)).XYZ;
             float distToCamera = HMM_Len(HMM_Sub(transformedCenter, cameraPos));
-            float epsilon = 0.01 * distToCamera;
-
-            HMM_Vec2 diff = HMM_Sub(l->p2->pos, l->p1->pos);
-            float length = HMM_Len(diff);
-            HMM_Vec2 norm = HMM_Norm(diff);
-            float t = HMM_Dot(HMM_Sub(mousePosInPlane, l->p1->pos), norm);
-            if (t < -epsilon || t > length + epsilon) {
-                hovered = false;
-            }
-
-            HMM_Vec2 projectedPt = HMM_Add(l->p1->pos, HMM_Mul(norm, t));
-            float distFromLine = HMM_Len(HMM_Sub(projectedPt, mousePosInPlane));
-            if (distFromLine > epsilon) {
-                hovered = false;
-            }
+            hovered = _sku_lineContainsPt(l->p1->pos, l->p2->pos, 0.01 * distToCamera, mousePosInPlane);
         }
 
         snzu_boxNew(snz_arenaFormatStr(scratch, "%p", l));
-
-        // FIXME: remove usemems, move instance vars to the line struct itself
-        float* const hoverAnim = SNZU_USE_MEM(float, "hoverAnim");
-        snzu_easeExp(hoverAnim, hovered, 15);
-
-        bool* const selected = SNZU_USE_MEM(bool, "selected");
-        if (mouseAct == SNZU_ACT_DOWN) {
-            if (hovered) {
-                *selected = !*selected;
-            } else if (!shiftPressed) {
-                *selected = false;
-            }
-        }
-        float* const selectedAnim = SNZU_USE_MEM(float, "selectedAnim");
-        snzu_easeExp(selectedAnim, *selected, 15);
+        _sku_ElementData* data = SNZU_USE_MEM(_sku_ElementData, "data");
+        _sku_elementDataUpdate(data, hovered, mouseAct, shiftPressed);
 
         HMM_Vec2 points[] = {
             l->p1->pos,
             l->p2->pos,
         };
-        float thickness = HMM_Lerp(2.0f, *hoverAnim, 5.0f);
-        HMM_Vec4 color = HMM_LerpV4(UI_TEXT_COLOR, *selectedAnim, UI_ACCENT_COLOR);
+        float thickness = HMM_Lerp(2.0f, data->hoverAnim, 5.0f);
+        HMM_Vec4 color = HMM_LerpV4(UI_TEXT_COLOR, data->selectedAnim, UI_ACCENT_COLOR);
         snzr_drawLine(points, 2, color, thickness, mvp);
     }
 
