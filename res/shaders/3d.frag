@@ -22,7 +22,7 @@ void main()
     vec3 lightDir = normalize(uLightDir);
     // vec3 viewDir = normalize(uViewDir);
 
-    vec3 ambient = uLightColor * 0.6;
+    vec3 ambient = uLightColor * 0.7;
 
     float diff = clamp(dot(-normal, lightDir), 0.0, 1.0);
     vec3 diffuse = uLightColor * 0.2 * diff;
