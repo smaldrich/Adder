@@ -78,9 +78,67 @@ static bool _sku_lineContainsPt(HMM_Vec2 p1, HMM_Vec2 p2, float epsilon, HMM_Vec
     return true;
 }
 
-static bool _sku_constraintHovered(float scaleFactor, HMM_Vec2 visualCenter, HMM_Vec2 mousePos) {
-    float dist = HMM_Len(HMM_Sub(mousePos, visualCenter));
-    return dist < (0.05 * scaleFactor);
+static float _sku_angleOfV2(HMM_Vec2 v) {
+    return atan2f(v.Y, v.X);
+}
+
+// puts it in the range of -180 to +180, in rads
+static float _sku_normalizeAngle(float a) {
+    while (a > HMM_AngleDeg(180)) {
+        a -= HMM_AngleDeg(360);
+    }
+    while (a < HMM_AngleDeg(-180)) {
+        a += HMM_AngleDeg(360);
+    }
+    return a;
+}
+
+// Returned X comp is line 1's angle, Y comp is line 2's
+static HMM_Vec2 _sku_angleOfLinesInAngleConstraint(sk_Constraint* c) {
+    SNZ_ASSERTF(c->kind == SK_CK_ANGLE, "constraint wasn't an angle constraint. kind: %d", c->kind);
+    HMM_Vec2 diff1 = HMM_Sub(c->line1->p2->pos, c->line1->p1->pos);
+    float a1 = atan2f(diff1.Y, diff1.X);
+    HMM_Vec2 diff2 = HMM_Sub(c->line2->p2->pos, c->line2->p1->pos);
+    float a2 = atan2f(diff2.Y, diff2.X);
+
+    if (c->flipLine1) {
+        a1 += HMM_AngleDeg(180);
+    }
+
+    if (c->flipLine2) {
+        a2 += HMM_AngleDeg(180);
+    }
+
+    return HMM_V2(a1, a2);
+}
+
+static bool _sku_constraintHovered(sk_Constraint* c, float scaleFactor, HMM_Vec2 visualCenter, HMM_Vec2 mousePos) {
+    // FIXME: include text in collision zone
+    if (c->kind == SK_CK_DISTANCE) {
+        HMM_Vec2 p1 = c->line1->p1->pos;
+        HMM_Vec2 p2 = c->line1->p2->pos;
+        HMM_Vec2 diff = HMM_NormV2(HMM_SubV2(p2, p1));
+        HMM_Vec2 offset = HMM_Mul(HMM_V2(diff.Y, -diff.X), SKU_DISTANCE_CONSTRAINT_OFFSET * scaleFactor);
+        p1 = HMM_Add(p1, offset);
+        p2 = HMM_Add(p2, offset);
+        return _sku_lineContainsPt(p1, p2, 0.01 * scaleFactor, mousePos);
+    } else if (c->kind == SK_CK_ANGLE) {
+        HMM_Vec2 angles = _sku_angleOfLinesInAngleConstraint(c);
+        HMM_Vec2 diff = HMM_Sub(mousePos, visualCenter);
+        if (HMM_Len(diff) > (SKU_ANGLE_CONSTRAINT_OFFSET * 1.4 * scaleFactor)) {
+            return false;
+        }
+        float mouseAngle = _sku_angleOfV2(diff);
+        float midAngle = (angles.Right + angles.Left) / 2;
+        float halfRange = fabsf(_sku_normalizeAngle(angles.Right - angles.Left) / 2);
+        if (fabsf(_sku_normalizeAngle(midAngle - mouseAngle)) > halfRange) {
+            return false;
+        }
+
+        return true;
+    }
+    SNZ_ASSERTF(false, "unreachable. kind: %d", c);
+    return false;
 }
 
 static void _sku_drawConstraint(sk_Constraint* c, float scaleFactor, HMM_Vec2 visualCenter, HMM_Vec4 color, float thickness, snz_Arena* scratch, HMM_Mat4 mvp) {
@@ -129,10 +187,11 @@ static void _sku_drawConstraint(sk_Constraint* c, float scaleFactor, HMM_Vec2 vi
             };
             snzr_drawLine(pts, 3, color, thickness, mvp);
         } else {
-            sk_Point* otherOnLine1 = (c->line1->p1 == joint) ? c->line1->p2 : c->line1->p1;
-            HMM_Vec2 diff = HMM_Sub(otherOnLine1->pos, joint->pos);
-            float startAngle = atan2f(diff.Y, diff.X);
-            int ptCount = (int)(fabsf(c->value) / HMM_AngleDeg(10)) + 1;
+            HMM_Vec2 angles = _sku_angleOfLinesInAngleConstraint(c);
+            float startAngle = angles.X;
+            float angleRange = angles.Y - startAngle;
+
+            int ptCount = (int)(fabsf(angleRange) / HMM_AngleDeg(10)) + 1;
             HMM_Vec2* linePts = SNZ_ARENA_PUSH_ARR(scratch, ptCount, HMM_Vec2);
             for (int i = 0; i < ptCount; i++) {
                 HMM_Vec2 o = HMM_RotateV2(HMM_V2(offset, 0), startAngle + (i * c->value / (ptCount - 1)));
@@ -254,7 +313,7 @@ void sku_drawSketch(sk_Sketch* sketch, HMM_Mat4 vp, HMM_Mat4 model, snz_Arena* s
             scaleFactor = HMM_Len(HMM_Sub(cameraPos, transformedCenter));
         }
 
-        bool hovered = _sku_constraintHovered(scaleFactor, visualCenter, mousePosInPlane);
+        bool hovered = _sku_constraintHovered(c, scaleFactor, visualCenter, mousePosInPlane);
         snzu_boxNew(snz_arenaFormatStr(scratch, "%p", c));
         _sku_ElementData* data = SNZU_USE_MEM(_sku_ElementData, "data");
         _sku_elementDataUpdate(data, hovered, mouseAct, shiftPressed);
