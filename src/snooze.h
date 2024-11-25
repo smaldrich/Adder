@@ -1549,6 +1549,22 @@ void snzu_boxSetPosAfterRecurse(float gap, snzu_Axis ax) {
     snzu_boxSetStartKeepSizeRecurse(newPos);
 }
 
+// recursively moves every box within the currently selected box to be ordered in a row, with the last one aligned to the bottom/end
+void snzu_boxOrderChildrenInRowRecurseAlignEnd(float gap, snzu_Axis ax) {
+    for (_snzu_Box* child = _snzu_globs.selectedBox->lastChild; child; child = child->prevSibling) {
+        float newEnd = 0;
+        if (child->nextSibling) {
+            newEnd = child->nextSibling->start.Elements[ax] - gap;
+        } else {
+            newEnd = _snzu_globs.selectedBox->end.Elements[ax];
+        }
+
+        HMM_Vec2 start = _snzu_globs.selectedBox->start;
+        start.Elements[ax] = newEnd - (child->end.Elements[ax] - child->start.Elements[ax]);
+        snzu_boxSetStartKeepSizeRecursePtr(child, start);
+    }
+}
+
 // recursively moves every box within the currently selected box to be ordered in a row
 void snzu_boxOrderChildrenInRowRecurse(float gap, snzu_Axis ax) {
     _snzu_Box* initiallySelected = _snzu_globs.selectedBox;

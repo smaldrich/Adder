@@ -75,7 +75,7 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
 
     {
         SDL_Surface* s = SDL_LoadBMP("res/textures/icon.bmp");
-        char buf[1000] = {0};
+        char buf[1000] = { 0 };
         const char* err = SDL_GetErrorMsg(buf, 1000);
         printf("%s", err);
         SNZ_ASSERT(s != NULL, "icon load failed.");
@@ -310,9 +310,30 @@ void main_drawDemoScene(HMM_Vec2 panelSize, snz_Arena* scratch) {
         (*smooth / *max - 0.5) * 0.25);
 }
 
+void main_drawSettings() {
+    snzu_boxNew("main parent");
+    snzu_boxFillParent();
+    snzu_boxSetColor(UI_BACKGROUND_COLOR);
+    snzu_boxScope() {
+        snzu_boxNew("margin area");
+        HMM_Vec2 parentSize = snzu_boxGetSize(snzu_boxGetParent());
+        snzu_boxSetStartFromParentStart(HMM_V2(parentSize.X * 0.1, parentSize.Y * 0.1));
+        snzu_boxSetEndFromParentEnd(HMM_V2(parentSize.X * -0.1, parentSize.Y * -0.1));
+        snzu_boxScope() {
+            snzu_boxNew("title");
+            snzu_boxSetDisplayStr(&ui_titleFont, UI_TEXT_COLOR, "Settings");
+            snzu_boxSetSizeFitText();
+        }
+        // FIXME: UI variable for gap here
+        snzu_boxOrderChildrenInRowRecurse(10, SNZU_AX_Y);
+        snzuc_scrollArea();
+    }
+}
+
 typedef enum {
     MAIN_VIEW_SCENE,
     MAIN_VIEW_DOCS,
+    MAIN_VIEW_SETTINGS,
 } main_View;
 
 main_View main_currentView;
@@ -365,9 +386,11 @@ void main_frame(float dt, snz_Arena* scratch) {
                     if (ui_buttonWithHighlight(main_currentView == MAIN_VIEW_DOCS, "docs")) {
                         main_currentView = MAIN_VIEW_DOCS;
                     }
+                    if (ui_buttonWithHighlight(main_currentView == MAIN_VIEW_SETTINGS, "settings")) {
+                        main_currentView = MAIN_VIEW_SETTINGS;
+                    }
                 }
-                snzu_boxOrderChildrenInRowRecurse(5, SNZU_AX_Y);
-                // FIXME: bottom align
+                snzu_boxOrderChildrenInRowRecurseAlignEnd(5, SNZU_AX_Y);
             }  // end padding
         }  // end leftpanel
         snzu_boxClipChildren();
@@ -381,6 +404,8 @@ void main_frame(float dt, snz_Arena* scratch) {
                 docs_buildPage();
             } else if (main_currentView == MAIN_VIEW_SCENE) {
                 main_drawDemoScene(rightPanelSize, scratch);
+            } else if (main_currentView == MAIN_VIEW_SETTINGS) {
+                main_drawSettings();
             } else {
                 SNZ_ASSERTF(false, "unreachable view case, view was: %d", main_currentView);
             }

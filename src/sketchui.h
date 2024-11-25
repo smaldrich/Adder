@@ -17,7 +17,7 @@ static float main_gridLineGap(float area, float visibleCount) {
         exp++;
     }
 
-    int roundingTargets[] = {5, 2, 1};
+    int roundingTargets[] = { 5, 2, 1 };
     for (int i = 0; i < 3; i++) {
         if (dec > roundingTargets[i]) {
             dec = (float)roundingTargets[i];
@@ -164,7 +164,7 @@ static void _sku_drawConstraint(sk_Constraint* c, HMM_Mat4 model, HMM_Vec3 camer
         HMM_Vec2 offset = HMM_Mul(HMM_V2(diff.Y, -diff.X), SKU_DISTANCE_CONSTRAINT_OFFSET * (1 + soundPct) * scaleFactor);
         p1 = HMM_Add(p1, offset);
         p2 = HMM_Add(p2, offset);
-        HMM_Vec2 points[] = {p1, p2};
+        HMM_Vec2 points[] = { p1, p2 };
         snzr_drawLine(points, 2, drawnColor, drawnThickness, mvp);
 
         textTopLeft = HMM_Add(visualCenter, HMM_Mul(offset, 2.0f));
@@ -318,13 +318,13 @@ void sku_drawSketch(sk_Sketch* sketch, HMM_Mat4 vp, HMM_Mat4 model, snz_Arena* s
             for (int i = 0; i < lineCount; i++) {
                 float x = (i - (lineCount / 2)) * lineGap;
                 x -= axOffset;
-                HMM_Vec2 pts[] = {mousePosInPlane, mousePosInPlane};
+                HMM_Vec2 pts[] = { mousePosInPlane, mousePosInPlane };
                 pts[0].Elements[ax] += x;
                 pts[0].Elements[!ax] += 1.5 * scaleFactor;
                 pts[1].Elements[ax] += x;
                 pts[1].Elements[!ax] += -1.5 * scaleFactor;
 
-                HMM_Vec3 fadeOrigin = {0};
+                HMM_Vec3 fadeOrigin = { 0 };
                 fadeOrigin.XY = mousePosInPlane;
                 // FIXME: have this invert color when behind smth in the scene
                 snzr_drawLineFaded(pts, 2, UI_ALMOST_BACKGROUND_COLOR, 1, mvp, fadeOrigin, 0, 0.5 * scaleFactor);
