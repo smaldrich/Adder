@@ -10,8 +10,8 @@ uniform vec3 uLightDir;
 uniform vec3 uLightColor;
 // uniform vec3 uViewDir;
 
-/*
 uniform float uAmbient;
+/*
 uniform float uDiffuse;
 uniform float uSpecular;
 */
@@ -22,7 +22,7 @@ void main()
     vec3 lightDir = normalize(uLightDir);
     // vec3 viewDir = normalize(uViewDir);
 
-    vec3 ambient = uLightColor * 0.8;
+    vec3 ambient = uLightColor * uAmbient;
 
     float diff = clamp(dot(-normal, lightDir), 0.0, 1.0);
     vec3 diffuse = uLightColor * 0.15 * diff;

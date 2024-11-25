@@ -12,6 +12,8 @@ HMM_Vec4 ui_colorAccent;
 HMM_Vec4 ui_colorErr;
 HMM_Vec4 ui_colorBackground;
 HMM_Vec4 ui_colorAlmostBackground;
+float ui_lightAmbient;
+
 float ui_borderThickness = 4;
 
 void ui_setThemeLight() {
@@ -20,6 +22,7 @@ void ui_setThemeLight() {
     ui_colorErr = HMM_V4(181 / 255.0, 55 / 255.0, 93 / 255.0, 1);;
     ui_colorBackground = HMM_V4(1, 1, 1, 1);
     ui_colorAlmostBackground = HMM_V4(0.9, 0.9, 0.9, 1);
+    ui_lightAmbient = 0.8;
 }
 
 void ui_setThemeDark() {
@@ -28,6 +31,7 @@ void ui_setThemeDark() {
     ui_colorErr = HMM_V4(181 / 255.0, 55 / 255.0, 93 / 255.0, 1);;
     ui_colorBackground = HMM_V4(60 / 255.0, 60 / 255.0, 60 / 255.0, 1);
     ui_colorAlmostBackground = HMM_V4(52 / 255.0, 52 / 255.0, 52 / 255.0, 1);
+    ui_lightAmbient = 0.2;
 }
 
 void ui_init() {

@@ -272,7 +272,7 @@ void main_drawDemoScene(HMM_Vec2 panelSize, snz_Arena* scratch) {
     HMM_Mat4 vp = HMM_MulM4(proj, view);
 
     // FIXME: highlight edges :) + debug view of geometry
-    ren3d_drawMesh(&mesh, vp, model, HMM_V3(-1, -1, -1));
+    ren3d_drawMesh(&mesh, vp, model, HMM_V3(-1, -1, -1), ui_lightAmbient);
 
     float t = 0;
     bool hit = csg_planeLineIntersection(sketchAlign.endPt, sketchAlign.endNormal, cameraPos, rayNormal, &t);
@@ -335,6 +335,9 @@ void main_drawSettings() {
                     ui_setThemeLight();
                 } else {
                     ui_setThemeDark();
+                    // FIXME: when in dark mode, button with highlight is awful
+                    // FIXME: when in dark mode, text in the scene is really weird but only when the left bar is moving
+                    // FIXME: only the center of the grid around cursor is slightly dimmed???? the rest is normal?? why??
                 }
             }
 

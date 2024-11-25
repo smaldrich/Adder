@@ -62,7 +62,7 @@ ren3d_Mesh ren3d_meshInit(ren3d_Vert* verts, uint64_t vertCount) {
     return out;
 }
 
-void ren3d_drawMesh(const ren3d_Mesh* mesh, HMM_Mat4 vp, HMM_Mat4 model, HMM_Vec3 lightDir) {
+void ren3d_drawMesh(const ren3d_Mesh* mesh, HMM_Mat4 vp, HMM_Mat4 model, HMM_Vec3 lightDir, float ambient) {
     snzr_callGLFnOrError(glUseProgram(_ren3d_shaderId));
 
     // // FIXME: gl safe uniform loc calls
@@ -80,6 +80,9 @@ void ren3d_drawMesh(const ren3d_Mesh* mesh, HMM_Mat4 vp, HMM_Mat4 model, HMM_Vec
 
     loc = glGetUniformLocation(_ren3d_shaderId, "uLightDir");
     snzr_callGLFnOrError(glUniform3f(loc, lightDir.X, lightDir.Y, lightDir.Z));
+
+    loc = glGetUniformLocation(_ren3d_shaderId, "uAmbient");
+    snzr_callGLFnOrError(glUniform1f(loc, ambient));
 
     snzr_callGLFnOrError(glBindVertexArray(mesh->vaId));
     snzr_callGLFnOrError(glBindBuffer(GL_ARRAY_BUFFER, mesh->vertexBufferId));
