@@ -4,11 +4,11 @@
 #include "render3d.h"
 #include "serialization2.h"
 #include "sketches2.h"
+#include "sketchui.h"
 #include "snooze.h"
+#include "sound.h"
 #include "stb/stb_image.h"
 #include "ui.h"
-#include "sketchui.h"
-#include "sound.h"
 
 snz_Arena fontArena;
 
@@ -75,7 +75,7 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
 
     {
         SDL_Surface* s = SDL_LoadBMP("res/textures/icon.bmp");
-        char buf[1000] = { 0 };
+        char buf[1000] = {0};
         const char* err = SDL_GetErrorMsg(buf, 1000);
         printf("%s", err);
         SNZ_ASSERT(s != NULL, "icon load failed.");
@@ -175,7 +175,6 @@ HMM_Vec3 main_rayFromCamera(float fov, HMM_Mat4 cameraTransform, HMM_Vec2 mouseP
     return HMM_Norm(v);
 }
 
-
 void main_drawDemoScene(HMM_Vec2 panelSize, snz_Arena* scratch) {
     snzu_boxNew("inner");
     snzu_boxFillParent();
@@ -210,10 +209,10 @@ void main_drawDemoScene(HMM_Vec2 panelSize, snz_Arena* scratch) {
     }
 
     HMM_Vec2* const lastMousePos = SNZU_USE_MEM(HMM_Vec2, "lastMousePos");
-    if (inter->mouseActions[SNZU_MB_MIDDLE] == SNZU_ACT_DOWN) {
+    if (inter->mouseActions[SNZU_MB_RIGHT] == SNZU_ACT_DOWN) {
         *lastMousePos = inter->mousePosGlobal;
     }
-    if (inter->mouseActions[SNZU_MB_MIDDLE] == SNZU_ACT_DRAG) {
+    if (inter->mouseActions[SNZU_MB_RIGHT] == SNZU_ACT_DRAG) {
         HMM_Vec2 diff = HMM_SubV2(inter->mousePosGlobal, *lastMousePos);
         if (inter->keyMods & KMOD_SHIFT) {
             HMM_Quat cameraRot = HMM_QFromAxisAngle_RH(HMM_V3(1, 0, 0), orbitAngle->X);
@@ -227,8 +226,8 @@ void main_drawDemoScene(HMM_Vec2 panelSize, snz_Arena* scratch) {
             diffInSpace = HMM_Mul(HMM_QToM4(rotation), diffInSpace);
             orbitOrigin->endPt = HMM_Add(orbitOrigin->endPt, diffInSpace.XYZ);
         } else {
-            diff = HMM_V2(diff.Y, diff.X); // switch so that rotations are repective to their axis
-            diff = HMM_Mul(diff, -0.01f); // sens
+            diff = HMM_V2(diff.Y, diff.X);  // switch so that rotations are repective to their axis
+            diff = HMM_Mul(diff, -0.01f);   // sens
             *orbitAngle = HMM_AddV2(*orbitAngle, diff);
 
             if (orbitAngle->X < HMM_AngleDeg(-90)) {
@@ -261,7 +260,6 @@ void main_drawDemoScene(HMM_Vec2 panelSize, snz_Arena* scratch) {
         snzr_frameBufferDeinit(&sceneFB);
         sceneFB = snzr_frameBufferInit(snzr_textureInitRBGA(w, h, NULL));
     }
-
 
     // FIXME: opengl here is gross
     snzr_callGLFnOrError(glBindFramebuffer(GL_FRAMEBUFFER, sceneFB.glId));
