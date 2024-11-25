@@ -1,7 +1,7 @@
 #include "HMM/HandmadeMath.h"
+#include "sketches2.h"
 #include "snooze.h"
 #include "ui.h"
-#include "sketches2.h"
 
 static float main_gridLineGap(float area, float visibleCount) {
     float lineGap = area / visibleCount;
@@ -17,7 +17,7 @@ static float main_gridLineGap(float area, float visibleCount) {
         exp++;
     }
 
-    int roundingTargets[] = { 5, 2, 1 };
+    int roundingTargets[] = {5, 2, 1};
     for (int i = 0; i < 3; i++) {
         if (dec > roundingTargets[i]) {
             dec = (float)roundingTargets[i];
@@ -152,7 +152,7 @@ static void _sku_drawConstraint(sk_Constraint* c, float scaleFactor, HMM_Vec2 vi
         HMM_Vec2 offset = HMM_Mul(HMM_V2(diff.Y, -diff.X), SKU_DISTANCE_CONSTRAINT_OFFSET * (1 + soundPct) * scaleFactor);
         p1 = HMM_Add(p1, offset);
         p2 = HMM_Add(p2, offset);
-        HMM_Vec2 points[] = { p1, p2 };
+        HMM_Vec2 points[] = {p1, p2};
         snzr_drawLine(points, 2, color, thickness, mvp);
 
         textTopLeft = HMM_Add(visualCenter, HMM_Mul(offset, 2.0f));
@@ -227,32 +227,32 @@ void sku_drawSketch(sk_Sketch* sketch, HMM_Mat4 vp, HMM_Mat4 model, snz_Arena* s
 
     glDisable(GL_DEPTH_TEST);
 
-    { // grid around the cursor
+    {  // grid around the cursor
         HMM_Vec3 mousePos = HMM_V3(mousePosInPlane.X, mousePosInPlane.Y, 0);
         float scaleFactor = HMM_LenV3(HMM_Sub(_sku_mulM4V3(model, mousePos), cameraPos));
 
         // FIXME: jarring switches in gaplen
         // FIXME: unpleasant clipping into coplanar geometry
-        int lineCount = 13; // FIXME: batch all of these verts into one line
+        int lineCount = 13;  // FIXME: batch all of these verts into one line
         float lineGap = main_gridLineGap(scaleFactor * 2, lineCount);
         for (int ax = 0; ax < 2; ax++) {
             float axOffset = fmod(mousePosInPlane.Elements[ax], lineGap);
             for (int i = 0; i < lineCount; i++) {
                 float x = (i - (lineCount / 2)) * lineGap;
                 x -= axOffset;
-                HMM_Vec2 pts[] = { mousePosInPlane, mousePosInPlane };
+                HMM_Vec2 pts[] = {mousePosInPlane, mousePosInPlane};
                 pts[0].Elements[ax] += x;
                 pts[0].Elements[!ax] += 1.5 * scaleFactor;
                 pts[1].Elements[ax] += x;
                 pts[1].Elements[!ax] += -1.5 * scaleFactor;
 
-                HMM_Vec3 fadeOrigin = { 0 };
+                HMM_Vec3 fadeOrigin = {0};
                 fadeOrigin.XY = mousePosInPlane;
                 // FIXME: have this invert color when behind smth in the scene
                 snzr_drawLineFaded(pts, 2, UI_ALMOST_BACKGROUND_COLOR, 1, mvp, fadeOrigin, 0, 0.5 * scaleFactor);
             }
         }
-    } // end grid
+    }  // end grid
 
     // FIXME: yuck but I can't think of a lighter way to factor it
     bool* const dragging = SNZU_USE_MEM(bool, "dragging");
@@ -260,7 +260,7 @@ void sku_drawSketch(sk_Sketch* sketch, HMM_Mat4 vp, HMM_Mat4 model, snz_Arena* s
         *dragging = false;
     }
 
-    { // selection // UI state updates
+    {  // selection // UI state updates
         // doing this instead of snzu_Interaction.dragBeginning bc. mouse pos is projected
         HMM_Vec2* const dragOrigin = SNZU_USE_MEM(HMM_Vec2, "dragOrigin");
 
@@ -282,7 +282,7 @@ void sku_drawSketch(sk_Sketch* sketch, HMM_Mat4 vp, HMM_Mat4 model, snz_Arena* s
                 if (_sku_AABBContainsPt(start, end, p->pos)) {
                     p->uiInfo.selected = true;
                 }
-            } // end point loop
+            }  // end point loop
 
             for (sk_Line* l = sketch->firstLine; l; l = l->next) {
                 l->uiInfo.selected = l->p1->uiInfo.selected && l->p2->uiInfo.selected;
@@ -314,11 +314,11 @@ void sku_drawSketch(sk_Sketch* sketch, HMM_Mat4 vp, HMM_Mat4 model, snz_Arena* s
             HMM_Vec4 color = UI_ACCENT_COLOR;
             color.A = 0.2;
             snzr_drawRect(*dragOrigin, mousePosInPlane,
-                        HMM_V2(-100000, -100000), HMM_V2(100000, 100000),
-                        color,
-                        0, 0, HMM_V4(0, 0, 0, 0),
-                        mvp, _snzr_globs.solidTex); // FIXME: internals should not be hacked at like this
-        } // end drag check
+                          HMM_V2(-100000, -100000), HMM_V2(100000, 100000),
+                          color,
+                          0, 0, HMM_V4(0, 0, 0, 0),
+                          mvp, _snzr_globs.solidTex);  // FIXME: internals should not be hacked at like this
+        }  // end drag check
     }
 
     // MANIFOLDS
@@ -329,7 +329,7 @@ void sku_drawSketch(sk_Sketch* sketch, HMM_Mat4 vp, HMM_Mat4 model, snz_Arena* s
         int ptCount = 0;
 
         float distToCamera = HMM_Len(HMM_Sub(cameraPos, _sku_mulM4V3(model, HMM_V3(p->pos.X, p->pos.Y, 0))));
-        float scaleFactor = distToCamera; // FIXME: ortho switch
+        float scaleFactor = distToCamera;  // FIXME: ortho switch
 
         if (kind == SK_MK_POINT) {
             continue;
@@ -386,7 +386,6 @@ void sku_drawSketch(sk_Sketch* sketch, HMM_Mat4 vp, HMM_Mat4 model, snz_Arena* s
 
     // Drawing actual constraints
     for (sk_Constraint* c = sketch->firstConstraint; c; c = c->nextAllocated) {
-
         HMM_Vec4 color = UI_TEXT_COLOR;
         if (c->violated) {
             color = UI_RED;
