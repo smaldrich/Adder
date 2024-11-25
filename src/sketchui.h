@@ -141,7 +141,19 @@ static bool _sku_constraintHovered(sk_Constraint* c, float scaleFactor, HMM_Vec2
     return false;
 }
 
-static void _sku_drawConstraint(sk_Constraint* c, float scaleFactor, HMM_Vec2 visualCenter, HMM_Vec4 color, float thickness, snz_Arena* scratch, HMM_Mat4 mvp, float soundPct) {
+static void _sku_drawConstraint(sk_Constraint* c, HMM_Mat4 model, HMM_Vec3 cameraPos, snz_Arena* scratch, HMM_Mat4 mvp, float soundPct) {
+    HMM_Vec4 drawnColor = UI_TEXT_COLOR;
+    if (c->violated) {
+        drawnColor = UI_RED;
+    }
+    drawnColor = HMM_LerpV4(drawnColor, c->uiInfo.selectionAnim, UI_ACCENT_COLOR);
+
+    HMM_Vec2 visualCenter = HMM_V2(0, 0);
+    float scaleFactor = 1;
+    _sku_constraintScaleFactorAndCenter(c, model, cameraPos, &visualCenter, &scaleFactor);
+
+    float drawnThickness = HMM_Lerp(SKU_CONSTRAINT_THICKNESS, c->uiInfo.hoverAnim, SKU_CONSTRAINT_HOVERED_THICKNESS);
+
     HMM_Vec2 textTopLeft = HMM_V2(0, 0);
     const char* text = NULL;
 
@@ -153,7 +165,7 @@ static void _sku_drawConstraint(sk_Constraint* c, float scaleFactor, HMM_Vec2 vi
         p1 = HMM_Add(p1, offset);
         p2 = HMM_Add(p2, offset);
         HMM_Vec2 points[] = {p1, p2};
-        snzr_drawLine(points, 2, color, thickness, mvp);
+        snzr_drawLine(points, 2, drawnColor, drawnThickness, mvp);
 
         textTopLeft = HMM_Add(visualCenter, HMM_Mul(offset, 2.0f));
         text = snz_arenaFormatStr(scratch, "%.2fm", c->value);
@@ -178,7 +190,7 @@ static void _sku_drawConstraint(sk_Constraint* c, float scaleFactor, HMM_Vec2 vi
                 HMM_Add(joint->pos, HMM_Add(offset1, offset2)),
                 HMM_Add(joint->pos, offset2),
             };
-            snzr_drawLine(pts, 3, color, thickness, mvp);
+            snzr_drawLine(pts, 3, drawnColor, drawnThickness, mvp);
             return;
         } else {
             HMM_Vec2 angles = _sku_angleOfLinesInAngleConstraint(c);
@@ -191,7 +203,7 @@ static void _sku_drawConstraint(sk_Constraint* c, float scaleFactor, HMM_Vec2 vi
                 HMM_Vec2 o = HMM_RotateV2(HMM_V2(offset, 0), startAngle + (i * c->value / (ptCount - 1)));
                 linePts[i] = HMM_Add(joint->pos, o);
             }
-            snzr_drawLine(linePts, ptCount, color, thickness, mvp);
+            snzr_drawLine(linePts, ptCount, drawnColor, drawnThickness, mvp);
 
             textTopLeft = HMM_RotateV2(HMM_V2(offset * 1.5, 0), startAngle + angleRange / 2);
             textTopLeft = HMM_Add(textTopLeft, visualCenter);
@@ -208,8 +220,66 @@ static void _sku_drawConstraint(sk_Constraint* c, float scaleFactor, HMM_Vec2 vi
     snzr_drawTextScaled(
         textTopLeft,
         HMM_V2(-100000, -100000), HMM_V2(100000, 100000),
-        color, text, strlen(text), ui_titleFont,
+        drawnColor, text, strlen(text), ui_titleFont,
         mvp, drawnHeight, false, true);
+}
+
+static void _sku_drawManifold(sk_Point* p, HMM_Vec3 cameraPos, HMM_Mat4 model, HMM_Mat4 mvp, snz_Arena* scratch) {
+    HMM_Vec2* pts = NULL;
+    int ptCount = 0;
+
+    float distToCamera = HMM_Len(HMM_Sub(cameraPos, _sku_mulM4V3(model, HMM_V3(p->pos.X, p->pos.Y, 0))));
+    float scaleFactor = distToCamera;  // FIXME: ortho switch
+
+    if (p->manifold.kind == SK_MK_POINT) {
+        return;
+    } else if (p->manifold.kind == SK_MK_CIRCLE) {
+        ptCount = 11;
+        pts = SNZ_ARENA_PUSH_ARR(scratch, ptCount, HMM_Vec2);
+
+        float angleRange = HMM_AngleDeg(40);
+        HMM_Vec2 diff = HMM_Sub(p->pos, p->manifold.circle.origin);
+        float startAngle = atan2f(diff.Y, diff.X);
+        for (int i = 0; i < ptCount; i++) {
+            float angle = startAngle + (i - (ptCount / 2)) * (angleRange / ptCount);
+            pts[i] = HMM_RotateV2(HMM_V2(p->manifold.circle.radius, 0), angle);
+            pts[i] = HMM_Add(pts[i], p->manifold.circle.origin);
+        }
+    } else if (p->manifold.kind == SK_MK_LINE) {
+        ptCount = 2;
+        pts = SNZ_ARENA_PUSH_ARR(scratch, ptCount, HMM_Vec2);
+        pts[0] = p->pos;
+        pts[1] = HMM_Add(p->pos, HMM_Mul(HMM_Norm(p->manifold.line.direction), 0.4f * scaleFactor));
+    } else if (p->manifold.kind == SK_MK_ANY) {
+        // make it really big so the cross line is entirely faded out
+        ptCount = 4;
+        pts = SNZ_ARENA_PUSH_ARR(scratch, ptCount, HMM_Vec2);
+        pts[0] = HMM_V2(-1 * scaleFactor, 0);
+        pts[1] = HMM_V2(1 * scaleFactor, 0);
+        pts[2] = HMM_V2(0, -1 * scaleFactor);
+        pts[3] = HMM_V2(0, 1 * scaleFactor);
+
+        for (int i = 0; i < ptCount; i++) {
+            pts[i] = HMM_RotateV2(pts[i], HMM_AngleDeg(10));
+            pts[i] = HMM_AddV2(pts[i], p->pos);
+        }
+    } else {
+        SNZ_ASSERTF(false, "unreachable. kind was: %d", p->manifold.kind);
+        return;
+    }
+
+    if (p->manifold.kind != SK_MK_CIRCLE) {
+        scaleFactor *= 0.07;
+    } else {
+        // When it's a circle, there's not really a great way to scale up the manifold visually
+        // and keep it's radius meaningful. So i'm leaving it like this for now.
+        // FIXME: could scale up the visible radius to a point tho, which would probs work
+        scaleFactor = 0.07;
+    }
+    snzr_drawLineFaded(
+        pts, ptCount,
+        UI_ACCENT_COLOR, 4,
+        mvp, HMM_V3(p->pos.X, p->pos.Y, 0), scaleFactor, scaleFactor);
 }
 
 static bool _sku_AABBContainsPt(HMM_Vec2 boxStart, HMM_Vec2 boxEnd, HMM_Vec2 pt) {
@@ -220,6 +290,14 @@ static bool _sku_AABBContainsPt(HMM_Vec2 boxStart, HMM_Vec2 boxEnd, HMM_Vec2 pt)
     }
     return false;
 }
+
+typedef struct _sku_SketchEltUIStatus _sku_SketchEltUIStatus;
+struct _sku_SketchEltUIStatus {
+    bool hovered;
+    bool withinDragZone;
+    sk_ElementUIInfo* eltUIInfo;
+    _sku_SketchEltUIStatus* next;
+};
 
 // FIXME: sketch element selection persists too much
 void sku_drawSketch(sk_Sketch* sketch, HMM_Mat4 vp, HMM_Mat4 model, snz_Arena* scratch, HMM_Vec3 cameraPos, HMM_Vec2 mousePosInPlane, snzu_Action mouseAct, bool shiftPressed, float soundPct) {
@@ -254,46 +332,59 @@ void sku_drawSketch(sk_Sketch* sketch, HMM_Mat4 vp, HMM_Mat4 model, snz_Arena* s
         }
     }  // end grid
 
-    // FIXME: yuck but I can't think of a lighter way to factor it
-    bool* const dragging = SNZU_USE_MEM(bool, "dragging");
-    if (mouseAct == SNZU_ACT_NONE) {
-        *dragging = false;
-    }
-
     {  // selection // UI state updates
         // doing this instead of snzu_Interaction.dragBeginning bc. mouse pos is projected
         HMM_Vec2* const dragOrigin = SNZU_USE_MEM(HMM_Vec2, "dragOrigin");
+        bool* const dragging = SNZU_USE_MEM(bool, "dragging");
+        bool dragEnded = *dragging && mouseAct == SNZU_ACT_UP;
 
         if (mouseAct == SNZU_ACT_DOWN) {
             *dragOrigin = mousePosInPlane;
             *dragging = true;
             // FIXME: what happens on the border of mouse not being projectable??
-        } else if (mouseAct == SNZU_ACT_DRAG && *dragging) {
+        } else if (mouseAct == SNZU_ACT_NONE || mouseAct == SNZU_ACT_UP) {
+            *dragging = false;
+        }
+
+        {  // loop over all points, check whether they are within the contained zone and update their selection status
+            // FIXME: kinda wasteful right now to have points contain full UIInfo structs, but once pt selection and drawing gets added maybe not
+            // FIXME: this will also have to change to another variable that isn't selected once that happens, cause selected is persisted
             HMM_Vec2 start = HMM_V2(0, 0);
             HMM_Vec2 end = HMM_V2(0, 0);
             start.X = SNZ_MIN(mousePosInPlane.X, dragOrigin->X);
             start.Y = SNZ_MIN(mousePosInPlane.Y, dragOrigin->Y);
             end.X = SNZ_MAX(mousePosInPlane.X, dragOrigin->X);
             end.Y = SNZ_MAX(mousePosInPlane.Y, dragOrigin->Y);
-
-            // FIXME: direct lookup of connected elts would be lovely
             for (sk_Point* p = sketch->firstPoint; p; p = p->next) {
                 p->uiInfo.selected = false;
                 if (_sku_AABBContainsPt(start, end, p->pos)) {
                     p->uiInfo.selected = true;
                 }
             }  // end point loop
+        }
 
+        // batch lines and constraints into one list with all the info we are operating on
+        _sku_SketchEltUIStatus* firstStatus = NULL;
+        {
             for (sk_Line* l = sketch->firstLine; l; l = l->next) {
-                l->uiInfo.selected = l->p1->uiInfo.selected && l->p2->uiInfo.selected;
+                bool withinDragZone = l->p1->uiInfo.selected && l->p2->uiInfo.selected;
 
-                bool hovered = false;
-                {
-                    HMM_Vec2 midpt = HMM_DivV2F(HMM_Add(l->p1->pos, l->p2->pos), 2.0f);
-                    HMM_Vec3 transformedCenter = HMM_MulM4V4(model, HMM_V4(midpt.X, midpt.Y, 0, 1)).XYZ;
-                    float distToCamera = HMM_Len(HMM_Sub(transformedCenter, cameraPos));
-                    hovered = _sku_lineContainsPt(l->p1->pos, l->p2->pos, 0.01 * distToCamera, mousePosInPlane);
+                HMM_Vec2 midpt = HMM_DivV2F(HMM_Add(l->p1->pos, l->p2->pos), 2.0f);
+                HMM_Vec3 transformedCenter = HMM_MulM4V4(model, HMM_V4(midpt.X, midpt.Y, 0, 1)).XYZ;
+                float distToCamera = HMM_Len(HMM_Sub(transformedCenter, cameraPos));
+                bool hovered = _sku_lineContainsPt(l->p1->pos, l->p2->pos, 0.01 * distToCamera, mousePosInPlane);
+                if (mouseAct == SNZU_ACT_DOWN && hovered) {
+                    *dragging = false;  // cancel a drag before it is processed if it lands on this
                 }
+
+                _sku_SketchEltUIStatus* status = SNZ_ARENA_PUSH(scratch, _sku_SketchEltUIStatus);
+                *status = (_sku_SketchEltUIStatus){
+                    .eltUIInfo = &l->uiInfo,
+                    .hovered = hovered,
+                    .withinDragZone = withinDragZone,
+                    .next = firstStatus,
+                };
+                firstStatus = status;
             }
 
             for (sk_Constraint* c = sketch->firstConstraint; c; c = c->nextAllocated) {
@@ -301,16 +392,51 @@ void sku_drawSketch(sk_Sketch* sketch, HMM_Mat4 vp, HMM_Mat4 model, snz_Arena* s
                 float scaleFactor;
                 _sku_constraintScaleFactorAndCenter(c, model, cameraPos, &visualCenter, &scaleFactor);
                 bool hovered = _sku_constraintHovered(c, scaleFactor, visualCenter, mousePosInPlane);
+                if (mouseAct == SNZU_ACT_DOWN && hovered) {
+                    *dragging = false;  // cancel a drag before it is processed if it lands on this
+                }
 
+                bool withinDragZone = false;
                 if (c->kind == SK_CK_ANGLE) {
                     sk_Point* base1 = c->flipLine1 ? c->line1->p2 : c->line1->p1;
                     sk_Point* base2 = c->flipLine2 ? c->line2->p2 : c->line2->p1;
-                    c->uiInfo.selected = base1 == base2 && base1->uiInfo.selected;
+                    withinDragZone = base1 == base2 && base1->uiInfo.selected;
                 } else if (c->kind == SK_CK_DISTANCE) {
-                    c->uiInfo.selected = c->line1->uiInfo.selected;
+                    withinDragZone = c->line1->p1->uiInfo.selected && c->line1->p2->uiInfo.selected;
+                }
+
+                _sku_SketchEltUIStatus* status = SNZ_ARENA_PUSH(scratch, _sku_SketchEltUIStatus);
+                *status = (_sku_SketchEltUIStatus){
+                    .eltUIInfo = &c->uiInfo,
+                    .hovered = hovered,
+                    .withinDragZone = withinDragZone,
+                    .next = firstStatus,
+                };
+                firstStatus = status;
+            }
+        }
+
+        for (_sku_SketchEltUIStatus* status = firstStatus; status; status = status->next) {
+            if (mouseAct == SNZU_ACT_DOWN) {
+                if (!shiftPressed && !status->hovered && !status->withinDragZone) {
+                    status->eltUIInfo->selected = false;
+                } else if (status->hovered) {
+                    status->eltUIInfo->selected = !status->eltUIInfo->selected;
                 }
             }
 
+            if (dragEnded && status->withinDragZone) {
+                status->eltUIInfo->selected = true;
+            }
+
+            float hoverTarget = status->hovered && !*dragging;
+            snzu_easeExpUnbounded(&status->eltUIInfo->hoverAnim, hoverTarget, 15);
+
+            float selectionTarget = (status->withinDragZone && *dragging) || status->eltUIInfo->selected;
+            snzu_easeExpUnbounded(&status->eltUIInfo->selectionAnim, selectionTarget, 15);
+        }
+
+        if (*dragging) {
             HMM_Vec4 color = UI_ACCENT_COLOR;
             color.A = 0.2;
             snzr_drawRect(*dragOrigin, mousePosInPlane,
@@ -318,87 +444,18 @@ void sku_drawSketch(sk_Sketch* sketch, HMM_Mat4 vp, HMM_Mat4 model, snz_Arena* s
                           color,
                           0, 0, HMM_V4(0, 0, 0, 0),
                           mvp, _snzr_globs.solidTex);  // FIXME: internals should not be hacked at like this
-        }  // end drag check
-    }
+        }
+    }  // end selection management scope
 
-    // MANIFOLDS
     for (sk_Point* p = sketch->firstPoint; p; p = p->next) {
-        sk_ManifoldKind kind = p->manifold.kind;
-
-        HMM_Vec2* pts = NULL;
-        int ptCount = 0;
-
-        float distToCamera = HMM_Len(HMM_Sub(cameraPos, _sku_mulM4V3(model, HMM_V3(p->pos.X, p->pos.Y, 0))));
-        float scaleFactor = distToCamera;  // FIXME: ortho switch
-
-        if (kind == SK_MK_POINT) {
-            continue;
-        } else if (kind == SK_MK_CIRCLE) {
-            ptCount = 11;
-            pts = SNZ_ARENA_PUSH_ARR(scratch, ptCount, HMM_Vec2);
-
-            float angleRange = HMM_AngleDeg(40);
-            HMM_Vec2 diff = HMM_Sub(p->pos, p->manifold.circle.origin);
-            float startAngle = atan2f(diff.Y, diff.X);
-            for (int i = 0; i < ptCount; i++) {
-                float angle = startAngle + (i - (ptCount / 2)) * (angleRange / ptCount);
-                pts[i] = HMM_RotateV2(HMM_V2(p->manifold.circle.radius, 0), angle);
-                pts[i] = HMM_Add(pts[i], p->manifold.circle.origin);
-            }
-        } else if (kind == SK_MK_LINE) {
-            ptCount = 2;
-            HMM_Vec2 ptsArr[2] = {
-                p->pos,
-                HMM_Add(p->pos, HMM_Mul(HMM_Norm(p->manifold.line.direction), 0.4f * scaleFactor)),
-            };
-            pts = ptsArr;
-        } else if (kind == SK_MK_ANY) {
-            // make it really big so the cross line is entirely faded out
-            HMM_Vec2 ptsArr[4] = {
-                HMM_V2(-1 * scaleFactor, 0),
-                HMM_V2(1 * scaleFactor, 0),
-                HMM_V2(0, -1 * scaleFactor),
-                HMM_V2(0, 1 * scaleFactor),
-            };
-            ptCount = 4;
-            pts = ptsArr;
-            for (int i = 0; i < ptCount; i++) {
-                pts[i] = HMM_RotateV2(pts[i], HMM_AngleDeg(10));
-                pts[i] = HMM_AddV2(pts[i], p->pos);
-            }
-        } else {
-            SNZ_ASSERTF(false, "unreachable. kind was: %d", kind);
-        }
-
-        if (kind != SK_MK_CIRCLE) {
-            scaleFactor *= 0.07;
-        } else {
-            // When it's a circle, there's not really a great way to scale up the manifold visually
-            // and keep it's radius meaningful. So i'm leaving it like this for now.
-            // FIXME: could scale up the visible radius to a point tho, which would probs work
-            scaleFactor = 0.07;
-        }
-        snzr_drawLineFaded(
-            pts, ptCount,
-            UI_ACCENT_COLOR, 4,
-            mvp, HMM_V3(p->pos.X, p->pos.Y, 0), scaleFactor, scaleFactor);
+        _sku_drawManifold(p, cameraPos, model, mvp, scratch);
     }
 
-    // Drawing actual constraints
     for (sk_Constraint* c = sketch->firstConstraint; c; c = c->nextAllocated) {
-        HMM_Vec4 color = UI_TEXT_COLOR;
-        if (c->violated) {
-            color = UI_RED;
-        }
-        color = HMM_LerpV4(color, c->uiInfo.selectionAnim, UI_ACCENT_COLOR);
-
-        float thickness = HMM_Lerp(SKU_CONSTRAINT_THICKNESS, c->uiInfo.hoverAnim, SKU_CONSTRAINT_HOVERED_THICKNESS);
-        _sku_drawConstraint(c, scaleFactor, visualCenter, color, thickness, scratch, mvp, soundPct);
-    }  // end constraint draw loop
+        _sku_drawConstraint(c, model, cameraPos, scratch, mvp, soundPct);
+    }
 
     for (sk_Line* l = sketch->firstLine; l; l = l->next) {
-        bool hovered = true;
-
         HMM_Vec2 points[] = {
             l->p1->pos,
             l->p2->pos,
