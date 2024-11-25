@@ -3,20 +3,6 @@
 #include "ui.h"
 #include "sketches2.h"
 
-void _sku_elementDataUpdate(sk_ElementUIInfo* data, bool hovered, snzu_Action mouseAct, bool shiftPressed, bool* dragging) {
-    snzu_easeExp(&data->hoverAnim, hovered, 15);
-
-    if (mouseAct == SNZU_ACT_DOWN) {
-        if (hovered) {
-            data->selected = !data->selected;
-            *dragging = false;
-        } else if (!shiftPressed) {
-            data->selected = false;
-        }
-    }
-    snzu_easeExp(&data->selectionAnim, data->selected, 15);
-}
-
 static float main_gridLineGap(float area, float visibleCount) {
     float lineGap = area / visibleCount;
 
@@ -105,6 +91,25 @@ static HMM_Vec2 _sku_angleOfLinesInAngleConstraint(sk_Constraint* c) {
     }
 
     return HMM_V2(a1, a2);
+}
+
+// outparams assumed non-null
+static void _sku_constraintScaleFactorAndCenter(sk_Constraint* c, HMM_Mat4 model, HMM_Vec3 cameraPos, HMM_Vec2* outCenter, float* outScaleFactor) {
+    HMM_Vec2 visualCenter = HMM_V2(0, 0);
+    float scaleFactor = 0;
+
+    if (c->kind == SK_CK_ANGLE) {
+        visualCenter = c->flipLine1 ? c->line1->p2->pos : c->line1->p1->pos;
+    } else if (c->kind == SK_CK_DISTANCE) {
+        visualCenter = HMM_DivV2F(HMM_Add(c->line1->p1->pos, c->line1->p2->pos), 2);
+    } else {
+        SNZ_ASSERTF(false, "unreachable case. kind: %d", c->kind);
+    }
+    HMM_Vec3 transformedCenter = _sku_mulM4V3(model, HMM_V3(visualCenter.X, visualCenter.Y, 0));
+    scaleFactor = HMM_Len(HMM_Sub(cameraPos, transformedCenter));
+
+    *outCenter = visualCenter;
+    *outScaleFactor = scaleFactor;
 }
 
 static bool _sku_constraintHovered(sk_Constraint* c, float scaleFactor, HMM_Vec2 visualCenter, HMM_Vec2 mousePos) {
@@ -216,8 +221,6 @@ static bool _sku_AABBContainsPt(HMM_Vec2 boxStart, HMM_Vec2 boxEnd, HMM_Vec2 pt)
     return false;
 }
 
-float max = 0;
-
 // FIXME: sketch element selection persists too much
 void sku_drawSketch(sk_Sketch* sketch, HMM_Mat4 vp, HMM_Mat4 model, snz_Arena* scratch, HMM_Vec3 cameraPos, HMM_Vec2 mousePosInPlane, snzu_Action mouseAct, bool shiftPressed, float soundPct) {
     HMM_Mat4 mvp = HMM_Mul(vp, model);
@@ -253,8 +256,11 @@ void sku_drawSketch(sk_Sketch* sketch, HMM_Mat4 vp, HMM_Mat4 model, snz_Arena* s
 
     // FIXME: yuck but I can't think of a lighter way to factor it
     bool* const dragging = SNZU_USE_MEM(bool, "dragging");
+    if (mouseAct == SNZU_ACT_NONE) {
+        *dragging = false;
+    }
 
-    { // Dragging based selection
+    { // selection // UI state updates
         // doing this instead of snzu_Interaction.dragBeginning bc. mouse pos is projected
         HMM_Vec2* const dragOrigin = SNZU_USE_MEM(HMM_Vec2, "dragOrigin");
 
@@ -279,28 +285,29 @@ void sku_drawSketch(sk_Sketch* sketch, HMM_Mat4 vp, HMM_Mat4 model, snz_Arena* s
             } // end point loop
 
             for (sk_Line* l = sketch->firstLine; l; l = l->next) {
-                if (!shiftPressed) {
-                    l->uiInfo.selected = false;
-                }
-                if (l->p1->uiInfo.selected && l->p2->uiInfo.selected) {
-                    l->uiInfo.selected = true;
+                l->uiInfo.selected = l->p1->uiInfo.selected && l->p2->uiInfo.selected;
+
+                bool hovered = false;
+                {
+                    HMM_Vec2 midpt = HMM_DivV2F(HMM_Add(l->p1->pos, l->p2->pos), 2.0f);
+                    HMM_Vec3 transformedCenter = HMM_MulM4V4(model, HMM_V4(midpt.X, midpt.Y, 0, 1)).XYZ;
+                    float distToCamera = HMM_Len(HMM_Sub(transformedCenter, cameraPos));
+                    hovered = _sku_lineContainsPt(l->p1->pos, l->p2->pos, 0.01 * distToCamera, mousePosInPlane);
                 }
             }
 
             for (sk_Constraint* c = sketch->firstConstraint; c; c = c->nextAllocated) {
-                if (!shiftPressed) {
-                    c->uiInfo.selected = false;
-                }
+                HMM_Vec2 visualCenter;
+                float scaleFactor;
+                _sku_constraintScaleFactorAndCenter(c, model, cameraPos, &visualCenter, &scaleFactor);
+                bool hovered = _sku_constraintHovered(c, scaleFactor, visualCenter, mousePosInPlane);
+
                 if (c->kind == SK_CK_ANGLE) {
                     sk_Point* base1 = c->flipLine1 ? c->line1->p2 : c->line1->p1;
                     sk_Point* base2 = c->flipLine2 ? c->line2->p2 : c->line2->p1;
-                    if (base1 == base2 && base1->uiInfo.selected) {
-                        c->uiInfo.selected = true;
-                    }
+                    c->uiInfo.selected = base1 == base2 && base1->uiInfo.selected;
                 } else if (c->kind == SK_CK_DISTANCE) {
-                    if (c->line1->uiInfo.selected) {
-                        c->uiInfo.selected = true;
-                    }
+                    c->uiInfo.selected = c->line1->uiInfo.selected;
                 }
             }
 
@@ -310,7 +317,7 @@ void sku_drawSketch(sk_Sketch* sketch, HMM_Mat4 vp, HMM_Mat4 model, snz_Arena* s
                         HMM_V2(-100000, -100000), HMM_V2(100000, 100000),
                         color,
                         0, 0, HMM_V4(0, 0, 0, 0),
-                        mvp, _snzr_globs.solidTex); // FIXME: internals should be be hacked at like this
+                        mvp, _snzr_globs.solidTex); // FIXME: internals should not be hacked at like this
         } // end drag check
     }
 
@@ -379,22 +386,6 @@ void sku_drawSketch(sk_Sketch* sketch, HMM_Mat4 vp, HMM_Mat4 model, snz_Arena* s
 
     // Drawing actual constraints
     for (sk_Constraint* c = sketch->firstConstraint; c; c = c->nextAllocated) {
-        HMM_Vec2 visualCenter = HMM_V2(0, 0);
-        float scaleFactor = 0;
-        {
-            if (c->kind == SK_CK_ANGLE) {
-                visualCenter = c->flipLine1 ? c->line1->p2->pos : c->line1->p1->pos;
-            } else if (c->kind == SK_CK_DISTANCE) {
-                visualCenter = HMM_DivV2F(HMM_Add(c->line1->p1->pos, c->line1->p2->pos), 2);
-            } else {
-                SNZ_ASSERTF(false, "unreachable case. kind: %d", c->kind);
-            }
-            HMM_Vec3 transformedCenter = _sku_mulM4V3(model, HMM_V3(visualCenter.X, visualCenter.Y, 0));
-            scaleFactor = HMM_Len(HMM_Sub(cameraPos, transformedCenter));
-        }
-
-        bool hovered = _sku_constraintHovered(c, scaleFactor, visualCenter, mousePosInPlane);
-        _sku_elementDataUpdate(&c->uiInfo, hovered, mouseAct, shiftPressed, dragging);
 
         HMM_Vec4 color = UI_TEXT_COLOR;
         if (c->violated) {
@@ -408,14 +399,6 @@ void sku_drawSketch(sk_Sketch* sketch, HMM_Mat4 vp, HMM_Mat4 model, snz_Arena* s
 
     for (sk_Line* l = sketch->firstLine; l; l = l->next) {
         bool hovered = true;
-        {
-            HMM_Vec2 midpt = HMM_DivV2F(HMM_Add(l->p1->pos, l->p2->pos), 2.0f);
-            HMM_Vec3 transformedCenter = HMM_MulM4V4(model, HMM_V4(midpt.X, midpt.Y, 0, 1)).XYZ;
-            float distToCamera = HMM_Len(HMM_Sub(transformedCenter, cameraPos));
-            hovered = _sku_lineContainsPt(l->p1->pos, l->p2->pos, 0.01 * distToCamera, mousePosInPlane);
-        }
-
-        _sku_elementDataUpdate(&l->uiInfo, hovered, mouseAct, shiftPressed, dragging);
 
         HMM_Vec2 points[] = {
             l->p1->pos,
