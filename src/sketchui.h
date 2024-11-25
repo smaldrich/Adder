@@ -142,11 +142,11 @@ static bool _sku_constraintHovered(sk_Constraint* c, float scaleFactor, HMM_Vec2
 }
 
 static void _sku_drawConstraint(sk_Constraint* c, HMM_Mat4 model, HMM_Vec3 cameraPos, snz_Arena* scratch, HMM_Mat4 mvp, float soundPct) {
-    HMM_Vec4 drawnColor = UI_TEXT_COLOR;
+    HMM_Vec4 drawnColor = ui_colorText;
     if (c->violated) {
-        drawnColor = UI_RED;
+        drawnColor = ui_colorErr;
     }
-    drawnColor = HMM_LerpV4(drawnColor, c->uiInfo.selectionAnim, UI_ACCENT_COLOR);
+    drawnColor = HMM_LerpV4(drawnColor, c->uiInfo.selectionAnim, ui_colorAccent);
 
     HMM_Vec2 visualCenter = HMM_V2(0, 0);
     float scaleFactor = 1;
@@ -278,7 +278,7 @@ static void _sku_drawManifold(sk_Point* p, HMM_Vec3 cameraPos, HMM_Mat4 model, H
     }
     snzr_drawLineFaded(
         pts, ptCount,
-        UI_ACCENT_COLOR, 4,
+        ui_colorAccent, 4,
         mvp, HMM_V3(p->pos.X, p->pos.Y, 0), scaleFactor, scaleFactor);
 }
 
@@ -327,7 +327,7 @@ void sku_drawSketch(sk_Sketch* sketch, HMM_Mat4 vp, HMM_Mat4 model, snz_Arena* s
                 HMM_Vec3 fadeOrigin = { 0 };
                 fadeOrigin.XY = mousePosInPlane;
                 // FIXME: have this invert color when behind smth in the scene
-                snzr_drawLineFaded(pts, 2, UI_ALMOST_BACKGROUND_COLOR, 1, mvp, fadeOrigin, 0, 0.5 * scaleFactor);
+                snzr_drawLineFaded(pts, 2, ui_colorAlmostBackground, 1, mvp, fadeOrigin, 0, 0.5 * scaleFactor);
             }
         }
     }  // end grid
@@ -437,7 +437,7 @@ void sku_drawSketch(sk_Sketch* sketch, HMM_Mat4 vp, HMM_Mat4 model, snz_Arena* s
         }
 
         if (*dragging) {
-            HMM_Vec4 color = UI_ACCENT_COLOR;
+            HMM_Vec4 color = ui_colorAccent;
             color.A = 0.2;
             snzr_drawRect(*dragOrigin, mousePosInPlane,
                           HMM_V2(-100000, -100000), HMM_V2(100000, 100000),
@@ -461,7 +461,7 @@ void sku_drawSketch(sk_Sketch* sketch, HMM_Mat4 vp, HMM_Mat4 model, snz_Arena* s
             l->p2->pos,
         };
         float thickness = HMM_Lerp(2.0f, l->uiInfo.hoverAnim, 5.0f);
-        HMM_Vec4 color = HMM_LerpV4(UI_TEXT_COLOR, l->uiInfo.selectionAnim, UI_ACCENT_COLOR);
+        HMM_Vec4 color = HMM_LerpV4(ui_colorText, l->uiInfo.selectionAnim, ui_colorAccent);
         snzr_drawLine(points, 2, color, thickness, mvp);
     }
 

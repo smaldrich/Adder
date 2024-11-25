@@ -84,6 +84,7 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
 
     ren3d_init(scratch);
     docs_init();
+    ui_init();
 
     snz_arenaClear(scratch);
 
@@ -264,7 +265,7 @@ void main_drawDemoScene(HMM_Vec2 panelSize, snz_Arena* scratch) {
     // FIXME: opengl here is gross
     snzr_callGLFnOrError(glBindFramebuffer(GL_FRAMEBUFFER, sceneFB.glId));
     snzr_callGLFnOrError(glViewport(0, 0, w, h));
-    snzr_callGLFnOrError(glClearColor(1, 1, 1, 1));
+    snzr_callGLFnOrError(glClearColor(ui_colorBackground.X, ui_colorBackground.Y, ui_colorBackground.Z, ui_colorBackground.W));
     snzr_callGLFnOrError(glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT));
 
     HMM_Mat4 model = HMM_Translate(HMM_V3(0, 0, 0));
@@ -310,10 +311,11 @@ void main_drawDemoScene(HMM_Vec2 panelSize, snz_Arena* scratch) {
         (*smooth / *max - 0.5) * 0.25);
 }
 
+bool main_inDarkMode = false;
 void main_drawSettings() {
     snzu_boxNew("main parent");
     snzu_boxFillParent();
-    snzu_boxSetColor(UI_BACKGROUND_COLOR);
+    snzu_boxSetColor(ui_colorBackground);
     snzu_boxScope() {
         snzu_boxNew("margin area");
         HMM_Vec2 parentSize = snzu_boxGetSize(snzu_boxGetParent());
@@ -321,11 +323,20 @@ void main_drawSettings() {
         snzu_boxSetEndFromParentEnd(HMM_V2(parentSize.X * -0.1, parentSize.Y * -0.1));
         snzu_boxScope() {
             snzu_boxNew("title");
-            snzu_boxSetDisplayStr(&ui_titleFont, UI_TEXT_COLOR, "Settings");
+            snzu_boxSetDisplayStr(&ui_titleFont, ui_colorText, "Settings");
             snzu_boxSetSizeFitText();
 
-            bool* const darkmode = SNZU_USE_MEM(bool, "darkmode");
-            ui_switch("darkmode", "Dark Theme", darkmode);
+            bool prev = main_inDarkMode;
+            ui_switch("darkmode", "Dark Theme", &main_inDarkMode);
+
+            if (prev != main_inDarkMode) {
+                if (!main_inDarkMode) {
+                    ui_setThemeLight();
+                } else {
+                    ui_setThemeDark();
+                }
+            }
+
             bool* const musicmode = SNZU_USE_MEM(bool, "musicmode");
             ui_switch("musicmode", "Music Mode", musicmode);
         }
@@ -367,7 +378,7 @@ void main_frame(float dt, snz_Arena* scratch) {
         snzu_boxNew("leftPanel");
         snzu_boxFillParent();
         snzu_boxSetSizeFromStartAx(SNZU_AX_X, leftPanelSize);
-        snzu_boxSetColor(UI_BACKGROUND_COLOR);
+        snzu_boxSetColor(ui_colorBackground);
         snzu_boxSetInteractionOutput(leftPanelInter, SNZU_IF_HOVER);
         snzu_boxScope() {
             snzu_boxNew("padding");
@@ -418,14 +429,14 @@ void main_frame(float dt, snz_Arena* scratch) {
 
         snzu_boxNew("leftPanelBorder");
         snzu_boxFillParent();
-        snzu_boxSetStartFromParentAx(leftPanelSize - UI_BORDER_THICKNESS, SNZU_AX_X);
-        snzu_boxSetSizeFromStartAx(SNZU_AX_X, UI_BORDER_THICKNESS);
-        snzu_boxSetColor(UI_TEXT_COLOR);
+        snzu_boxSetStartFromParentAx(leftPanelSize - ui_borderThickness, SNZU_AX_X);
+        snzu_boxSetSizeFromStartAx(SNZU_AX_X, ui_borderThickness);
+        snzu_boxSetColor(ui_colorText);
 
         snzu_boxNew("upperBorder");
         snzu_boxFillParent();
-        snzu_boxSetSizeFromStartAx(SNZU_AX_Y, UI_BORDER_THICKNESS);
-        snzu_boxSetColor(UI_TEXT_COLOR);
+        snzu_boxSetSizeFromStartAx(SNZU_AX_Y, ui_borderThickness);
+        snzu_boxSetColor(ui_colorText);
     }
 }
 

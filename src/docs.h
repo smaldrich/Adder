@@ -54,7 +54,7 @@ void docs_init() {
 void docs_buildPage() {
     snzu_boxNew("docs page");
     snzu_boxFillParent();
-    snzu_boxSetColor(UI_BACKGROUND_COLOR);
+    snzu_boxSetColor(ui_colorBackground);
     snzu_boxScope() {
         snzu_boxNew("margin area");
         HMM_Vec2 parentSize = snzu_boxGetSize(snzu_boxGetParent());
@@ -85,11 +85,11 @@ void docs_buildPage() {
             snzu_boxSizeFromEndPctParent(0.6, SNZU_AX_X);  // FIXME: fill remainder function
             snzu_boxScope() {
                 snzu_boxNew("header");
-                snzu_boxSetDisplayStr(&ui_titleFont, UI_TEXT_COLOR, _docs_currentFile->name);
+                snzu_boxSetDisplayStr(&ui_titleFont, ui_colorText, _docs_currentFile->name);
                 snzu_boxSetSizeFitText();
 
                 snzu_boxNew("text");
-                snzu_boxSetDisplayStr(&ui_paragraphFont, UI_TEXT_COLOR, _docs_currentFile->text);
+                snzu_boxSetDisplayStr(&ui_paragraphFont, ui_colorText, _docs_currentFile->text);
                 snzu_boxSetSizeFitText();
             }  // scroll area for files
             snzu_boxOrderChildrenInRowRecurse(10, SNZU_AX_Y);

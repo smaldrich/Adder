@@ -7,12 +7,32 @@ snzr_Font ui_paragraphFont;
 snzr_Font ui_labelFont;
 // font loading from main.c
 
-#define UI_TEXT_COLOR HMM_V4(60 / 255.0, 60 / 255.0, 60 / 255.0, 1)
-#define UI_ACCENT_COLOR HMM_V4(221 / 255.0, 255 / 255.0, 178 / 255.0, 1)
-#define UI_RED HMM_V4(181 / 255.0, 55 / 255.0, 93 / 255.0, 1);
-#define UI_BACKGROUND_COLOR HMM_V4(1, 1, 1, 1)
-#define UI_ALMOST_BACKGROUND_COLOR HMM_V4(0.9, 0.9, 0.9, 1)
-#define UI_BORDER_THICKNESS 4
+HMM_Vec4 ui_colorText;
+HMM_Vec4 ui_colorAccent;
+HMM_Vec4 ui_colorErr;
+HMM_Vec4 ui_colorBackground;
+HMM_Vec4 ui_colorAlmostBackground;
+float ui_borderThickness = 4;
+
+void ui_setThemeLight() {
+    ui_colorText = HMM_V4(60 / 255.0, 60 / 255.0, 60 / 255.0, 1);
+    ui_colorAccent = HMM_V4(221 / 255.0, 255 / 255.0, 178 / 255.0, 1);
+    ui_colorErr = HMM_V4(181 / 255.0, 55 / 255.0, 93 / 255.0, 1);;
+    ui_colorBackground = HMM_V4(1, 1, 1, 1);
+    ui_colorAlmostBackground = HMM_V4(0.9, 0.9, 0.9, 1);
+}
+
+void ui_setThemeDark() {
+    ui_colorText = HMM_V4(1, 1, 1, 1);
+    ui_colorAccent = HMM_V4(221 / 255.0, 255 / 255.0, 178 / 255.0, 1);
+    ui_colorErr = HMM_V4(181 / 255.0, 55 / 255.0, 93 / 255.0, 1);;
+    ui_colorBackground = HMM_V4(60 / 255.0, 60 / 255.0, 60 / 255.0, 1);
+    ui_colorAlmostBackground = HMM_V4(52 / 255.0, 52 / 255.0, 52 / 255.0, 1);
+}
+
+void ui_init() {
+    ui_setThemeLight();
+}
 
 // returns true on the frame it is clicked
 bool ui_buttonWithHighlight(bool selected, const char* name) {
@@ -32,14 +52,14 @@ bool ui_buttonWithHighlight(bool selected, const char* name) {
         snzu_easeExp(hoverAnim, inter->hovered, 20);
 
         snzu_boxNew("highlight");
-        snzu_boxSetColor(UI_ACCENT_COLOR);
+        snzu_boxSetColor(ui_colorAccent);
         snzu_boxFillParent();
         snzu_boxSizeFromEndPctParent(0.3, SNZU_AX_Y);
         snzu_boxSizePctParent(*selectedAnim * 0.6, SNZU_AX_X);
 
         snzu_boxNew("text");
         snzu_boxSetStartFromParentKeepSizeRecurse(HMM_V2((*hoverAnim + *selectedAnim) * 10, 0));
-        snzu_boxSetDisplayStr(&ui_labelFont, UI_TEXT_COLOR, name);
+        snzu_boxSetDisplayStr(&ui_labelFont, ui_colorText, name);
         snzu_boxSetSizeFitText();
     }
     snzu_boxSetSizeFromStartAx(SNZU_AX_Y, snzu_boxGetSizeToFitChildrenAx(SNZU_AX_Y));
@@ -72,19 +92,19 @@ void ui_switch(const char* boxTag, const char* label, bool* const state) {
             *anim = *state;
         }
         snzu_easeExp(anim, *state, 15);
-        snzu_boxSetColor(HMM_Lerp(UI_BACKGROUND_COLOR, *anim, UI_ACCENT_COLOR));
+        snzu_boxSetColor(HMM_Lerp(ui_colorBackground, *anim, ui_colorAccent));
 
         snzu_boxScope() {
             snzu_boxNew("button");
             snzu_boxSetSizeMarginFromParent(innerMargin);
-            snzu_boxSetColor(HMM_Lerp(UI_ACCENT_COLOR, *anim, UI_BACKGROUND_COLOR));
+            snzu_boxSetColor(HMM_Lerp(ui_colorAccent, *anim, ui_colorBackground));
             snzu_boxSetCornerRadius((textHeight - innerMargin * 2) / 2);
             snzu_boxSetStartFromParentAx(*anim * (sliderWidth - textHeight) + innerMargin, SNZU_AX_X);
             snzu_boxSetSizeFromStartAx(SNZU_AX_X, textHeight - innerMargin * 2);
         }
 
         snzu_boxNew("label");
-        snzu_boxSetDisplayStr(&ui_labelFont, UI_TEXT_COLOR, label);
+        snzu_boxSetDisplayStr(&ui_labelFont, ui_colorText, label);
         snzu_boxSetSizeFitText();
         snzu_boxSetPosAfterRecurse(10, SNZU_AX_X); // FIXME: spacing var
     }
