@@ -312,6 +312,7 @@ void main_drawDemoScene(HMM_Vec2 panelSize, snz_Arena* scratch) {
 }
 
 bool main_inDarkMode = false;
+
 void main_drawSettings() {
     snzu_boxNew("main parent");
     snzu_boxFillParent();
@@ -338,7 +339,7 @@ void main_drawSettings() {
             }
 
             bool* const musicmode = SNZU_USE_MEM(bool, "musicmode");
-            ui_switch("musicmode", "Music Mode", musicmode);
+            ui_switch("musicmode", "Music Mode", musicmode); // FIXME: make work
         }
         // FIXME: UI variable for gap here
         snzu_boxOrderChildrenInRowRecurse(10, SNZU_AX_Y);
