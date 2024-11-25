@@ -323,6 +323,11 @@ void main_drawSettings() {
             snzu_boxNew("title");
             snzu_boxSetDisplayStr(&ui_titleFont, UI_TEXT_COLOR, "Settings");
             snzu_boxSetSizeFitText();
+
+            bool* const darkmode = SNZU_USE_MEM(bool, "darkmode");
+            ui_switch("darkmode", "Dark Theme", darkmode);
+            bool* const musicmode = SNZU_USE_MEM(bool, "musicmode");
+            ui_switch("musicmode", "Music Mode", musicmode);
         }
         // FIXME: UI variable for gap here
         snzu_boxOrderChildrenInRowRecurse(10, SNZU_AX_Y);

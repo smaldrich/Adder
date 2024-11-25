@@ -46,3 +46,47 @@ bool ui_buttonWithHighlight(bool selected, const char* name) {
 
     return out;
 }
+
+// constructs at 0, 0
+void ui_switch(const char* boxTag, const char* label, bool* const state) {
+    float textHeight = ui_labelFont.renderedSize; // FIXME: no mucking like this
+    float sliderWidth = 40;
+    float innerMargin = 4;
+
+    snzu_boxNew(boxTag);
+
+    snzu_Interaction* const inter = SNZU_USE_MEM(snzu_Interaction, "inter");
+    snzu_boxSetInteractionOutput(inter, SNZU_IF_HOVER | SNZU_IF_MOUSE_BUTTONS);
+    if (inter->mouseActions[SNZU_MB_LEFT] == SNZU_ACT_DOWN) {
+        *state = !*state;
+    }
+
+    snzu_boxScope() {
+        snzu_boxNew("switch back");
+        snzu_boxSetStart(HMM_V2(0, SNZU_TEXT_PADDING - 0.1 * ui_labelFont.renderedSize)); // FIXME: ew
+        snzu_boxSetSizeFromStart(HMM_V2(sliderWidth, textHeight));
+        snzu_boxSetCornerRadius(textHeight / 2);
+
+        float* const anim = SNZU_USE_MEM(float, "anim");
+        if (snzu_useMemIsPrevNew()) {
+            *anim = *state;
+        }
+        snzu_easeExp(anim, *state, 15);
+        snzu_boxSetColor(HMM_Lerp(UI_BACKGROUND_COLOR, *anim, UI_ACCENT_COLOR));
+
+        snzu_boxScope() {
+            snzu_boxNew("button");
+            snzu_boxSetSizeMarginFromParent(innerMargin);
+            snzu_boxSetColor(HMM_Lerp(UI_ACCENT_COLOR, *anim, UI_BACKGROUND_COLOR));
+            snzu_boxSetCornerRadius((textHeight - innerMargin * 2) / 2);
+            snzu_boxSetStartFromParentAx(*anim * (sliderWidth - textHeight) + innerMargin, SNZU_AX_X);
+            snzu_boxSetSizeFromStartAx(SNZU_AX_X, textHeight - innerMargin * 2);
+        }
+
+        snzu_boxNew("label");
+        snzu_boxSetDisplayStr(&ui_labelFont, UI_TEXT_COLOR, label);
+        snzu_boxSetSizeFitText();
+        snzu_boxSetPosAfterRecurse(10, SNZU_AX_X); // FIXME: spacing var
+    }
+    snzu_boxSetSizeFitChildren();
+}

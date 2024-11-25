@@ -1473,6 +1473,7 @@ void snzu_boxSetStartFromParentKeepSizeRecurse(HMM_Vec2 offset) {
     snzu_boxSetStartKeepSizeRecursePtr(_snzu_globs.selectedBox, final);
 }
 
+// margin in pixels
 void snzu_boxSetSizeMarginFromParent(float m) {
     _snzu_globs.selectedBox->start = HMM_Add(_snzu_globs.selectedBox->parent->start, HMM_V2(m, m));
     _snzu_globs.selectedBox->end = HMM_Sub(_snzu_globs.selectedBox->parent->end, HMM_V2(m, m));
@@ -1529,6 +1530,10 @@ void snzu_boxAlignInParent(snzu_Axis ax, snzu_Align align) {
         _snzu_globs.selectedBox->start.Elements[ax] = _snzu_globs.selectedBox->parent->start.Elements[ax];
     } else if (align == SNZU_ALIGN_MAX) {
         _snzu_globs.selectedBox->start.Elements[ax] = _snzu_globs.selectedBox->parent->end.Elements[ax] - initialSize;
+    } else if (align == SNZU_ALIGN_CENTER) {
+        _snzu_Box* par = _snzu_globs.selectedBox->parent;
+        float midpt = (par->start.Elements[ax] + par->end.Elements[ax]) / 2.0f;
+        _snzu_globs.selectedBox->start.Elements[ax] = midpt - (initialSize / 2);
     } else {
         SNZ_ASSERTF(false, "invalid align value: %d", align);
     }
@@ -1602,6 +1607,7 @@ float snzu_boxGetMaxChildSizeAx(snzu_Axis ax) {
     return maxSize;
 }
 
+// calculates size based on extent of the children relative to the parent at call time
 float snzu_boxGetSizeToFitChildrenAx(snzu_Axis ax) {
     float max = 0;
     float parentStart = _snzu_globs.selectedBox->start.Elements[ax];
@@ -1616,6 +1622,13 @@ float snzu_boxGetSizeToFitChildrenAx(snzu_Axis ax) {
         }
     }
     return max;
+}
+
+// see snzu_boxGetSizeToFitChildrenAx, sets size from start
+void snzu_boxSetSizeFitChildren() {
+    float x = snzu_boxGetSizeToFitChildrenAx(SNZU_AX_X);
+    float y = snzu_boxGetSizeToFitChildrenAx(SNZU_AX_Y);
+    snzu_boxSetSizeFromStart(HMM_V2(x, y));
 }
 
 void snzu_easeExpUnbounded(float* in, float target, float pctPerSec) {
