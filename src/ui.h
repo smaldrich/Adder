@@ -19,7 +19,8 @@ float ui_borderThickness = 4;
 void ui_setThemeLight() {
     ui_colorText = HMM_V4(60 / 255.0, 60 / 255.0, 60 / 255.0, 1);
     ui_colorAccent = HMM_V4(221 / 255.0, 255 / 255.0, 178 / 255.0, 1);
-    ui_colorErr = HMM_V4(181 / 255.0, 55 / 255.0, 93 / 255.0, 1);;
+    ui_colorErr = HMM_V4(181 / 255.0, 55 / 255.0, 93 / 255.0, 1);
+    ;
     ui_colorBackground = HMM_V4(1, 1, 1, 1);
     ui_colorAlmostBackground = HMM_V4(0.9, 0.9, 0.9, 1);
     ui_lightAmbient = 0.8;
@@ -28,7 +29,8 @@ void ui_setThemeLight() {
 void ui_setThemeDark() {
     ui_colorText = HMM_V4(1, 1, 1, 1);
     ui_colorAccent = HMM_V4(221 / 255.0, 255 / 255.0, 178 / 255.0, 1);
-    ui_colorErr = HMM_V4(181 / 255.0, 55 / 255.0, 93 / 255.0, 1);;
+    ui_colorErr = HMM_V4(181 / 255.0, 55 / 255.0, 93 / 255.0, 1);
+    ;
     ui_colorBackground = HMM_V4(60 / 255.0, 60 / 255.0, 60 / 255.0, 1);
     ui_colorAlmostBackground = HMM_V4(52 / 255.0, 52 / 255.0, 52 / 255.0, 1);
     ui_lightAmbient = 0.2;
@@ -71,9 +73,17 @@ bool ui_buttonWithHighlight(bool selected, const char* name) {
     return out;
 }
 
+_snzu_Box* ui_menuMargin() {
+    _snzu_Box* box = snzu_boxNew("menu margin");
+    HMM_Vec2 parentSize = snzu_boxGetSize(snzu_boxGetParent());
+    snzu_boxSetStartFromParentStart(HMM_V2(parentSize.X * 0.1, parentSize.Y * 0.1));
+    snzu_boxSetEndFromParentEnd(HMM_V2(parentSize.X * -0.1, parentSize.Y * -0.1));
+    return box;
+}
+
 // constructs at 0, 0
 void ui_switch(const char* boxTag, const char* label, bool* const state) {
-    float textHeight = ui_labelFont.renderedSize; // FIXME: no mucking like this
+    float textHeight = ui_labelFont.renderedSize;  // FIXME: no mucking like this
     float sliderWidth = 40;
     float innerMargin = 4;
 
@@ -87,7 +97,7 @@ void ui_switch(const char* boxTag, const char* label, bool* const state) {
 
     snzu_boxScope() {
         snzu_boxNew("switch back");
-        snzu_boxSetStart(HMM_V2(0, SNZU_TEXT_PADDING - 0.1 * ui_labelFont.renderedSize)); // FIXME: ew
+        snzu_boxSetStart(HMM_V2(0, SNZU_TEXT_PADDING - 0.1 * ui_labelFont.renderedSize));  // FIXME: ew
         snzu_boxSetSizeFromStart(HMM_V2(sliderWidth, textHeight));
         snzu_boxSetCornerRadius(textHeight / 2);
 
@@ -110,7 +120,7 @@ void ui_switch(const char* boxTag, const char* label, bool* const state) {
         snzu_boxNew("label");
         snzu_boxSetDisplayStr(&ui_labelFont, ui_colorText, label);
         snzu_boxSetSizeFitText();
-        snzu_boxSetPosAfterRecurse(10, SNZU_AX_X); // FIXME: spacing var
+        snzu_boxSetPosAfterRecurse(10, SNZU_AX_X);  // FIXME: spacing var
     }
     snzu_boxSetSizeFitChildren();
 }

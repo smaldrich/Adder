@@ -52,48 +52,40 @@ void docs_init() {
 }
 
 void docs_buildPage() {
-    snzu_boxNew("docs page");
-    snzu_boxFillParent();
-    snzu_boxSetColor(ui_colorBackground);
+    ui_menuMargin();
     snzu_boxScope() {
-        snzu_boxNew("margin area");
-        HMM_Vec2 parentSize = snzu_boxGetSize(snzu_boxGetParent());
-        snzu_boxSetStartFromParentStart(HMM_V2(parentSize.X * 0.1, parentSize.Y * 0.1));
-        snzu_boxSetEndFromParentEnd(HMM_V2(parentSize.X * -0.1, parentSize.Y * -0.1));
+        snzu_boxNew("scroll area for files");
+        snzu_boxFillParent();
+        snzu_boxSizePctParent(0.3, SNZU_AX_X);
         snzu_boxScope() {
-            snzu_boxNew("scroll area for files");
-            snzu_boxFillParent();
-            snzu_boxSizePctParent(0.3, SNZU_AX_X);
+            snzu_boxNew("margin");
+            snzu_boxSetSizeMarginFromParent(20);
             snzu_boxScope() {
-                snzu_boxNew("margin");
-                snzu_boxSetSizeMarginFromParent(20);
-                snzu_boxScope() {
-                    for (_docs_File* file = _docs_firstFile; file; file = file->next) {
-                        bool clicked = ui_buttonWithHighlight(file == _docs_currentFile, file->name);
-                        if (clicked) {
-                            _docs_currentFile = file;
-                        }
+                for (_docs_File* file = _docs_firstFile; file; file = file->next) {
+                    bool clicked = ui_buttonWithHighlight(file == _docs_currentFile, file->name);
+                    if (clicked) {
+                        _docs_currentFile = file;
                     }
                 }
-                snzu_boxOrderChildrenInRowRecurse(5, SNZU_AX_Y);
-                snzu_boxSetSizeFromStartAx(SNZU_AX_Y, snzu_boxGetSizeToFitChildrenAx(SNZU_AX_Y));
-            }  // scroll area for files
-            snzuc_scrollArea();
+            }
+            snzu_boxOrderChildrenInRowRecurse(5, SNZU_AX_Y);
+            snzu_boxSetSizeFromStartAx(SNZU_AX_Y, snzu_boxGetSizeToFitChildrenAx(SNZU_AX_Y));
+        }  // scroll area for files
+        snzuc_scrollArea();
 
-            snzu_boxNew("scroll area for text");
-            snzu_boxFillParent();
-            snzu_boxSizeFromEndPctParent(0.6, SNZU_AX_X);  // FIXME: fill remainder function
-            snzu_boxScope() {
-                snzu_boxNew("header");
-                snzu_boxSetDisplayStr(&ui_titleFont, ui_colorText, _docs_currentFile->name);
-                snzu_boxSetSizeFitText();
+        snzu_boxNew("scroll area for text");
+        snzu_boxFillParent();
+        snzu_boxSizeFromEndPctParent(0.6, SNZU_AX_X);  // FIXME: fill remainder function
+        snzu_boxScope() {
+            snzu_boxNew("header");
+            snzu_boxSetDisplayStr(&ui_titleFont, ui_colorText, _docs_currentFile->name);
+            snzu_boxSetSizeFitText();
 
-                snzu_boxNew("text");
-                snzu_boxSetDisplayStr(&ui_paragraphFont, ui_colorText, _docs_currentFile->text);
-                snzu_boxSetSizeFitText();
-            }  // scroll area for files
-            snzu_boxOrderChildrenInRowRecurse(10, SNZU_AX_Y);
-            snzuc_scrollArea();
-        }  // end box for both scroll areas
-    }  // end parent
+            snzu_boxNew("text");
+            snzu_boxSetDisplayStr(&ui_paragraphFont, ui_colorText, _docs_currentFile->text);
+            snzu_boxSetSizeFitText();
+        }  // scroll area for files
+        snzu_boxOrderChildrenInRowRecurse(10, SNZU_AX_Y);
+        snzuc_scrollArea();
+    }  // end box for both scroll areas // margin
 }  // end docs_buildPage

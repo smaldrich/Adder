@@ -78,7 +78,7 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
 
     {
         SDL_Surface* s = SDL_LoadBMP("res/textures/icon.bmp");
-        char buf[1000] = { 0 };
+        char buf[1000] = {0};
         const char* err = SDL_GetErrorMsg(buf, 1000);
         printf("%s", err);
         SNZ_ASSERT(s != NULL, "icon load failed.");
@@ -319,39 +319,31 @@ void main_drawDemoScene(HMM_Vec2 panelSize, snz_Arena* scratch) {
 }
 
 void main_drawSettings() {
-    snzu_boxNew("main parent");
-    snzu_boxFillParent();
-    snzu_boxSetColor(ui_colorBackground);
+    ui_menuMargin();
     snzu_boxScope() {
-        snzu_boxNew("margin area");
-        HMM_Vec2 parentSize = snzu_boxGetSize(snzu_boxGetParent());
-        snzu_boxSetStartFromParentStart(HMM_V2(parentSize.X * 0.1, parentSize.Y * 0.1));
-        snzu_boxSetEndFromParentEnd(HMM_V2(parentSize.X * -0.1, parentSize.Y * -0.1));
-        snzu_boxScope() {
-            snzu_boxNew("title");
-            snzu_boxSetDisplayStr(&ui_titleFont, ui_colorText, "Settings");
-            snzu_boxSetSizeFitText();
+        snzu_boxNew("title");
+        snzu_boxSetDisplayStr(&ui_titleFont, ui_colorText, "Settings");
+        snzu_boxSetSizeFitText();
 
-            bool prev = main_inDarkMode;
-            ui_switch("darkmode", "Dark Theme", &main_inDarkMode);
+        bool prev = main_inDarkMode;
+        ui_switch("darkmode", "Dark Theme", &main_inDarkMode);
 
-            if (prev != main_inDarkMode) {
-                if (!main_inDarkMode) {
-                    ui_setThemeLight();
-                } else {
-                    ui_setThemeDark();
-                    // FIXME: when in dark mode, button with highlight is awful
-                    // FIXME: when in dark mode, text in the scene is really weird but only when the left bar is moving
-                    // FIXME: only the center of the grid around cursor is slightly dimmed???? the rest is normal?? why??
-                }
+        if (prev != main_inDarkMode) {
+            if (!main_inDarkMode) {
+                ui_setThemeLight();
+            } else {
+                ui_setThemeDark();
+                // FIXME: when in dark mode, button with highlight is awful
+                // FIXME: when in dark mode, text in the scene is really weird but only when the left bar is moving
+                // FIXME: only the center of the grid around cursor is slightly dimmed???? the rest is normal?? why??
             }
-
-            ui_switch("musicmode", "Music Mode", &main_inMusicMode);
         }
-        // FIXME: UI variable for gap here
-        snzu_boxOrderChildrenInRowRecurse(10, SNZU_AX_Y);
-        snzuc_scrollArea();
+
+        ui_switch("musicmode", "Music Mode", &main_inMusicMode);
     }
+    // FIXME: UI variable for gap here
+    snzu_boxOrderChildrenInRowRecurse(10, SNZU_AX_Y);
+    snzuc_scrollArea();
 }
 
 typedef enum {
@@ -423,6 +415,7 @@ void main_frame(float dt, snz_Arena* scratch) {
         snzu_boxNew("rightPanel");
         snzu_boxFillParent();
         snzu_boxSetSizeFromEndAx(SNZU_AX_X, rightPanelSize.X);  // FIXME: set size remaining util fn
+        snzu_boxSetColor(ui_colorBackground);
         snzu_boxScope() {
             if (main_currentView == MAIN_VIEW_DOCS) {
                 docs_buildPage();
