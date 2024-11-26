@@ -18,6 +18,9 @@ snz_Arena sketchArena;
 
 ren3d_Mesh mesh;
 
+bool main_inDarkMode = false;
+bool main_inMusicMode = true;
+
 typedef struct {
     HMM_Vec3 startPt;
     HMM_Vec3 startNormal;
@@ -298,6 +301,10 @@ void main_drawDemoScene(HMM_Vec2 panelSize, snz_Arena* scratch) {
         *minTime = 0;
         *min = cur;
     }
+    float soundVal = (*smooth / *max - 0.5) * 0.25;
+    if (!main_inMusicMode) {
+        soundVal = 0;
+    }
 
     sku_drawSketch(
         &sketch,
@@ -308,10 +315,8 @@ void main_drawDemoScene(HMM_Vec2 panelSize, snz_Arena* scratch) {
         HMM_V2(x, y),
         inter->mouseActions[SNZU_MB_LEFT],
         inter->keyMods & KMOD_SHIFT,
-        (*smooth / *max - 0.5) * 0.25);
+        soundVal);
 }
-
-bool main_inDarkMode = false;
 
 void main_drawSettings() {
     snzu_boxNew("main parent");
@@ -341,8 +346,7 @@ void main_drawSettings() {
                 }
             }
 
-            bool* const musicmode = SNZU_USE_MEM(bool, "musicmode");
-            ui_switch("musicmode", "Music Mode", musicmode); // FIXME: make work
+            ui_switch("musicmode", "Music Mode", &main_inMusicMode);
         }
         // FIXME: UI variable for gap here
         snzu_boxOrderChildrenInRowRecurse(10, SNZU_AX_Y);
