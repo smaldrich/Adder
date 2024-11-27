@@ -244,7 +244,7 @@ uint32_t snzr_shaderInit(const char* vertChars, const char* fragChars, snz_Arena
 // data does not need to be kept alive after this call
 // may be null to indicate undefined contents
 snzr_Texture snzr_textureInitRBGA(int32_t width, int32_t height, uint8_t* data) {
-    snzr_Texture out = { .width = width, .height = height };
+    snzr_Texture out = {.width = width, .height = height};
     snzr_callGLFnOrError(glGenTextures(1, &out.glId));
     snzr_callGLFnOrError(glBindTexture(GL_TEXTURE_2D, out.glId));
     snzr_callGLFnOrError(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR));
@@ -257,7 +257,7 @@ snzr_Texture snzr_textureInitRBGA(int32_t width, int32_t height, uint8_t* data) 
 
 // data does not need to be kept alive after this call
 snzr_Texture snzr_textureInitGrayscale(int32_t width, int32_t height, uint8_t* data) {
-    snzr_Texture out = { .width = width, .height = height };
+    snzr_Texture out = {.width = width, .height = height};
     snzr_callGLFnOrError(glGenTextures(1, &out.glId));
     snzr_callGLFnOrError(glBindTexture(GL_TEXTURE_2D, out.glId));
     snzr_callGLFnOrError(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR));
@@ -312,7 +312,7 @@ void snzr_frameBufferDeinit(snzr_FrameBuffer* fb) {
 #define _SNZR_FONT_UNKNOWN_CHAR 9633  // white box, see: https://www.fileformat.info/info/unicode/char/25a1/index.htm
 
 snzr_Font snzr_fontInit(snz_Arena* dataArena, snz_Arena* scratch, const char* path, float size) {
-    snzr_Font out = { .renderedSize = size };
+    snzr_Font out = {.renderedSize = size};
 
     uint8_t* fileData;
     {
@@ -338,11 +338,11 @@ snzr_Font snzr_fontInit(snz_Arena* dataArena, snz_Arena* scratch, const char* pa
     stbtt_pack_context ctx;
     uint8_t* atlasData = SNZ_ARENA_PUSH_ARR(scratch, _SNZR_FONT_ATLAS_W * _SNZR_FONT_ATLAS_H, uint8_t);
     assert(stbtt_PackBegin(&ctx, atlasData,
-        _SNZR_FONT_ATLAS_W,
-        _SNZR_FONT_ATLAS_H,
-        _SNZR_FONT_ATLAS_W,
-        1,
-        NULL));
+                           _SNZR_FONT_ATLAS_W,
+                           _SNZR_FONT_ATLAS_H,
+                           _SNZR_FONT_ATLAS_W,
+                           1,
+                           NULL));
     stbtt_PackSetOversampling(&ctx, 1, 1);
 
     const int glyphCount = _SNZR_FONT_ASCII_CHAR_COUNT + 1;
@@ -553,7 +553,7 @@ static void _snzr_init(snz_Arena* scratchArena) {
     snzr_callGLFnOrError(glBindBuffer(GL_SHADER_STORAGE_BUFFER, _snzr_globs.lineShaderSSBOId));
     snzr_callGLFnOrError(glBufferData(GL_SHADER_STORAGE_BUFFER, 0, NULL, GL_DYNAMIC_DRAW));
 
-    uint8_t solidTexData[] = { 255, 255, 255, 255 };
+    uint8_t solidTexData[] = {255, 255, 255, 255};
     _snzr_globs.solidTex = snzr_textureInitRBGA(1, 1, solidTexData);
 }
 
@@ -650,15 +650,15 @@ HMM_Vec2 snzr_strSize(const snzr_Font* font, const char* str, uint64_t charCount
 // flipVertical, when false, draws with +down, when true, +up
 // when snap is on, rects per char get snapped to integer lines
 void snzr_drawTextScaled(HMM_Vec2 start,
-                   HMM_Vec2 clipStart,
-                   HMM_Vec2 clipEnd,
-                   HMM_Vec4 color,
-                   const char* str,
-                   uint64_t charCount,
-                   snzr_Font font,
-                   HMM_Mat4 vp,
-                   float targetSize,
-                   bool snap, bool flipVertical) {
+                         HMM_Vec2 clipStart,
+                         HMM_Vec2 clipEnd,
+                         HMM_Vec4 color,
+                         const char* str,
+                         uint64_t charCount,
+                         snzr_Font font,
+                         HMM_Mat4 vp,
+                         float targetSize,
+                         bool snap, bool flipVertical) {
     // FIXME: layering system
     // FIXME: safe gl calls
     snzr_callGLFnOrError(glUseProgram(_snzr_globs.rectShaderId));
@@ -1278,16 +1278,19 @@ static void _snzu_drawFrameAndGenInterations(snzu_Input input, HMM_Vec2 screenSi
     _snzu_genInteractionsForBoxAndChildren(&_snzu_globs.treeParent, &interactionFlags);
 
     if (_snzu_globs.mouseCapturePathHash != 0) {
-        snzu_Interaction* inter = _snzu_findBoxByPathHash(_snzu_globs.mouseCapturePathHash, &_snzu_globs.treeParent)->interactionTarget;
-        if (inter != NULL) {
-            if (_snzu_globs.mouseActions[SNZU_MB_LEFT] == SNZU_ACT_DOWN) {
-                inter->dragBeginningGlobal = inter->mousePosGlobal;
-                inter->dragBeginningLocal = inter->mousePosLocal;
-                inter->dragged = true;
-            } else if (_snzu_globs.mouseActions[SNZU_MB_LEFT] == SNZU_ACT_UP) {
-                inter->dragBeginningGlobal = HMM_V2(0, 0);
-                inter->dragBeginningLocal = HMM_V2(0, 0);
-                inter->dragged = false;
+        _snzu_Box* box = _snzu_findBoxByPathHash(_snzu_globs.mouseCapturePathHash, &_snzu_globs.treeParent);
+        if (box != NULL) {
+            snzu_Interaction* inter = box->interactionTarget;
+            if (inter != NULL) {
+                if (_snzu_globs.mouseActions[SNZU_MB_LEFT] == SNZU_ACT_DOWN) {
+                    inter->dragBeginningGlobal = inter->mousePosGlobal;
+                    inter->dragBeginningLocal = inter->mousePosLocal;
+                    inter->dragged = true;
+                } else if (_snzu_globs.mouseActions[SNZU_MB_LEFT] == SNZU_ACT_UP) {
+                    inter->dragBeginningGlobal = HMM_V2(0, 0);
+                    inter->dragBeginningLocal = HMM_V2(0, 0);
+                    inter->dragged = false;
+                }
             }
         }
     }
@@ -1477,6 +1480,11 @@ void snzu_boxSetStartFromParentKeepSizeRecurse(HMM_Vec2 offset) {
 void snzu_boxSetSizeMarginFromParent(float m) {
     _snzu_globs.selectedBox->start = HMM_Add(_snzu_globs.selectedBox->parent->start, HMM_V2(m, m));
     _snzu_globs.selectedBox->end = HMM_Sub(_snzu_globs.selectedBox->parent->end, HMM_V2(m, m));
+}
+
+void snzu_boxSetSizeMarginFromParentAx(float px, snzu_Axis axis) {
+    _snzu_globs.selectedBox->start.Elements[axis] = _snzu_globs.selectedBox->parent->start.Elements[axis] + px;
+    _snzu_globs.selectedBox->end.Elements[axis] = _snzu_globs.selectedBox->parent->end.Elements[axis] - px;
 }
 
 void snzu_boxFillParent() {

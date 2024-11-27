@@ -5,7 +5,8 @@
 snzr_Font ui_titleFont;
 snzr_Font ui_paragraphFont;
 snzr_Font ui_labelFont;
-// font loading from main.c
+snzr_Font ui_shortcutFont;
+snzr_Font ui_lightLabelFont;
 
 HMM_Vec4 ui_colorText;
 HMM_Vec4 ui_colorAccent;
@@ -13,14 +14,15 @@ HMM_Vec4 ui_colorErr;
 HMM_Vec4 ui_colorBackground;
 HMM_Vec4 ui_colorAlmostBackground;
 float ui_lightAmbient;
+// FIXME: border color instead of defaulting to text color
 
+float ui_cornerRadius = 15;
 float ui_borderThickness = 4;
 
 void ui_setThemeLight() {
     ui_colorText = HMM_V4(60 / 255.0, 60 / 255.0, 60 / 255.0, 1);
     ui_colorAccent = HMM_V4(221 / 255.0, 255 / 255.0, 178 / 255.0, 1);
     ui_colorErr = HMM_V4(181 / 255.0, 55 / 255.0, 93 / 255.0, 1);
-    ;
     ui_colorBackground = HMM_V4(1, 1, 1, 1);
     ui_colorAlmostBackground = HMM_V4(0.9, 0.9, 0.9, 1);
     ui_lightAmbient = 0.8;
@@ -30,14 +32,19 @@ void ui_setThemeDark() {
     ui_colorText = HMM_V4(1, 1, 1, 1);
     ui_colorAccent = HMM_V4(221 / 255.0, 255 / 255.0, 178 / 255.0, 1);
     ui_colorErr = HMM_V4(181 / 255.0, 55 / 255.0, 93 / 255.0, 1);
-    ;
     ui_colorBackground = HMM_V4(60 / 255.0, 60 / 255.0, 60 / 255.0, 1);
     ui_colorAlmostBackground = HMM_V4(52 / 255.0, 52 / 255.0, 52 / 255.0, 1);
     ui_lightAmbient = 0.2;
 }
 
-void ui_init() {
+void ui_init(snz_Arena* fontArena, snz_Arena* scratch) {
     ui_setThemeLight();
+
+    ui_titleFont = snzr_fontInit(fontArena, scratch, "res/fonts/AzeretMono-Regular.ttf", 48);
+    ui_paragraphFont = snzr_fontInit(fontArena, scratch, "res/fonts/OpenSans-Light.ttf", 16);
+    ui_labelFont = snzr_fontInit(fontArena, scratch, "res/fonts/AzeretMono-LightItalic.ttf", 20);
+    ui_shortcutFont = snzr_fontInit(fontArena, scratch, "res/fonts/AzeretMono-SemiBoldItalic.ttf", 26);
+    ui_lightLabelFont = snzr_fontInit(fontArena, scratch, "res/fonts/AzeretMono-ExtraLightItalic.ttf", 26);
 }
 
 // returns true on the frame it is clicked

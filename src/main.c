@@ -3,6 +3,7 @@
 #include "docs.h"
 #include "render3d.h"
 #include "serialization2.h"
+#include "shortcuts.h"
 #include "sketches2.h"
 #include "sketchui.h"
 #include "snooze.h"
@@ -11,6 +12,7 @@
 #include "ui.h"
 
 snz_Arena fontArena;
+PoolAlloc pool;
 
 snzr_FrameBuffer sceneFB;
 sk_Sketch sketch;
@@ -67,14 +69,9 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
     ser_tests();
     csg_tests();
 
-    sound_init();
-
     fontArena = snz_arenaInit(10000000, "main font arena");
     sketchArena = snz_arenaInit(10000000, "main sketch arena");
-
-    ui_titleFont = snzr_fontInit(&fontArena, scratch, "res/fonts/AzeretMono-Regular.ttf", 48);
-    ui_paragraphFont = snzr_fontInit(&fontArena, scratch, "res/fonts/OpenSans-Light.ttf", 16);
-    ui_labelFont = snzr_fontInit(&fontArena, scratch, "res/fonts/AzeretMono-LightItalic.ttf", 20);
+    pool = poolAllocInit();
 
     {
         SDL_Surface* s = SDL_LoadBMP("res/textures/icon.bmp");
@@ -85,9 +82,11 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
         SDL_SetWindowIcon(window, s);
     }
 
+    sound_init();
+    ui_init(&fontArena, scratch);
     ren3d_init(scratch);
     docs_init();
-    ui_init();
+    sc_init(&pool);
 
     snz_arenaClear(scratch);
 
@@ -350,6 +349,7 @@ typedef enum {
     MAIN_VIEW_SCENE,
     MAIN_VIEW_DOCS,
     MAIN_VIEW_SETTINGS,
+    MAIN_VIEW_SHORTCUTS,
 } main_View;
 
 main_View main_currentView;
@@ -405,6 +405,9 @@ void main_frame(float dt, snz_Arena* scratch) {
                     if (ui_buttonWithHighlight(main_currentView == MAIN_VIEW_SETTINGS, "settings")) {
                         main_currentView = MAIN_VIEW_SETTINGS;
                     }
+                    if (ui_buttonWithHighlight(main_currentView == MAIN_VIEW_SHORTCUTS, "shortcuts")) {
+                        main_currentView = MAIN_VIEW_SHORTCUTS;
+                    }
                 }
                 snzu_boxOrderChildrenInRowRecurseAlignEnd(5, SNZU_AX_Y);
             }  // end padding
@@ -421,8 +424,11 @@ void main_frame(float dt, snz_Arena* scratch) {
                 docs_buildPage();
             } else if (main_currentView == MAIN_VIEW_SCENE) {
                 main_drawDemoScene(rightPanelSize, scratch);
+                sc_updateAndBuildHintWindow();
             } else if (main_currentView == MAIN_VIEW_SETTINGS) {
                 main_drawSettings();
+            } else if (main_currentView == MAIN_VIEW_SHORTCUTS) {
+                sc_buildSettings();
             } else {
                 SNZ_ASSERTF(false, "unreachable view case, view was: %d", main_currentView);
             }
@@ -444,5 +450,6 @@ void main_frame(float dt, snz_Arena* scratch) {
 int main() {
     snz_main("ADDER V0.0", main_init, main_frame);
     sound_deinit();
+    poolAllocDeinit(&pool);
     return 0;
 }
