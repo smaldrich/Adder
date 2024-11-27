@@ -41,7 +41,7 @@ bool _scc_delete() {
 }
 
 bool _scc_distanceConstraint() {
-    bool cancelled = ui_buttonWithHighlight(false, "exit this");
+    bool cancelled = ui_buttonWithHighlight(true, "exit this");
     snzu_boxOrderSiblingsInRowRecurse(10, SNZU_AX_Y);
     return cancelled;
 }
@@ -60,12 +60,13 @@ void sc_updateAndBuildHintWindow() {
     {
         snzu_Interaction* inter = SNZU_USE_MEM(snzu_Interaction, "inter");
         snzu_boxSetInteractionOutput(inter, SNZU_IF_NONE);  // FIXME: huh
-        if (!*activeCommand) {
-            if (inter->keyAction == SNZU_ACT_DOWN) {
-                _sc_KeyPress kp = (_sc_KeyPress){
-                    .key = inter->keyCode,
-                    .mods = inter->keyMods,
-                };
+        if (inter->keyAction == SNZU_ACT_DOWN) {
+            _sc_KeyPress kp = (_sc_KeyPress){
+                .key = inter->keyCode,
+                .mods = inter->keyMods,
+            };
+
+            if (!*activeCommand) {
 
                 for (int i = 0; i < _sc_commandCount; i++) {
                     _sc_Command* c = &_sc_commands[i];
@@ -74,7 +75,12 @@ void sc_updateAndBuildHintWindow() {
                         break;
                     }
                 }
-            }  // end keypress check
+
+            }
+
+            if (kp.key == SDLK_ESCAPE) {
+                *activeCommand = NULL;
+            }
         }
     }  // command handling
 

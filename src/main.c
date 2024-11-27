@@ -75,7 +75,7 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
 
     {
         SDL_Surface* s = SDL_LoadBMP("res/textures/icon.bmp");
-        char buf[1000] = {0};
+        char buf[1000] = { 0 };
         const char* err = SDL_GetErrorMsg(buf, 1000);
         printf("%s", err);
         SNZ_ASSERT(s != NULL, "icon load failed.");
