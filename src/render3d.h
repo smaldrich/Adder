@@ -94,64 +94,62 @@ void ren3d_init(snz_Arena* scratch) {
 
     {
         HMM_Vec3 verts[] = {
-            HMM_V3(-1.0f, 1.0f, -1.0f),
+            HMM_V3(-1.0f,  1.0f, -1.0f),
             HMM_V3(-1.0f, -1.0f, -1.0f),
             HMM_V3(1.0f, -1.0f, -1.0f),
             HMM_V3(1.0f, -1.0f, -1.0f),
-            HMM_V3(1.0f, 1.0f, -1.0f),
-            HMM_V3(-1.0f, 1.0f, -1.0f),
+            HMM_V3(1.0f,  1.0f, -1.0f),
+            HMM_V3(-1.0f,  1.0f, -1.0f),
 
-            HMM_V3(-1.0f, -1.0f, 1.0f),
+            HMM_V3(-1.0f, -1.0f,  1.0f),
             HMM_V3(-1.0f, -1.0f, -1.0f),
-            HMM_V3(-1.0f, 1.0f, -1.0f),
-            HMM_V3(-1.0f, 1.0f, -1.0f),
-            HMM_V3(-1.0f, 1.0f, 1.0f),
-            HMM_V3(-1.0f, -1.0f, 1.0f),
+            HMM_V3(-1.0f,  1.0f, -1.0f),
+            HMM_V3(-1.0f,  1.0f, -1.0f),
+            HMM_V3(-1.0f,  1.0f,  1.0f),
+            HMM_V3(-1.0f, -1.0f,  1.0f),
 
             HMM_V3(1.0f, -1.0f, -1.0f),
-            HMM_V3(1.0f, -1.0f, 1.0f),
-            HMM_V3(1.0f, 1.0f, 1.0f),
-            HMM_V3(1.0f, 1.0f, 1.0f),
-            HMM_V3(1.0f, 1.0f, -1.0f),
+            HMM_V3(1.0f, -1.0f,  1.0f),
+            HMM_V3(1.0f,  1.0f,  1.0f),
+            HMM_V3(1.0f,  1.0f,  1.0f),
+            HMM_V3(1.0f,  1.0f, -1.0f),
             HMM_V3(1.0f, -1.0f, -1.0f),
 
-            HMM_V3(-1.0f, -1.0f, 1.0f),
-            HMM_V3(-1.0f, 1.0f, 1.0f),
-            HMM_V3(1.0f, 1.0f, 1.0f),
-            HMM_V3(1.0f, 1.0f, 1.0f),
-            HMM_V3(1.0f, -1.0f, 1.0f),
-            HMM_V3(-1.0f, -1.0f, 1.0f),
+            HMM_V3(-1.0f, -1.0f,  1.0f),
+            HMM_V3(-1.0f,  1.0f,  1.0f),
+            HMM_V3(1.0f,  1.0f,  1.0f),
+            HMM_V3(1.0f,  1.0f,  1.0f),
+            HMM_V3(1.0f, -1.0f,  1.0f),
+            HMM_V3(-1.0f, -1.0f,  1.0f),
 
-            HMM_V3(-1.0f, 1.0f, -1.0f),
-            HMM_V3(1.0f, 1.0f, -1.0f),
-            HMM_V3(1.0f, 1.0f, 1.0f),
-            HMM_V3(1.0f, 1.0f, 1.0f),
-            HMM_V3(-1.0f, 1.0f, 1.0f),
-            HMM_V3(-1.0f, 1.0f, -1.0f),
+            HMM_V3(-1.0f,  1.0f, -1.0f),
+            HMM_V3(1.0f,  1.0f, -1.0f),
+            HMM_V3(1.0f,  1.0f,  1.0f),
+            HMM_V3(1.0f,  1.0f,  1.0f),
+            HMM_V3(-1.0f,  1.0f,  1.0f),
+            HMM_V3(-1.0f,  1.0f, -1.0f),
 
             HMM_V3(-1.0f, -1.0f, -1.0f),
-            HMM_V3(-1.0f, -1.0f, 1.0f),
+            HMM_V3(-1.0f, -1.0f,  1.0f),
             HMM_V3(1.0f, -1.0f, -1.0f),
             HMM_V3(1.0f, -1.0f, -1.0f),
-            HMM_V3(-1.0f, -1.0f, 1.0f),
-            HMM_V3(1.0f, -1.0f, 1.0f),
+            HMM_V3(-1.0f, -1.0f,  1.0f),
+            HMM_V3(1.0f, -1.0f,  1.0f),
         };
 
         _ren3d_skyboxMesh = (ren3d_Mesh){
             .vaId = 0,
-            .vertCount = sizeof(verts) / sizeof(*verts),
             .vertexBufferId = 0,
+            .vertCount = sizeof(verts) / sizeof(*verts),
         };
-
         glGenVertexArrays(1, &_ren3d_skyboxMesh.vaId);
         glBindVertexArray(_ren3d_skyboxMesh.vaId);
 
         glGenBuffers(1, &_ren3d_skyboxMesh.vertexBufferId);
         glBindBuffer(GL_ARRAY_BUFFER, _ren3d_skyboxMesh.vertexBufferId);
-        uint64_t vertSize = sizeof(ren3d_Vert);
         glBufferData(GL_ARRAY_BUFFER, sizeof(verts), verts, GL_STATIC_DRAW);
 
-        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, vertSize, (void*)(0));  // position
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(HMM_Vec3), (void*)(0));  // position
         glEnableVertexAttribArray(0);
 
         glBindVertexArray(0);
@@ -191,11 +189,7 @@ void ren3d_drawSkybox(HMM_Mat4 vp) {
     // glDepthMask(false);
     snzr_callGLFnOrError(glUseProgram(_ren3d_skyboxShaderId));
 
-    vp = HMM_Translate(HMM_V3(0, 0, 0));
-    vp.Columns[0].W = 0;
-    vp.Columns[1].W = 0;
-    vp.Columns[2].W = 0;
-    vp.Columns[3] = HMM_V4(0, 0, 0, 1);
+    vp = HMM_Mul(vp, HMM_Scale(HMM_V3(10000, 10000, 10000)));
 
     int loc = glGetUniformLocation(_ren3d_skyboxShaderId, "uVP");
     snzr_callGLFnOrError(glUniformMatrix4fv(loc, 1, false, (float*)&vp));

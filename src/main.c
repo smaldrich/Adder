@@ -75,7 +75,7 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
 
     {
         SDL_Surface* s = SDL_LoadBMP("res/textures/icon.bmp");
-        char buf[1000] = {0};
+        char buf[1000] = { 0 };
         const char* err = SDL_GetErrorMsg(buf, 1000);
         printf("%s", err);
         SNZ_ASSERT(s != NULL, "icon load failed.");
@@ -275,7 +275,11 @@ void main_drawDemoScene(HMM_Vec2 panelSize, snz_Arena* scratch) {
 
     // FIXME: highlight edges :) + debug view of geometry
     ren3d_drawMesh(&mesh, vp, model, HMM_V3(-1, -1, -1), ui_lightAmbient);
-    ren3d_drawSkybox(vp);
+
+    if (main_inDarkMode) {
+        // FIXME: find/ make a decent texture
+        ren3d_drawSkybox(vp);
+    }
 
     float t = 0;
     bool hit = csg_planeLineIntersection(sketchAlign.endPt, sketchAlign.endNormal, cameraPos, rayNormal, &t);
