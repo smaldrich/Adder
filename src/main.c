@@ -275,11 +275,7 @@ void main_drawDemoScene(HMM_Vec2 panelSize, snz_Arena* scratch) {
 
     // FIXME: highlight edges :) + debug view of geometry
     ren3d_drawMesh(&mesh, vp, model, HMM_V3(-1, -1, -1), ui_lightAmbient);
-
-    if (main_inDarkMode) {
-        // FIXME: find/ make a decent texture
-        ren3d_drawSkybox(vp);
-    }
+    ren3d_drawSkybox(vp, ui_skyBox);
 
     float t = 0;
     bool hit = csg_planeLineIntersection(sketchAlign.endPt, sketchAlign.endNormal, cameraPos, rayNormal, &t);

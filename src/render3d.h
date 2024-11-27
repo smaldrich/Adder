@@ -2,7 +2,6 @@
 #include "GLAD/include/glad/glad.h"
 #include "HMM/HandmadeMath.h"
 #include "snooze.h"
-#include "stb/stb_image.h"
 
 // FIXME: move to snz?
 static char* _ren3d_loadFileToStr(const char* path, snz_Arena* scratch) {
@@ -57,7 +56,6 @@ ren3d_Mesh ren3d_meshInit(ren3d_Vert* verts, uint64_t vertCount) {
 
 static uint32_t _ren3d_shaderId;
 static uint32_t _ren3d_skyboxShaderId;
-static uint32_t _ren3d_skyboxTextureId;
 static ren3d_Mesh _ren3d_skyboxMesh;
 
 void ren3d_init(snz_Arena* scratch) {
@@ -65,25 +63,6 @@ void ren3d_init(snz_Arena* scratch) {
         const char* vertSrc = _ren3d_loadFileToStr("res/shaders/3d.vert", scratch);
         const char* fragSrc = _ren3d_loadFileToStr("res/shaders/3d.frag", scratch);
         _ren3d_shaderId = snzr_shaderInit(vertSrc, fragSrc, scratch);
-    }
-
-    {
-        glGenTextures(1, &_ren3d_skyboxTextureId);
-        glBindTexture(GL_TEXTURE_CUBE_MAP, _ren3d_skyboxTextureId);
-        int w, h, channels;
-        uint8_t* pixels = stbi_load("res/textures/stars.png", &w, &h, &channels, 3);
-
-        for (unsigned int i = 0; i < 6; i++) {
-            glTexImage2D(
-                GL_TEXTURE_CUBE_MAP_POSITIVE_X + i,
-                0, GL_RGB, w, h, 0, GL_RGB, GL_UNSIGNED_BYTE, pixels);
-        }
-
-        glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-        glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-        glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-        glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-        glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
     }
 
     {
@@ -185,8 +164,8 @@ void ren3d_drawMesh(const ren3d_Mesh* mesh, HMM_Mat4 vp, HMM_Mat4 model, HMM_Vec
 
 // https://learnopengl.com/Advanced-OpenGL/Cubemaps
 // where would I be without this website
-void ren3d_drawSkybox(HMM_Mat4 vp) {
-    // glDepthMask(false);
+// texture expected to be long/lat
+void ren3d_drawSkybox(HMM_Mat4 vp, snzr_Texture skyTex) {
     snzr_callGLFnOrError(glUseProgram(_ren3d_skyboxShaderId));
 
     vp = HMM_Mul(vp, HMM_Scale(HMM_V3(10000, 10000, 10000)));
@@ -197,10 +176,9 @@ void ren3d_drawSkybox(HMM_Mat4 vp) {
     loc = glGetUniformLocation(_ren3d_skyboxShaderId, "uTexture");
     glUniform1i(loc, 0);
     glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_CUBE_MAP, _ren3d_skyboxTextureId);
+    glBindTexture(GL_TEXTURE_2D, skyTex.glId);
 
     snzr_callGLFnOrError(glBindVertexArray(_ren3d_skyboxMesh.vaId));
     snzr_callGLFnOrError(glBindBuffer(GL_ARRAY_BUFFER, _ren3d_skyboxMesh.vertexBufferId));
     snzr_callGLFnOrError(glDrawArrays(GL_TRIANGLES, 0, _ren3d_skyboxMesh.vertCount));
-    // glDepthMask(true);
 }

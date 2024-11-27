@@ -1,6 +1,7 @@
 #pragma once
 
 #include "snooze.h"
+#include "stb/stb_image.h"
 
 snzr_Font ui_titleFont;
 snzr_Font ui_paragraphFont;
@@ -19,6 +20,10 @@ float ui_lightAmbient;
 float ui_cornerRadius = 15;
 float ui_borderThickness = 4;
 
+snzr_Texture ui_skyBox = { 0 };
+snzr_Texture ui_lightSky = { 0 };
+snzr_Texture ui_darkSky = { 0 };
+
 void ui_setThemeLight() {
     ui_colorText = HMM_V4(60 / 255.0, 60 / 255.0, 60 / 255.0, 1);
     ui_colorAccent = HMM_V4(221 / 255.0, 255 / 255.0, 178 / 255.0, 1);
@@ -26,18 +31,28 @@ void ui_setThemeLight() {
     ui_colorBackground = HMM_V4(1, 1, 1, 1);
     ui_colorAlmostBackground = HMM_V4(0.9, 0.9, 0.9, 1);
     ui_lightAmbient = 0.8;
+    ui_skyBox = ui_lightSky;
 }
 
 void ui_setThemeDark() {
     ui_colorText = HMM_V4(1, 1, 1, 1);
-    ui_colorAccent = HMM_V4(221 / 255.0, 255 / 255.0, 178 / 255.0, 1);
+    ui_colorAccent = HMM_V4(181 / 255.0, 55 / 255.0, 93 / 255.0, 1);
     ui_colorErr = HMM_V4(181 / 255.0, 55 / 255.0, 93 / 255.0, 1);
     ui_colorBackground = HMM_V4(60 / 255.0, 60 / 255.0, 60 / 255.0, 1);
     ui_colorAlmostBackground = HMM_V4(52 / 255.0, 52 / 255.0, 52 / 255.0, 1);
     ui_lightAmbient = 0.2;
+    ui_skyBox = ui_darkSky;
 }
 
 void ui_init(snz_Arena* fontArena, snz_Arena* scratch) {
+    // FIXME: load time on this is abhorrent
+    int w, h, channels;
+    uint8_t* pixels = stbi_load("res/textures/Deep Dusk Equirect.png", &w, &h, &channels, 4);
+    SNZ_ASSERT(pixels, "Skybox load failed.");
+    ui_darkSky = snzr_textureInitRBGA(w, h, pixels);
+
+    ui_lightSky = _snzr_globs.solidTex; // FIXME: make this public plz
+
     ui_setThemeDark();
 
     ui_titleFont = snzr_fontInit(fontArena, scratch, "res/fonts/AzeretMono-Regular.ttf", 48);
