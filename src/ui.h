@@ -38,7 +38,7 @@ void ui_setThemeDark() {
 }
 
 void ui_init(snz_Arena* fontArena, snz_Arena* scratch) {
-    ui_setThemeLight();
+    ui_setThemeDark();
 
     ui_titleFont = snzr_fontInit(fontArena, scratch, "res/fonts/AzeretMono-Regular.ttf", 48);
     ui_paragraphFont = snzr_fontInit(fontArena, scratch, "res/fonts/OpenSans-Light.ttf", 16);

@@ -2,8 +2,7 @@
 #include "GLAD/include/glad/glad.h"
 #include "HMM/HandmadeMath.h"
 #include "snooze.h"
-
-static uint32_t _ren3d_shaderId;
+#include "stb/stb_image.h"
 
 // FIXME: move to snz?
 static char* _ren3d_loadFileToStr(const char* path, snz_Arena* scratch) {
@@ -18,12 +17,6 @@ static char* _ren3d_loadFileToStr(const char* path, snz_Arena* scratch) {
     fread(chars, sizeof(char), size, f);
     fclose(f);
     return chars;
-}
-
-void ren3d_init(snz_Arena* scratch) {
-    const char* vertSrc = _ren3d_loadFileToStr("res/shaders/3d.vert", scratch);
-    const char* fragSrc = _ren3d_loadFileToStr("res/shaders/3d.frag", scratch);
-    _ren3d_shaderId = snzr_shaderInit(vertSrc, fragSrc, scratch);
 }
 
 typedef struct {
@@ -53,13 +46,116 @@ ren3d_Mesh ren3d_meshInit(ren3d_Vert* verts, uint64_t vertCount) {
     uint64_t vertSize = sizeof(ren3d_Vert);
     glBufferData(GL_ARRAY_BUFFER, vertCount * vertSize, verts, GL_STATIC_DRAW);
 
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, vertSize, (void*)(0));
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, vertSize, (void*)(0));  // position
     glEnableVertexAttribArray(0);
-    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, vertSize, (void*)(sizeof(HMM_Vec3)));
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, vertSize, (void*)(sizeof(HMM_Vec3)));  // normals
     glEnableVertexAttribArray(1);
 
     glBindVertexArray(0);
     return out;
+}
+
+static uint32_t _ren3d_shaderId;
+static uint32_t _ren3d_skyboxShaderId;
+static uint32_t _ren3d_skyboxTextureId;
+static ren3d_Mesh _ren3d_skyboxMesh;
+
+void ren3d_init(snz_Arena* scratch) {
+    {
+        const char* vertSrc = _ren3d_loadFileToStr("res/shaders/3d.vert", scratch);
+        const char* fragSrc = _ren3d_loadFileToStr("res/shaders/3d.frag", scratch);
+        _ren3d_shaderId = snzr_shaderInit(vertSrc, fragSrc, scratch);
+    }
+
+    {
+        glGenTextures(1, &_ren3d_skyboxTextureId);
+        glBindTexture(GL_TEXTURE_CUBE_MAP, _ren3d_skyboxTextureId);
+        int w, h, channels;
+        uint8_t* pixels = stbi_load("res/textures/stars.png", &w, &h, &channels, 3);
+
+        for (unsigned int i = 0; i < 6; i++) {
+            glTexImage2D(
+                GL_TEXTURE_CUBE_MAP_POSITIVE_X + i,
+                0, GL_RGB, w, h, 0, GL_RGB, GL_UNSIGNED_BYTE, pixels);
+        }
+
+        glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+    }
+
+    {
+        const char* vertSrc = _ren3d_loadFileToStr("res/shaders/skybox.vert", scratch);
+        const char* fragSrc = _ren3d_loadFileToStr("res/shaders/skybox.frag", scratch);
+        _ren3d_skyboxShaderId = snzr_shaderInit(vertSrc, fragSrc, scratch);
+    }
+
+    {
+        HMM_Vec3 verts[] = {
+            HMM_V3(-1.0f, 1.0f, -1.0f),
+            HMM_V3(-1.0f, -1.0f, -1.0f),
+            HMM_V3(1.0f, -1.0f, -1.0f),
+            HMM_V3(1.0f, -1.0f, -1.0f),
+            HMM_V3(1.0f, 1.0f, -1.0f),
+            HMM_V3(-1.0f, 1.0f, -1.0f),
+
+            HMM_V3(-1.0f, -1.0f, 1.0f),
+            HMM_V3(-1.0f, -1.0f, -1.0f),
+            HMM_V3(-1.0f, 1.0f, -1.0f),
+            HMM_V3(-1.0f, 1.0f, -1.0f),
+            HMM_V3(-1.0f, 1.0f, 1.0f),
+            HMM_V3(-1.0f, -1.0f, 1.0f),
+
+            HMM_V3(1.0f, -1.0f, -1.0f),
+            HMM_V3(1.0f, -1.0f, 1.0f),
+            HMM_V3(1.0f, 1.0f, 1.0f),
+            HMM_V3(1.0f, 1.0f, 1.0f),
+            HMM_V3(1.0f, 1.0f, -1.0f),
+            HMM_V3(1.0f, -1.0f, -1.0f),
+
+            HMM_V3(-1.0f, -1.0f, 1.0f),
+            HMM_V3(-1.0f, 1.0f, 1.0f),
+            HMM_V3(1.0f, 1.0f, 1.0f),
+            HMM_V3(1.0f, 1.0f, 1.0f),
+            HMM_V3(1.0f, -1.0f, 1.0f),
+            HMM_V3(-1.0f, -1.0f, 1.0f),
+
+            HMM_V3(-1.0f, 1.0f, -1.0f),
+            HMM_V3(1.0f, 1.0f, -1.0f),
+            HMM_V3(1.0f, 1.0f, 1.0f),
+            HMM_V3(1.0f, 1.0f, 1.0f),
+            HMM_V3(-1.0f, 1.0f, 1.0f),
+            HMM_V3(-1.0f, 1.0f, -1.0f),
+
+            HMM_V3(-1.0f, -1.0f, -1.0f),
+            HMM_V3(-1.0f, -1.0f, 1.0f),
+            HMM_V3(1.0f, -1.0f, -1.0f),
+            HMM_V3(1.0f, -1.0f, -1.0f),
+            HMM_V3(-1.0f, -1.0f, 1.0f),
+            HMM_V3(1.0f, -1.0f, 1.0f),
+        };
+
+        _ren3d_skyboxMesh = (ren3d_Mesh){
+            .vaId = 0,
+            .vertCount = sizeof(verts) / sizeof(*verts),
+            .vertexBufferId = 0,
+        };
+
+        glGenVertexArrays(1, &_ren3d_skyboxMesh.vaId);
+        glBindVertexArray(_ren3d_skyboxMesh.vaId);
+
+        glGenBuffers(1, &_ren3d_skyboxMesh.vertexBufferId);
+        glBindBuffer(GL_ARRAY_BUFFER, _ren3d_skyboxMesh.vertexBufferId);
+        uint64_t vertSize = sizeof(ren3d_Vert);
+        glBufferData(GL_ARRAY_BUFFER, sizeof(verts), verts, GL_STATIC_DRAW);
+
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, vertSize, (void*)(0));  // position
+        glEnableVertexAttribArray(0);
+
+        glBindVertexArray(0);
+    }
 }
 
 void ren3d_drawMesh(const ren3d_Mesh* mesh, HMM_Mat4 vp, HMM_Mat4 model, HMM_Vec3 lightDir, float ambient) {
@@ -87,4 +183,30 @@ void ren3d_drawMesh(const ren3d_Mesh* mesh, HMM_Mat4 vp, HMM_Mat4 model, HMM_Vec
     snzr_callGLFnOrError(glBindVertexArray(mesh->vaId));
     snzr_callGLFnOrError(glBindBuffer(GL_ARRAY_BUFFER, mesh->vertexBufferId));
     snzr_callGLFnOrError(glDrawArrays(GL_TRIANGLES, 0, mesh->vertCount));
+}
+
+// https://learnopengl.com/Advanced-OpenGL/Cubemaps
+// where would I be without this website
+void ren3d_drawSkybox(HMM_Mat4 vp) {
+    // glDepthMask(false);
+    snzr_callGLFnOrError(glUseProgram(_ren3d_skyboxShaderId));
+
+    vp = HMM_Translate(HMM_V3(0, 0, 0));
+    vp.Columns[0].W = 0;
+    vp.Columns[1].W = 0;
+    vp.Columns[2].W = 0;
+    vp.Columns[3] = HMM_V4(0, 0, 0, 1);
+
+    int loc = glGetUniformLocation(_ren3d_skyboxShaderId, "uVP");
+    snzr_callGLFnOrError(glUniformMatrix4fv(loc, 1, false, (float*)&vp));
+
+    loc = glGetUniformLocation(_ren3d_skyboxShaderId, "uTexture");
+    glUniform1i(loc, 0);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_CUBE_MAP, _ren3d_skyboxTextureId);
+
+    snzr_callGLFnOrError(glBindVertexArray(_ren3d_skyboxMesh.vaId));
+    snzr_callGLFnOrError(glBindBuffer(GL_ARRAY_BUFFER, _ren3d_skyboxMesh.vertexBufferId));
+    snzr_callGLFnOrError(glDrawArrays(GL_TRIANGLES, 0, _ren3d_skyboxMesh.vertCount));
+    // glDepthMask(true);
 }
