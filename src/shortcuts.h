@@ -67,7 +67,6 @@ void sc_updateAndBuildHintWindow() {
             };
 
             if (!*activeCommand) {
-
                 for (int i = 0; i < _sc_commandCount; i++) {
                     _sc_Command* c = &_sc_commands[i];
                     if (kp.key == c->key.key && kp.mods == c->key.mods) {
