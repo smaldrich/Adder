@@ -302,7 +302,7 @@ void main_drawDemoScene(HMM_Vec2 panelSize, snz_Arena* scratch) {
         *min = cur;
     }
     float soundVal = (*smooth / *max - 0.5) * 0.25;
-    if (!main_inMusicMode) {
+    if (!main_inMusicMode || *max == 0) {
         soundVal = 0;
     }
 
