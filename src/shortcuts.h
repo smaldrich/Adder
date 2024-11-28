@@ -74,7 +74,6 @@ void sc_updateAndBuildHintWindow() {
                         break;
                     }
                 }
-
             }
 
             if (kp.key == SDLK_ESCAPE) {

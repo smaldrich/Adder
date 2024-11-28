@@ -820,9 +820,6 @@ void snzr_drawLine(HMM_Vec2* pts, uint64_t ptCount, HMM_Vec4 color, float thickn
 // TODO: new as parent
 // TODO: easing functions
 // TODO: test shiz
-// TODO: utilities
-// TODO: rounding, borders
-// TODO: textures
 // TODO: singleheader ify
 // TODO: docs pass
 
@@ -965,8 +962,8 @@ typedef struct {
     // persistant, set to null whenever a click happens
     // useful to make sure keyboard input only goes to one place
     uint64_t focusedPathHash;
-} _snzu_Globs;
-static _snzu_Globs _snzu_globs;
+} snzu_Instance;
+static snzu_Instance* _snzu_instance;
 
 static uint64_t _snzu_generatePathHash(uint64_t parentPathHash, const char* tag) {
     // stolen, https://stackoverflow.com/questions/7666509/hash-function-for-string
@@ -985,26 +982,26 @@ static uint64_t _snzu_generatePathHash(uint64_t parentPathHash, const char* tag)
 // TODO: invalid access unit tests
 // TODO: unit tests when input is done
 void* snzu_useMem(uint64_t size, const char* tag) {
-    _snzu_Box* pathTarget = _snzu_globs.selectedBox;
+    _snzu_Box* pathTarget = _snzu_instance->selectedBox;
     uint64_t pathHash = _snzu_generatePathHash(pathTarget->pathHash, tag);
 
     // first check if there is a node out there that correllates with this ones tag
     _snzu_useMemAllocNode* firstFree = NULL;
     for (uint64_t i = 0; i < _SNZU_USEMEM_MAX_ALLOCS; i++) {
-        _snzu_useMemAllocNode* node = &_snzu_globs.useMemAllocs[i];
+        _snzu_useMemAllocNode* node = &_snzu_instance->useMemAllocs[i];
         if (!node->inUse) {
             if (!firstFree) {
                 firstFree = node;
             }
             continue;
         } else if (node->pathHash == pathHash) {
-            if (node->lastFrameTouched != _snzu_globs.currentFrameIdx - 1) {
+            if (node->lastFrameTouched != _snzu_instance->currentFrameIdx - 1) {
                 // FIXME: this shit needs a better error message
                 // like include the parent trace, not just the last level
                 SNZ_ASSERTF(false, "double usememmed tag '%s'", tag);
             }
-            node->lastFrameTouched = _snzu_globs.currentFrameIdx;
-            _snzu_globs.useMemIsLastAllocTouchedNew = false;
+            node->lastFrameTouched = _snzu_instance->currentFrameIdx;
+            _snzu_instance->useMemIsLastAllocTouchedNew = false;
             return node->alloc;
         }
     }
@@ -1014,27 +1011,27 @@ void* snzu_useMem(uint64_t size, const char* tag) {
     firstFree->inUse = true;
     firstFree->pathHash = pathHash;
     firstFree->allocSize = size;
-    firstFree->lastFrameTouched = _snzu_globs.currentFrameIdx;
+    firstFree->lastFrameTouched = _snzu_instance->currentFrameIdx;
     firstFree->alloc = calloc(1, size);
     SNZ_ASSERT(firstFree->alloc, "allocating new usemem alloc failed.");
-    _snzu_globs.useMemIsLastAllocTouchedNew = true;
+    _snzu_instance->useMemIsLastAllocTouchedNew = true;
     return firstFree->alloc;
 }
 
 // returns whether the last returned call to snzu_useMem this frame was newly allocated or persisted
 bool snzu_useMemIsPrevNew() {
-    return _snzu_globs.useMemIsLastAllocTouchedNew;
+    return _snzu_instance->useMemIsLastAllocTouchedNew;
 }
 
 // sets the in use flag on each useMem node that has not been touched on the current frame
 static void _snzu_useMemClearOld() {
     for (uint64_t i = 0; i < _SNZU_USEMEM_MAX_ALLOCS; i++) {
-        _snzu_useMemAllocNode* node = &_snzu_globs.useMemAllocs[i];
+        _snzu_useMemAllocNode* node = &_snzu_instance->useMemAllocs[i];
         if (!node->inUse) {
             continue;
         }
-        SNZ_ASSERT(node->lastFrameTouched <= _snzu_globs.currentFrameIdx, "usemem node somehow more recent than frame");
-        if (node->lastFrameTouched < _snzu_globs.currentFrameIdx) {
+        SNZ_ASSERT(node->lastFrameTouched <= _snzu_instance->currentFrameIdx, "usemem node somehow more recent than frame");
+        if (node->lastFrameTouched < _snzu_instance->currentFrameIdx) {
             node->inUse = false;
         }
     }
@@ -1043,23 +1040,31 @@ static void _snzu_useMemClearOld() {
 #define SNZU_USE_MEM(T, tag) ((T*)snzu_useMem(sizeof(T), (tag)))
 #define SNZU_USE_ARRAY(T, count, tag) ((T*)snzu_useMem(sizeof(T) * (count), (tag)))
 
+snzu_Instance snzu_instanceInit() {
+    return (snzu_Instance) { 0 };
+}
+
+void snzu_instanceSelect(snzu_Instance* instance) {
+    _snzu_instance = instance;
+}
+
 // TODO: formatted version
 _snzu_Box* snzu_boxNew(const char* tag) {
-    SNZ_ASSERT(_snzu_globs.currentParentBox != NULL, "creating a new box, parent was null");
-    _snzu_Box* b = SNZ_ARENA_PUSH(_snzu_globs.frameArena, _snzu_Box);
+    SNZ_ASSERT(_snzu_instance->currentParentBox != NULL, "creating a new box, parent was null");
+    _snzu_Box* b = SNZ_ARENA_PUSH(_snzu_instance->frameArena, _snzu_Box);
     b->tag = tag;
     b->texture = _snzr_globs.solidTex;
 
-    b->parent = _snzu_globs.currentParentBox;
-    if (_snzu_globs.currentParentBox->lastChild) {
-        _snzu_globs.currentParentBox->lastChild->nextSibling = b;
-        b->prevSibling = _snzu_globs.currentParentBox->lastChild;
-        _snzu_globs.currentParentBox->lastChild = b;
+    b->parent = _snzu_instance->currentParentBox;
+    if (_snzu_instance->currentParentBox->lastChild) {
+        _snzu_instance->currentParentBox->lastChild->nextSibling = b;
+        b->prevSibling = _snzu_instance->currentParentBox->lastChild;
+        _snzu_instance->currentParentBox->lastChild = b;
     } else {
-        _snzu_globs.currentParentBox->firstChild = b;
-        _snzu_globs.currentParentBox->lastChild = b;
+        _snzu_instance->currentParentBox->firstChild = b;
+        _snzu_instance->currentParentBox->lastChild = b;
     }
-    _snzu_globs.selectedBox = b;
+    _snzu_instance->selectedBox = b;
 
     b->pathHash = _snzu_generatePathHash(b->parent->pathHash, tag);
     for (_snzu_Box* sibling = b->parent->firstChild; sibling; sibling = sibling->nextSibling) {
@@ -1074,19 +1079,20 @@ _snzu_Box* snzu_boxNew(const char* tag) {
     return b;
 }
 
+// begins a frame with the currently selected instance
 static void _snzu_beginFrame(snz_Arena* frameArena, HMM_Vec2 screenSize, float dt) {
-    _snzu_globs.frameArena = frameArena;
+    _snzu_instance->frameArena = frameArena;
 
     _snzu_useMemClearOld();
-    _snzu_globs.useMemIsLastAllocTouchedNew = false;
-    _snzu_globs.currentFrameIdx++;
+    _snzu_instance->useMemIsLastAllocTouchedNew = false;
+    _snzu_instance->currentFrameIdx++;
 
-    _snzu_globs.timeSinceLastFrame = dt;
+    _snzu_instance->timeSinceLastFrame = dt;
 
-    memset(&_snzu_globs.treeParent, 0, sizeof(_snzu_globs.treeParent));
-    _snzu_globs.treeParent.pathHash = 6969420;
-    _snzu_globs.currentParentBox = &_snzu_globs.treeParent;
-    _snzu_globs.currentParentBox->end = screenSize;
+    memset(&_snzu_instance->treeParent, 0, sizeof(_snzu_instance->treeParent));
+    _snzu_instance->treeParent.pathHash = 6969420;
+    _snzu_instance->currentParentBox = &_snzu_instance->treeParent;
+    _snzu_instance->currentParentBox->end = screenSize;
 }
 
 static _snzu_Box* _snzu_findBoxByPathHash(uint64_t pathHash, _snzu_Box* parent) {
@@ -1174,20 +1180,20 @@ static void _snzu_genInteractionsForBoxAndChildren(_snzu_Box* box, uint64_t* rem
         inter->dragBeginningLocal = boxDragStartLocal;
         inter->dragBeginningGlobal = boxDragStartGlobal;
 
-        inter->mousePosGlobal = _snzu_globs.currentInputs.mousePos;
-        inter->mousePosLocal = HMM_Sub(_snzu_globs.currentInputs.mousePos, box->start);
+        inter->mousePosGlobal = _snzu_instance->currentInputs.mousePos;
+        inter->mousePosLocal = HMM_Sub(_snzu_instance->currentInputs.mousePos, box->start);
 
         // keyboard inputs -- it's up to the obj to manage if they should be consumed
         for (uint64_t i = 0; i < _SNZU_TEXT_INPUT_CHAR_MAX; i++) {
-            inter->keyChars[i] = _snzu_globs.currentInputs.charsEntered[i];
+            inter->keyChars[i] = _snzu_instance->currentInputs.charsEntered[i];
         }
-        inter->keyCode = _snzu_globs.currentInputs.keyCode;
-        inter->keyAction = _snzu_globs.currentInputs.keyAction;
-        inter->keyMods = _snzu_globs.currentInputs.keyMods;
+        inter->keyCode = _snzu_instance->currentInputs.keyCode;
+        inter->keyAction = _snzu_instance->currentInputs.keyAction;
+        inter->keyMods = _snzu_instance->currentInputs.keyMods;
     }
 
     bool containsMouse = false;
-    HMM_Vec2 mousePos = _snzu_globs.currentInputs.mousePos;
+    HMM_Vec2 mousePos = _snzu_instance->currentInputs.mousePos;
     if (box->clippedStart.X < mousePos.X && box->clippedEnd.X > mousePos.X) {
         if (box->clippedStart.Y < mousePos.Y && box->clippedEnd.Y > mousePos.Y) {
             containsMouse = true;
@@ -1195,9 +1201,9 @@ static void _snzu_genInteractionsForBoxAndChildren(_snzu_Box* box, uint64_t* rem
     }
 
     bool captureAllowsMouseEvents = true;
-    if (_snzu_globs.mouseCapturePathHash != 0) {
+    if (_snzu_instance->mouseCapturePathHash != 0) {
         captureAllowsMouseEvents = false;
-        if (box->pathHash == _snzu_globs.mouseCapturePathHash) {
+        if (box->pathHash == _snzu_instance->mouseCapturePathHash) {
             captureAllowsMouseEvents = true;
         }
     }
@@ -1216,21 +1222,21 @@ static void _snzu_genInteractionsForBoxAndChildren(_snzu_Box* box, uint64_t* rem
             if ((*remainingInteractionFlags) & SNZU_IF_MOUSE_BUTTONS) {
                 (*remainingInteractionFlags) ^= SNZU_IF_MOUSE_BUTTONS;
 
-                if (_snzu_globs.mouseCapturePathHash == 0) {
+                if (_snzu_instance->mouseCapturePathHash == 0) {
                     // when a mousedown is captured, save the pathhash of the box
                     // this is maintained until a mouseup happens
                     // TODO: this system is completely fucked and very hard to locate when reading thru code
                     // document well or refactor to something better
-                    if (_snzu_globs.mouseActions[SNZU_MB_LEFT] == SNZU_ACT_DOWN ||
-                        _snzu_globs.mouseActions[SNZU_MB_RIGHT] == SNZU_ACT_DOWN ||
-                        _snzu_globs.mouseActions[SNZU_MB_MIDDLE] == SNZU_ACT_DOWN) {
-                        _snzu_globs.mouseCapturePathHash = box->pathHash;
+                    if (_snzu_instance->mouseActions[SNZU_MB_LEFT] == SNZU_ACT_DOWN ||
+                        _snzu_instance->mouseActions[SNZU_MB_RIGHT] == SNZU_ACT_DOWN ||
+                        _snzu_instance->mouseActions[SNZU_MB_MIDDLE] == SNZU_ACT_DOWN) {
+                        _snzu_instance->mouseCapturePathHash = box->pathHash;
                     }
                 }
 
                 if (box->interactionTarget != NULL) {
                     snzu_Interaction* inter = box->interactionTarget;
-                    memcpy(inter->mouseActions, _snzu_globs.mouseActions, sizeof(_snzu_globs.mouseActions));
+                    memcpy(inter->mouseActions, _snzu_instance->mouseActions, sizeof(_snzu_instance->mouseActions));
                 }
             }  // end flag checks
         }  // end mouse button checks
@@ -1239,7 +1245,7 @@ static void _snzu_genInteractionsForBoxAndChildren(_snzu_Box* box, uint64_t* rem
             if ((*remainingInteractionFlags) & SNZU_IF_MOUSE_SCROLL) {
                 (*remainingInteractionFlags) ^= SNZU_IF_MOUSE_SCROLL;
                 if (box->interactionTarget != NULL) {
-                    box->interactionTarget->mouseScrollY = _snzu_globs.currentInputs.mouseScrollY;
+                    box->interactionTarget->mouseScrollY = _snzu_instance->currentInputs.mouseScrollY;
                 }
             }
         }
@@ -1247,46 +1253,46 @@ static void _snzu_genInteractionsForBoxAndChildren(_snzu_Box* box, uint64_t* rem
 }
 
 static void _snzu_drawFrameAndGenInterations(snzu_Input input, HMM_Vec2 screenSize) {
-    _snzu_globs.currentInputs = input;
+    _snzu_instance->currentInputs = input;
 
     HMM_Mat4 vp;
     vp = HMM_Orthographic_RH_NO(0, screenSize.X, screenSize.Y, 0, 0, 1000);
-    _snzu_drawBoxAndChildren(&_snzu_globs.treeParent, HMM_V2(0, 0), screenSize, vp);
+    _snzu_drawBoxAndChildren(&_snzu_instance->treeParent, HMM_V2(0, 0), screenSize, vp);
 
     // compute mouse actions for this frame
     bool wasMouseUp = false;
     for (uint64_t i = 0; i < SNZU_MB_COUNT; i++) {
-        bool cur = _snzu_globs.currentInputs.mouseStates[i];
-        bool prev = _snzu_globs.previousInputs.mouseStates[i];
+        bool cur = _snzu_instance->currentInputs.mouseStates[i];
+        bool prev = _snzu_instance->previousInputs.mouseStates[i];
         if (!cur && prev) {
-            _snzu_globs.mouseActions[i] = SNZU_ACT_UP;
+            _snzu_instance->mouseActions[i] = SNZU_ACT_UP;
             wasMouseUp = true;
         } else if (cur && !prev) {
-            _snzu_globs.mouseActions[i] = SNZU_ACT_DOWN;
+            _snzu_instance->mouseActions[i] = SNZU_ACT_DOWN;
         } else if (cur && prev) {
-            _snzu_globs.mouseActions[i] = SNZU_ACT_DRAG;
+            _snzu_instance->mouseActions[i] = SNZU_ACT_DRAG;
         } else {
-            _snzu_globs.mouseActions[i] = SNZU_ACT_NONE;
+            _snzu_instance->mouseActions[i] = SNZU_ACT_NONE;
         }
     }
 
-    if (_snzu_globs.mouseActions[0] == SNZU_ACT_DOWN) {
-        _snzu_globs.focusedPathHash = 0;  // set null before the frame is processed so that any new focus is aquired correctly
+    if (_snzu_instance->mouseActions[0] == SNZU_ACT_DOWN) {
+        _snzu_instance->focusedPathHash = 0;  // set null before the frame is processed so that any new focus is aquired correctly
     }
 
     uint64_t interactionFlags = ~SNZU_IF_NONE;
-    _snzu_genInteractionsForBoxAndChildren(&_snzu_globs.treeParent, &interactionFlags);
+    _snzu_genInteractionsForBoxAndChildren(&_snzu_instance->treeParent, &interactionFlags);
 
-    if (_snzu_globs.mouseCapturePathHash != 0) {
-        _snzu_Box* box = _snzu_findBoxByPathHash(_snzu_globs.mouseCapturePathHash, &_snzu_globs.treeParent);
+    if (_snzu_instance->mouseCapturePathHash != 0) {
+        _snzu_Box* box = _snzu_findBoxByPathHash(_snzu_instance->mouseCapturePathHash, &_snzu_instance->treeParent);
         if (box != NULL) {
             snzu_Interaction* inter = box->interactionTarget;
             if (inter != NULL) {
-                if (_snzu_globs.mouseActions[SNZU_MB_LEFT] == SNZU_ACT_DOWN) {
+                if (_snzu_instance->mouseActions[SNZU_MB_LEFT] == SNZU_ACT_DOWN) {
                     inter->dragBeginningGlobal = inter->mousePosGlobal;
                     inter->dragBeginningLocal = inter->mousePosLocal;
                     inter->dragged = true;
-                } else if (_snzu_globs.mouseActions[SNZU_MB_LEFT] == SNZU_ACT_UP) {
+                } else if (_snzu_instance->mouseActions[SNZU_MB_LEFT] == SNZU_ACT_UP) {
                     inter->dragBeginningGlobal = HMM_V2(0, 0);
                     inter->dragBeginningLocal = HMM_V2(0, 0);
                     inter->dragged = false;
@@ -1296,31 +1302,31 @@ static void _snzu_drawFrameAndGenInterations(snzu_Input input, HMM_Vec2 screenSi
     }
 
     if (wasMouseUp) {
-        _snzu_globs.mouseCapturePathHash = 0;  // RMB clears this focus, which can fuck up a LMB drag, it doesn't get cleared on mouseup bc 'nothing is dragged'
+        _snzu_instance->mouseCapturePathHash = 0;  // RMB clears this focus, which can fuck up a LMB drag, it doesn't get cleared on mouseup bc 'nothing is dragged'
     }
-    _snzu_globs.previousInputs = _snzu_globs.currentInputs;
+    _snzu_instance->previousInputs = _snzu_instance->currentInputs;
 }
 
 void snzu_boxEnter() {
-    _snzu_globs.currentParentBox = _snzu_globs.selectedBox;
-    _snzu_globs.selectedBox = _snzu_globs.selectedBox;
+    _snzu_instance->currentParentBox = _snzu_instance->selectedBox;
+    _snzu_instance->selectedBox = _snzu_instance->selectedBox;
 }
 void snzu_boxExit() {
-    _snzu_globs.currentParentBox = _snzu_globs.currentParentBox->parent;
-    SNZ_ASSERT(_snzu_globs.currentParentBox != NULL, "exiting box makes parent null. (exiting past where the tree should have started)");
-    _snzu_globs.selectedBox = _snzu_globs.currentParentBox->lastChild;
+    _snzu_instance->currentParentBox = _snzu_instance->currentParentBox->parent;
+    SNZ_ASSERT(_snzu_instance->currentParentBox != NULL, "exiting box makes parent null. (exiting past where the tree should have started)");
+    _snzu_instance->selectedBox = _snzu_instance->currentParentBox->lastChild;
 }
 
 void snzu_boxSelect(_snzu_Box* box) {
-    _snzu_globs.selectedBox = box;
+    _snzu_instance->selectedBox = box;
 }
 
 _snzu_Box* snzu_getSelectedBox() {
-    return _snzu_globs.selectedBox;
+    return _snzu_instance->selectedBox;
 }
 
 _snzu_Box* snzu_boxGetParent() {
-    return _snzu_globs.selectedBox->parent;
+    return _snzu_instance->selectedBox->parent;
 }
 
 #define _snzu_defer(begin, end) for (int _i_ = ((begin), 0); !_i_; _i_ += 1, (end))
@@ -1331,55 +1337,55 @@ _snzu_Box* snzu_boxGetParent() {
 // outInter may be null, for cases when just blocking interactions is what you are after
 // interactionMask should be a set of snzu_InteractionFlags ored together, only interactions in that set will be reported
 void snzu_boxSetInteractionOutput(snzu_Interaction* outInter, uint64_t interactionMask) {
-    _snzu_globs.selectedBox->interactionTarget = outInter;
-    _snzu_globs.selectedBox->interactionMask = interactionMask;
+    _snzu_instance->selectedBox->interactionTarget = outInter;
+    _snzu_instance->selectedBox->interactionMask = interactionMask;
 }
 
 void snzu_boxSetFocused() {
-    _snzu_globs.focusedPathHash = _snzu_globs.selectedBox->pathHash;
+    _snzu_instance->focusedPathHash = _snzu_instance->selectedBox->pathHash;
 }
 
 bool snzu_boxFocused() {
-    return _snzu_globs.focusedPathHash == _snzu_globs.selectedBox->pathHash;
+    return _snzu_instance->focusedPathHash == _snzu_instance->selectedBox->pathHash;
 }
 
 void snzu_clearFocus() {
-    _snzu_globs.focusedPathHash = 0;
+    _snzu_instance->focusedPathHash = 0;
 }
 
 bool snzu_isNothingFocused() {
-    return _snzu_globs.focusedPathHash == 0;
+    return _snzu_instance->focusedPathHash == 0;
 }
 
 void snzu_boxClipChildren() {
-    _snzu_globs.selectedBox->clipChildren = true;
+    _snzu_instance->selectedBox->clipChildren = true;
 }
 
 void snzu_boxSetColor(HMM_Vec4 color) {
-    _snzu_globs.selectedBox->color = color;
+    _snzu_instance->selectedBox->color = color;
 }
 
 void snzu_boxSetCornerRadius(float radiusPx) {
-    _snzu_globs.selectedBox->cornerRadius = radiusPx;
+    _snzu_instance->selectedBox->cornerRadius = radiusPx;
 }
 
 void snzu_boxSetBorder(float px, HMM_Vec4 col) {
-    _snzu_globs.selectedBox->borderThickness = px;
-    _snzu_globs.selectedBox->borderColor = col;
+    _snzu_instance->selectedBox->borderThickness = px;
+    _snzu_instance->selectedBox->borderColor = col;
 }
 
 void snzu_boxSetTexture(snzr_Texture texture) {
-    _snzu_globs.selectedBox->color = HMM_V4(1, 1, 1, 1);
-    _snzu_globs.selectedBox->texture = texture;
+    _snzu_instance->selectedBox->color = HMM_V4(1, 1, 1, 1);
+    _snzu_instance->selectedBox->texture = texture;
 }
 
 // string should last until the end of the frome
 // font must also last
 void snzu_boxSetDisplayStrLen(const snzr_Font* font, HMM_Vec4 color, const char* str, uint64_t strLen) {
-    _snzu_globs.selectedBox->font = font;
-    _snzu_globs.selectedBox->displayStrColor = color;
-    _snzu_globs.selectedBox->displayStr = str;
-    _snzu_globs.selectedBox->displayStrLen = strLen;
+    _snzu_instance->selectedBox->font = font;
+    _snzu_instance->selectedBox->displayStrColor = color;
+    _snzu_instance->selectedBox->displayStr = str;
+    _snzu_instance->selectedBox->displayStrLen = strLen;
 }
 
 // str is null terminated, must last until the end of the frame
@@ -1392,60 +1398,60 @@ void snzu_boxSetDisplayStrF(snzr_Font* font, const char* fmt, ...) {
     va_list argp;
     va_start(argp, fmt);
     int l = vsnprintf(NULL, 0, fmt, argp);
-    char* chars = SNZ_ARENA_PUSH_ARR(_snzu_globs.frameArena, l + 1, char);
+    char* chars = SNZ_ARENA_PUSH_ARR(_snzu_instance->frameArena, l + 1, char);
     vsnprintf(chars, l + 1, fmt, argp);
-    _snzu_globs.selectedBox->displayStr = chars;
-    _snzu_globs.selectedBox->displayStrLen = l;
-    _snzu_globs.selectedBox->font = font;
+    _snzu_instance->selectedBox->displayStr = chars;
+    _snzu_instance->selectedBox->displayStrLen = l;
+    _snzu_instance->selectedBox->font = font;
     va_end(argp);
 }
 
 void snzu_boxSetStart(HMM_Vec2 newStart) {
-    _snzu_globs.selectedBox->start = newStart;
+    _snzu_instance->selectedBox->start = newStart;
 }
 
 void snzu_boxSetStartFromParentStart(HMM_Vec2 offset) {
-    HMM_Vec2 finalPos = HMM_AddV2(_snzu_globs.selectedBox->parent->start, offset);
-    _snzu_globs.selectedBox->start = finalPos;
+    HMM_Vec2 finalPos = HMM_AddV2(_snzu_instance->selectedBox->parent->start, offset);
+    _snzu_instance->selectedBox->start = finalPos;
 }
 
 void snzu_boxSetStartAx(float newStart, snzu_Axis ax) {
-    _snzu_globs.selectedBox->start.Elements[ax] = newStart;
+    _snzu_instance->selectedBox->start.Elements[ax] = newStart;
 }
 
 void snzu_boxSetStartFromParentAx(float offset, snzu_Axis ax) {
-    float finalPos = _snzu_globs.selectedBox->parent->start.Elements[ax] + offset;
-    _snzu_globs.selectedBox->start.Elements[ax] = finalPos;
+    float finalPos = _snzu_instance->selectedBox->parent->start.Elements[ax] + offset;
+    _snzu_instance->selectedBox->start.Elements[ax] = finalPos;
 }
 
 void snzu_boxSetEnd(HMM_Vec2 newEnd) {
-    _snzu_globs.selectedBox->end = newEnd;
+    _snzu_instance->selectedBox->end = newEnd;
 }
 
 void snzu_boxSetEndFromParentEnd(HMM_Vec2 offset) {
-    HMM_Vec2 finalPos = HMM_AddV2(_snzu_globs.selectedBox->parent->end, offset);
-    _snzu_globs.selectedBox->end = finalPos;
+    HMM_Vec2 finalPos = HMM_AddV2(_snzu_instance->selectedBox->parent->end, offset);
+    _snzu_instance->selectedBox->end = finalPos;
 }
 
 void snzu_boxSetEndAx(float newEnd, snzu_Axis ax) {
-    _snzu_globs.selectedBox->end.Elements[ax] = newEnd;
+    _snzu_instance->selectedBox->end.Elements[ax] = newEnd;
 }
 
 void snzu_boxSetSizeFromStart(HMM_Vec2 newSize) {
-    _snzu_globs.selectedBox->end = HMM_Add(_snzu_globs.selectedBox->start, newSize);
+    _snzu_instance->selectedBox->end = HMM_Add(_snzu_instance->selectedBox->start, newSize);
 }
 
 void snzu_boxSetSizeFromEnd(HMM_Vec2 newSize) {
-    _snzu_globs.selectedBox->start = HMM_Sub(_snzu_globs.selectedBox->end, newSize);
+    _snzu_instance->selectedBox->start = HMM_Sub(_snzu_instance->selectedBox->end, newSize);
 }
 
 // FIXME: these should have the same arg order as snzu_boxSetStartAx
 void snzu_boxSetSizeFromStartAx(snzu_Axis ax, float newSize) {
-    _snzu_globs.selectedBox->end.Elements[ax] = _snzu_globs.selectedBox->start.Elements[ax] + newSize;
+    _snzu_instance->selectedBox->end.Elements[ax] = _snzu_instance->selectedBox->start.Elements[ax] + newSize;
 }
 
 void snzu_boxSetSizeFromEndAx(snzu_Axis ax, float newSize) {
-    _snzu_globs.selectedBox->start.Elements[ax] = _snzu_globs.selectedBox->end.Elements[ax] - newSize;
+    _snzu_instance->selectedBox->start.Elements[ax] = _snzu_instance->selectedBox->end.Elements[ax] - newSize;
 }
 
 HMM_Vec2 snzu_boxGetSize(_snzu_Box* box) {
@@ -1468,63 +1474,63 @@ void snzu_boxSetStartKeepSizeRecursePtr(_snzu_Box* box, HMM_Vec2 newStart) {
 // TODO: are there bad perf implications for this??
 // also moves all children
 void snzu_boxSetStartKeepSizeRecurse(HMM_Vec2 newStart) {
-    snzu_boxSetStartKeepSizeRecursePtr(_snzu_globs.selectedBox, newStart);
+    snzu_boxSetStartKeepSizeRecursePtr(_snzu_instance->selectedBox, newStart);
 }
 
 void snzu_boxSetStartFromParentKeepSizeRecurse(HMM_Vec2 offset) {
-    HMM_Vec2 final = HMM_AddV2(offset, _snzu_globs.selectedBox->parent->start);
-    snzu_boxSetStartKeepSizeRecursePtr(_snzu_globs.selectedBox, final);
+    HMM_Vec2 final = HMM_AddV2(offset, _snzu_instance->selectedBox->parent->start);
+    snzu_boxSetStartKeepSizeRecursePtr(_snzu_instance->selectedBox, final);
 }
 
 // margin in pixels
 void snzu_boxSetSizeMarginFromParent(float m) {
-    _snzu_globs.selectedBox->start = HMM_Add(_snzu_globs.selectedBox->parent->start, HMM_V2(m, m));
-    _snzu_globs.selectedBox->end = HMM_Sub(_snzu_globs.selectedBox->parent->end, HMM_V2(m, m));
+    _snzu_instance->selectedBox->start = HMM_Add(_snzu_instance->selectedBox->parent->start, HMM_V2(m, m));
+    _snzu_instance->selectedBox->end = HMM_Sub(_snzu_instance->selectedBox->parent->end, HMM_V2(m, m));
 }
 
 void snzu_boxSetSizeMarginFromParentAx(float px, snzu_Axis axis) {
-    _snzu_globs.selectedBox->start.Elements[axis] = _snzu_globs.selectedBox->parent->start.Elements[axis] + px;
-    _snzu_globs.selectedBox->end.Elements[axis] = _snzu_globs.selectedBox->parent->end.Elements[axis] - px;
+    _snzu_instance->selectedBox->start.Elements[axis] = _snzu_instance->selectedBox->parent->start.Elements[axis] + px;
+    _snzu_instance->selectedBox->end.Elements[axis] = _snzu_instance->selectedBox->parent->end.Elements[axis] - px;
 }
 
 void snzu_boxFillParent() {
-    _snzu_globs.selectedBox->start = _snzu_globs.selectedBox->parent->start;
-    _snzu_globs.selectedBox->end = _snzu_globs.selectedBox->parent->end;
+    _snzu_instance->selectedBox->start = _snzu_instance->selectedBox->parent->start;
+    _snzu_instance->selectedBox->end = _snzu_instance->selectedBox->parent->end;
 }
 
 void snzu_boxSizePctParent(float pct, snzu_Axis ax) {
-    HMM_Vec2 newSize = snzu_boxGetSize(_snzu_globs.selectedBox->parent);
+    HMM_Vec2 newSize = snzu_boxGetSize(_snzu_instance->selectedBox->parent);
     snzu_boxSetSizeFromStartAx(ax, newSize.Elements[ax] * pct);
 }
 
 void snzu_boxSizeFromEndPctParent(float pct, snzu_Axis ax) {
-    HMM_Vec2 newSize = snzu_boxGetSize(_snzu_globs.selectedBox->parent);
+    HMM_Vec2 newSize = snzu_boxGetSize(_snzu_instance->selectedBox->parent);
     snzu_boxSetSizeFromEndAx(ax, newSize.Elements[ax] * pct);
 }
 
 // TODO: unit test this
 // maintains size but moves the box to be centered with other along ax
 void snzu_boxCenter(_snzu_Box* other, snzu_Axis ax) {
-    float boxCenter = (_snzu_globs.selectedBox->start.Elements[ax] + _snzu_globs.selectedBox->end.Elements[ax]) / 2.0f;
+    float boxCenter = (_snzu_instance->selectedBox->start.Elements[ax] + _snzu_instance->selectedBox->end.Elements[ax]) / 2.0f;
     float otherCenter = (other->start.Elements[ax] + other->end.Elements[ax]) / 2.0f;
     float diff = otherCenter - boxCenter;
-    _snzu_globs.selectedBox->start.Elements[ax] += diff;
-    _snzu_globs.selectedBox->end.Elements[ax] += diff;
+    _snzu_instance->selectedBox->start.Elements[ax] += diff;
+    _snzu_instance->selectedBox->end.Elements[ax] += diff;
 }
 
 // TODO: unit test this
 // aligns box to be immediately next to and outside of other along ax, (align left is to the left of other)
 void snzu_boxAlignOuter(_snzu_Box* other, snzu_Axis ax, snzu_Align align) {
-    HMM_Vec2 boxSize = snzu_boxGetSize(_snzu_globs.selectedBox);
+    HMM_Vec2 boxSize = snzu_boxGetSize(_snzu_instance->selectedBox);
 
     float sidePos = 0;
     if (align == SNZU_ALIGN_MIN) {
         sidePos = other->start.Elements[ax];
-        _snzu_globs.selectedBox->end.Elements[ax] = sidePos;
+        _snzu_instance->selectedBox->end.Elements[ax] = sidePos;
         snzu_boxSetSizeFromEnd(boxSize);
     } else if (SNZU_ALIGN_MAX) {
         sidePos = other->end.Elements[ax];
-        _snzu_globs.selectedBox->start.Elements[ax] = sidePos;
+        _snzu_instance->selectedBox->start.Elements[ax] = sidePos;
         snzu_boxSetSizeFromStart(boxSize);
     } else {
         SNZ_ASSERTF(false, "invalid align value: %d", align);
@@ -1533,15 +1539,15 @@ void snzu_boxAlignOuter(_snzu_Box* other, snzu_Axis ax, snzu_Align align) {
 
 // maintains size, only affects coords on the targeted axis
 void snzu_boxAlignInParent(snzu_Axis ax, snzu_Align align) {
-    float initialSize = snzu_boxGetSize(_snzu_globs.selectedBox).Elements[ax];
+    float initialSize = snzu_boxGetSize(_snzu_instance->selectedBox).Elements[ax];
     if (align == SNZU_ALIGN_MIN) {
-        _snzu_globs.selectedBox->start.Elements[ax] = _snzu_globs.selectedBox->parent->start.Elements[ax];
+        _snzu_instance->selectedBox->start.Elements[ax] = _snzu_instance->selectedBox->parent->start.Elements[ax];
     } else if (align == SNZU_ALIGN_MAX) {
-        _snzu_globs.selectedBox->start.Elements[ax] = _snzu_globs.selectedBox->parent->end.Elements[ax] - initialSize;
+        _snzu_instance->selectedBox->start.Elements[ax] = _snzu_instance->selectedBox->parent->end.Elements[ax] - initialSize;
     } else if (align == SNZU_ALIGN_CENTER) {
-        _snzu_Box* par = _snzu_globs.selectedBox->parent;
+        _snzu_Box* par = _snzu_instance->selectedBox->parent;
         float midpt = (par->start.Elements[ax] + par->end.Elements[ax]) / 2.0f;
-        _snzu_globs.selectedBox->start.Elements[ax] = midpt - (initialSize / 2);
+        _snzu_instance->selectedBox->start.Elements[ax] = midpt - (initialSize / 2);
     } else {
         SNZ_ASSERTF(false, "invalid align value: %d", align);
     }
@@ -1552,27 +1558,27 @@ void snzu_boxAlignInParent(snzu_Axis ax, snzu_Align align) {
 // only inserts a gap after a sibling, not if it is the first element
 // maintains size and relative positioning of all inner boxes
 void snzu_boxSetPosAfterRecurse(float gap, snzu_Axis ax) {
-    HMM_Vec2 newPos = _snzu_globs.selectedBox->parent->start;
+    HMM_Vec2 newPos = _snzu_instance->selectedBox->parent->start;
 
-    if (_snzu_globs.selectedBox->prevSibling != NULL) {
-        newPos.Elements[ax] = _snzu_globs.selectedBox->prevSibling->end.Elements[ax] + gap;
+    if (_snzu_instance->selectedBox->prevSibling != NULL) {
+        newPos.Elements[ax] = _snzu_instance->selectedBox->prevSibling->end.Elements[ax] + gap;
     } else {
-        newPos.Elements[ax] = _snzu_globs.selectedBox->parent->start.Elements[ax];
+        newPos.Elements[ax] = _snzu_instance->selectedBox->parent->start.Elements[ax];
     }
     snzu_boxSetStartKeepSizeRecurse(newPos);
 }
 
 // recursively moves every box within the currently selected box to be ordered in a row, with the last one aligned to the bottom/end
 void snzu_boxOrderChildrenInRowRecurseAlignEnd(float gap, snzu_Axis ax) {
-    for (_snzu_Box* child = _snzu_globs.selectedBox->lastChild; child; child = child->prevSibling) {
+    for (_snzu_Box* child = _snzu_instance->selectedBox->lastChild; child; child = child->prevSibling) {
         float newEnd = 0;
         if (child->nextSibling) {
             newEnd = child->nextSibling->start.Elements[ax] - gap;
         } else {
-            newEnd = _snzu_globs.selectedBox->end.Elements[ax];
+            newEnd = _snzu_instance->selectedBox->end.Elements[ax];
         }
 
-        HMM_Vec2 start = _snzu_globs.selectedBox->start;
+        HMM_Vec2 start = _snzu_instance->selectedBox->start;
         start.Elements[ax] = newEnd - (child->end.Elements[ax] - child->start.Elements[ax]);
         snzu_boxSetStartKeepSizeRecursePtr(child, start);
     }
@@ -1580,33 +1586,33 @@ void snzu_boxOrderChildrenInRowRecurseAlignEnd(float gap, snzu_Axis ax) {
 
 // recursively moves every box within the currently selected box to be ordered in a row
 void snzu_boxOrderChildrenInRowRecurse(float gap, snzu_Axis ax) {
-    _snzu_Box* initiallySelected = _snzu_globs.selectedBox;
-    for (_snzu_Box* child = _snzu_globs.selectedBox->firstChild; child; child = child->nextSibling) {
+    _snzu_Box* initiallySelected = _snzu_instance->selectedBox;
+    for (_snzu_Box* child = _snzu_instance->selectedBox->firstChild; child; child = child->nextSibling) {
         snzu_boxSelect(child);
         snzu_boxSetPosAfterRecurse(gap, ax);
     }
-    _snzu_globs.selectedBox = initiallySelected;
+    _snzu_instance->selectedBox = initiallySelected;
 }
 
 // recursively moves every box within the currently selected boxes parent to be ordered in a row
 void snzu_boxOrderSiblingsInRowRecurse(float gap, snzu_Axis ax) {
-    _snzu_Box* initiallySelected = _snzu_globs.selectedBox;
-    snzu_boxSelect(_snzu_globs.selectedBox->parent);
+    _snzu_Box* initiallySelected = _snzu_instance->selectedBox;
+    snzu_boxSelect(_snzu_instance->selectedBox->parent);
     snzu_boxOrderChildrenInRowRecurse(gap, ax);
     snzu_boxSelect(initiallySelected);
 }
 
 // changes only end
 void snzu_boxSetSizeFitText() {
-    const snzr_Font* font = _snzu_globs.selectedBox->font;
-    HMM_Vec2 size = snzr_strSize(font, _snzu_globs.selectedBox->displayStr, _snzu_globs.selectedBox->displayStrLen);
+    const snzr_Font* font = _snzu_instance->selectedBox->font;
+    HMM_Vec2 size = snzr_strSize(font, _snzu_instance->selectedBox->displayStr, _snzu_instance->selectedBox->displayStrLen);
     size = HMM_AddV2(size, HMM_V2(SNZU_TEXT_PADDING * 2, SNZU_TEXT_PADDING * 2));
-    _snzu_globs.selectedBox->end = HMM_AddV2(_snzu_globs.selectedBox->start, size);
+    _snzu_instance->selectedBox->end = HMM_AddV2(_snzu_instance->selectedBox->start, size);
 }
 
 float snzu_boxGetMaxChildSizeAx(snzu_Axis ax) {
     float maxSize = 0;
-    for (_snzu_Box* child = _snzu_globs.selectedBox->firstChild; child; child = child->nextSibling) {
+    for (_snzu_Box* child = _snzu_instance->selectedBox->firstChild; child; child = child->nextSibling) {
         float size = child->end.Elements[ax] - child->start.Elements[ax];
         if (size > maxSize) {
             maxSize = size;
@@ -1618,8 +1624,8 @@ float snzu_boxGetMaxChildSizeAx(snzu_Axis ax) {
 // calculates size based on extent of the children relative to the parent at call time
 float snzu_boxGetSizeToFitChildrenAx(snzu_Axis ax) {
     float max = 0;
-    float parentStart = _snzu_globs.selectedBox->start.Elements[ax];
-    for (_snzu_Box* child = _snzu_globs.selectedBox->firstChild; child; child = child->nextSibling) {
+    float parentStart = _snzu_instance->selectedBox->start.Elements[ax];
+    for (_snzu_Box* child = _snzu_instance->selectedBox->firstChild; child; child = child->nextSibling) {
         float dist = child->start.Elements[ax] - parentStart;
         if (dist > max) {
             max = dist;
@@ -1641,14 +1647,14 @@ void snzu_boxSetSizeFitChildren() {
 
 void snzu_easeExpUnbounded(float* in, float target, float pctPerSec) {
     float diff = target - *in;
-    diff *= pctPerSec * _snzu_globs.timeSinceLastFrame;
+    diff *= pctPerSec * _snzu_instance->timeSinceLastFrame;
     *in += diff;
 }
 
 // eases a float closer to target (which should be between 0 and 1) (in will be clamped to this range, should not be null)
 void snzu_easeExp(float* in, float target, float pctPerSec) {
     float diff = target - *in;
-    diff *= pctPerSec * _snzu_globs.timeSinceLastFrame;
+    diff *= pctPerSec * _snzu_instance->timeSinceLastFrame;
     *in += diff;
     if (*in > 1) {
         *in = 1;
@@ -1690,6 +1696,8 @@ void snz_main(const char* windowTitle, snz_InitFunc initFunc, snz_FrameFunc fram
     }
 
     snz_Arena frameArena = snz_arenaInit(100000000, "snz frame arena");
+    snzu_Instance uiInstance = snzu_instanceInit();
+    snzu_instanceSelect(&uiInstance);
 
     _snzr_init(&frameArena);
     snz_arenaClear(&frameArena);
