@@ -1079,8 +1079,10 @@ _snzu_Box* snzu_boxNew(const char* tag) {
     return b;
 }
 
-// begins a frame with the currently selected instance
-static void _snzu_beginFrame(snz_Arena* frameArena, HMM_Vec2 screenSize, float dt) {
+// preps for a new frame with the currently selected instance
+// entire tree's parent does not clip children, but is initialized to be parentSize
+// doesn't do any rendering and is not reliant on anything being ready besides a selected ui instance
+void snzu_frameStart(snz_Arena* frameArena, HMM_Vec2 parentSize, float dt) {
     _snzu_instance->frameArena = frameArena;
 
     _snzu_useMemClearOld();
@@ -1092,7 +1094,7 @@ static void _snzu_beginFrame(snz_Arena* frameArena, HMM_Vec2 screenSize, float d
     memset(&_snzu_instance->treeParent, 0, sizeof(_snzu_instance->treeParent));
     _snzu_instance->treeParent.pathHash = 6969420;
     _snzu_instance->currentParentBox = &_snzu_instance->treeParent;
-    _snzu_instance->currentParentBox->end = screenSize;
+    _snzu_instance->currentParentBox->end = parentSize;
 }
 
 static _snzu_Box* _snzu_findBoxByPathHash(uint64_t pathHash, _snzu_Box* parent) {
@@ -1252,12 +1254,10 @@ static void _snzu_genInteractionsForBoxAndChildren(_snzu_Box* box, uint64_t* rem
     }  // end collision check
 }
 
-static void _snzu_drawFrameAndGenInterations(snzu_Input input, HMM_Vec2 screenSize) {
+void snzu_frameDrawAndGenInteractions(snzu_Input input, HMM_Mat4 vp) {
     _snzu_instance->currentInputs = input;
 
-    HMM_Mat4 vp;
-    vp = HMM_Orthographic_RH_NO(0, screenSize.X, screenSize.Y, 0, 0, 1000);
-    _snzu_drawBoxAndChildren(&_snzu_instance->treeParent, HMM_V2(0, 0), screenSize, vp);
+    _snzu_drawBoxAndChildren(&_snzu_instance->treeParent, HMM_V2(-INFINITY, -INFINITY), HMM_V2(INFINITY, INFINITY), vp);
 
     // compute mouse actions for this frame
     bool wasMouseUp = false;
@@ -1677,7 +1677,7 @@ void snzu_boxHighlightByAnim(float* anim, HMM_Vec4 baseColor, float diff) {
 // MAIN LOOP HANDLING + SDL ====================================================
 
 typedef void (*snz_InitFunc)(snz_Arena* scratch, SDL_Window* window);
-typedef void (*snz_FrameFunc)(float dt, snz_Arena* frameArena);
+typedef void (*snz_FrameFunc)(float dt, snz_Arena* frameArena, snzu_Input frameInputs, HMM_Vec2 screenSize);
 
 void snz_main(const char* windowTitle, snz_InitFunc initFunc, snz_FrameFunc frameFunc) {
     SDL_Window* window = NULL;
@@ -1696,8 +1696,6 @@ void snz_main(const char* windowTitle, snz_InitFunc initFunc, snz_FrameFunc fram
     }
 
     snz_Arena frameArena = snz_arenaInit(100000000, "snz frame arena");
-    snzu_Instance uiInstance = snzu_instanceInit();
-    snzu_instanceSelect(&uiInstance);
 
     _snzr_init(&frameArena);
     snz_arenaClear(&frameArena);
@@ -1747,18 +1745,13 @@ void snz_main(const char* windowTitle, snz_InitFunc initFunc, snz_FrameFunc fram
             }
         }  // end event polling
 
-        _snzu_beginFrame(&frameArena, HMM_V2(screenW, screenH), dt);
 
         snzr_callGLFnOrError(glBindFramebuffer(GL_FRAMEBUFFER, 0));
         snzr_callGLFnOrError(glViewport(0, 0, screenW, screenH));
         snzr_callGLFnOrError(glClearColor(1, 1, 1, 1));
         snzr_callGLFnOrError(glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT));
 
-        frameFunc(dt, &frameArena);
-
-        snzr_callGLFnOrError(glBindFramebuffer(GL_FRAMEBUFFER, 0));
-        snzr_callGLFnOrError(glViewport(0, 0, screenW, screenH));
-        _snzu_drawFrameAndGenInterations(uiInputs, HMM_V2(screenW, screenH));
+        frameFunc(dt, &frameArena, uiInputs, HMM_V2(screenW, screenH));
 
         snz_arenaClear(&frameArena);
         SDL_GL_SwapWindow(window);

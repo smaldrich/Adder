@@ -11,57 +11,22 @@
 #include "stb/stb_image.h"
 #include "ui.h"
 
-snz_Arena fontArena;
-PoolAlloc pool;
+snzu_Instance main_uiInstance;
 
-snzr_FrameBuffer sceneFB;
-sk_Sketch sketch;
-snz_Arena sketchArena;
+snz_Arena main_fontArena;
+PoolAlloc main_pool;
 
-ren3d_Mesh mesh;
+snzr_FrameBuffer main_sceneFB;
+sk_Sketch main_sketch;
+snzu_Instance main_sketchUIInstance;
+snz_Arena main_sketchArena;
+
+ren3d_Mesh main_mesh;
 
 bool main_inDarkMode = true;
 bool main_inMusicMode = true;
 
-typedef struct {
-    HMM_Vec3 startPt;
-    HMM_Vec3 startNormal;
-    HMM_Vec3 startVertical;
-
-    HMM_Vec3 endPt;
-    HMM_Vec3 endNormal;
-    HMM_Vec3 endVertical;
-} main_Align;
-main_Align sketchAlign;
-
-float main_angleBetweenV3(HMM_Vec3 a, HMM_Vec3 b) {
-    return acosf(HMM_Dot(a, b) / (HMM_Len(a) * HMM_Len(b)));
-}
-
-HMM_Quat main_alignToQuat(main_Align a) {
-    HMM_Vec3 normalCross = HMM_Cross(a.startNormal, a.endNormal);
-    float normalAngle = main_angleBetweenV3(a.startNormal, a.endNormal);
-    HMM_Quat planeRotate = HMM_QFromAxisAngle_RH(normalCross, normalAngle);
-    if (csg_floatEqual(normalAngle, 0)) {
-        planeRotate = HMM_QFromAxisAngle_RH(HMM_V3(0, 0, 1), 0);
-    }
-
-    HMM_Vec3 postRotateVertical = HMM_MulM4V4(HMM_QToM4(planeRotate), HMM_V4(a.startVertical.X, a.startVertical.Y, a.startVertical.Z, 1)).XYZ;
-    // stolen: https://stackoverflow.com/questions/5188561/signed-angle-between-two-3d-vectors-with-same-origin-within-the-same-plane
-    // tysm internet
-    float y = HMM_Dot(HMM_Cross(postRotateVertical, a.endVertical), a.endNormal);
-    float x = HMM_Dot(postRotateVertical, a.endVertical);
-    float postRotateAngle = atan2(y, x);
-    HMM_Quat postRotate = HMM_QFromAxisAngle_RH(a.endNormal, postRotateAngle);
-
-    return HMM_MulQ(postRotate, planeRotate);
-}
-
-HMM_Mat4 main_alignToM4(main_Align a) {
-    HMM_Quat q = main_alignToQuat(a);
-    HMM_Mat4 translate = HMM_Translate(HMM_Sub(a.endPt, a.startPt));
-    return HMM_Mul(translate, HMM_QToM4(q));
-}
+sku_Align main_sketchAlign;
 
 void main_init(snz_Arena* scratch, SDL_Window* window) {
     _poolAllocTests();
@@ -69,11 +34,14 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
     ser_tests();
     csg_tests();
 
-    fontArena = snz_arenaInit(10000000, "main font arena");
-    sketchArena = snz_arenaInit(10000000, "main sketch arena");
-    pool = poolAllocInit();
+    main_fontArena = snz_arenaInit(10000000, "main font arena");
+    main_sketchArena = snz_arenaInit(10000000, "main sketch arena");
+    main_pool = poolAllocInit();
+    main_uiInstance = snzu_instanceInit();
+    snzu_instanceSelect(&main_uiInstance);
+    main_sketchUIInstance = snzu_instanceInit();
 
-    {
+    { // FIXME: move to snz
         SDL_Surface* s = SDL_LoadBMP("res/textures/icon.bmp");
         char buf[1000] = { 0 };
         const char* err = SDL_GetErrorMsg(buf, 1000);
@@ -83,14 +51,14 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
     }
 
     sound_init();
-    ui_init(&fontArena, scratch);
+    ui_init(&main_fontArena, scratch);
     ren3d_init(scratch);
     docs_init();
-    sc_init(&pool);
+    sc_init(&main_pool);
 
     snz_arenaClear(scratch);
 
-    sceneFB = snzr_frameBufferInit(snzr_textureInitRBGA(500, 500, NULL));
+    main_sceneFB = snzr_frameBufferInit(snzr_textureInitRBGA(500, 500, NULL));
 
     {
         csg_TriList cubeA = csg_cube(scratch);
@@ -120,7 +88,7 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
                 };
             }
             if (triIdx == 7) {
-                sketchAlign = (main_Align){
+                main_sketchAlign = (sku_Align){
                     .startPt = HMM_V3(0, 0, 0),
                     .startNormal = HMM_V3(0, 0, 1),
                     .startVertical = HMM_V3(0, 1, 0),
@@ -132,35 +100,35 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
             }
             triIdx++;
         }
-        mesh = ren3d_meshInit(verts, vertCount);
+        main_mesh = ren3d_meshInit(verts, vertCount);
         poolAllocDeinit(&pool);
     }  // end mesh for testing
 
     {
-        sketch = sk_sketchInit();
-        sk_Point* originPt = sk_sketchAddPoint(&sketch, &sketchArena, HMM_V2(0, 0));
-        sk_Point* left = sk_sketchAddPoint(&sketch, &sketchArena, HMM_V2(-1, -1));
-        sk_Point* right = sk_sketchAddPoint(&sketch, &sketchArena, HMM_V2(1, 0));
-        sk_Point* up = sk_sketchAddPoint(&sketch, &sketchArena, HMM_V2(0, 1));
+        main_sketch = sk_sketchInit();
+        sk_Point* originPt = sk_sketchAddPoint(&main_sketch, &main_sketchArena, HMM_V2(0, 0));
+        sk_Point* left = sk_sketchAddPoint(&main_sketch, &main_sketchArena, HMM_V2(-1, -1));
+        sk_Point* right = sk_sketchAddPoint(&main_sketch, &main_sketchArena, HMM_V2(1, 0));
+        sk_Point* up = sk_sketchAddPoint(&main_sketch, &main_sketchArena, HMM_V2(0, 1));
 
-        sk_Line* vertical = sk_sketchAddLine(&sketch, &sketchArena, originPt, up);
-        sk_sketchAddConstraintDistance(&sketch, &sketchArena, vertical, 0.5);
+        sk_Line* vertical = sk_sketchAddLine(&main_sketch, &main_sketchArena, originPt, up);
+        sk_sketchAddConstraintDistance(&main_sketch, &main_sketchArena, vertical, 0.5);
 
-        sk_Line* leftLine = sk_sketchAddLine(&sketch, &sketchArena, left, originPt);
-        sk_sketchAddConstraintAngle(&sketch, &sketchArena, vertical, false, leftLine, true, HMM_AngleDeg(90));
-        sk_sketchAddConstraintDistance(&sketch, &sketchArena, leftLine, 0.8);
-        sk_Line* rightLine = sk_sketchAddLine(&sketch, &sketchArena, originPt, right);
-        sk_sketchAddConstraintDistance(&sketch, &sketchArena, rightLine, 1);
-        sk_sketchAddConstraintAngle(&sketch, &sketchArena, rightLine, false, vertical, false, HMM_AngleDeg(120));
+        sk_Line* leftLine = sk_sketchAddLine(&main_sketch, &main_sketchArena, left, originPt);
+        sk_sketchAddConstraintAngle(&main_sketch, &main_sketchArena, vertical, false, leftLine, true, HMM_AngleDeg(90));
+        sk_sketchAddConstraintDistance(&main_sketch, &main_sketchArena, leftLine, 0.8);
+        sk_Line* rightLine = sk_sketchAddLine(&main_sketch, &main_sketchArena, originPt, right);
+        sk_sketchAddConstraintDistance(&main_sketch, &main_sketchArena, rightLine, 1);
+        sk_sketchAddConstraintAngle(&main_sketch, &main_sketchArena, rightLine, false, vertical, false, HMM_AngleDeg(120));
 
-        sk_Point* other = sk_sketchAddPoint(&sketch, &sketchArena, HMM_V2(-1, 1));
-        sk_Line* l = sk_sketchAddLine(&sketch, &sketchArena, left, other);
-        sk_sketchAddConstraintAngle(&sketch, &sketchArena, l, false, leftLine, false, HMM_AngleDeg(-120));
+        sk_Point* other = sk_sketchAddPoint(&main_sketch, &main_sketchArena, HMM_V2(-1, 1));
+        sk_Line* l = sk_sketchAddLine(&main_sketch, &main_sketchArena, left, other);
+        sk_sketchAddConstraintAngle(&main_sketch, &main_sketchArena, l, false, leftLine, false, HMM_AngleDeg(-120));
         // sk_sketchAddConstraintDistance(&sketch, &sketchArena, l, 0.2);
 
-        sk_sketchAddLine(&sketch, &sketchArena, up, right);
+        sk_sketchAddLine(&main_sketch, &main_sketchArena, up, right);
 
-        sk_sketchSolve(&sketch, originPt, vertical, HMM_AngleDeg(90));
+        sk_sketchSolve(&main_sketch, originPt, vertical, HMM_AngleDeg(90));
     }
 }
 
@@ -178,10 +146,10 @@ HMM_Vec3 main_rayFromCamera(float fov, HMM_Mat4 cameraTransform, HMM_Vec2 mouseP
     return HMM_Norm(v);
 }
 
-void main_drawDemoScene(HMM_Vec2 panelSize, snz_Arena* scratch) {
+void main_drawDemoScene(HMM_Vec2 panelSize, snz_Arena* scratch, float dt, snzu_Input inputs) {
     snzu_boxNew("inner");
     snzu_boxFillParent();
-    snzu_boxSetTexture(sceneFB.texture);
+    snzu_boxSetTexture(main_sceneFB.texture);
 
     snzu_Interaction* inter = SNZU_USE_MEM(snzu_Interaction, "inter");
     snzu_boxSetInteractionOutput(inter, SNZU_IF_HOVER | SNZU_IF_MOUSE_BUTTONS | SNZU_IF_MOUSE_SCROLL);
@@ -192,12 +160,12 @@ void main_drawDemoScene(HMM_Vec2 panelSize, snz_Arena* scratch) {
     if (snzu_useMemIsPrevNew()) {
         *orbitDistance = 5;
     }
-    main_Align* const orbitOrigin = SNZU_USE_MEM(main_Align, "orbitOrigin");
+    sku_Align* const orbitOrigin = SNZU_USE_MEM(sku_Align, "orbitOrigin");
     // FIXME: a Look at cmd so that panning isn't so annoying
     // FIXME: automagic redo of the origin
 
     if (snzu_useMemIsPrevNew()) {
-        *orbitOrigin = (main_Align){
+        *orbitOrigin = (sku_Align){
             .startNormal = HMM_V3(0, 0, 1),
             .startPt = HMM_V3(0, 0, 0),
             .startVertical = HMM_V3(0, 1, 0),
@@ -205,7 +173,7 @@ void main_drawDemoScene(HMM_Vec2 panelSize, snz_Arena* scratch) {
             .endPt = HMM_V3(0, 0, 0),
             .endVertical = HMM_V3(0, 1, 0),
         };
-        *orbitOrigin = sketchAlign;
+        *orbitOrigin = main_sketchAlign;
         // Note that the start component of this is indended to stay as what it's initialized to,
         // the end indicates orientation/position of the camera's orbit origin
         // normal points towards the camera when it has a angle of 0, 0
@@ -220,7 +188,7 @@ void main_drawDemoScene(HMM_Vec2 panelSize, snz_Arena* scratch) {
         if (inter->keyMods & KMOD_SHIFT) {
             HMM_Quat cameraRot = HMM_QFromAxisAngle_RH(HMM_V3(1, 0, 0), orbitAngle->X);
             cameraRot = HMM_MulQ(HMM_QFromAxisAngle_RH(HMM_V3(0, 1, 0), orbitAngle->Y), cameraRot);
-            HMM_Quat originRot = main_alignToQuat(*orbitOrigin);
+            HMM_Quat originRot = sku_alignToQuat(*orbitOrigin);
 
             HMM_Quat rotation = HMM_MulQ(originRot, cameraRot);
 
@@ -247,10 +215,10 @@ void main_drawDemoScene(HMM_Vec2 panelSize, snz_Arena* scratch) {
     HMM_Mat4 view = HMM_Translate(HMM_V3(0, 0, *orbitDistance));
     view = HMM_MulM4(HMM_Rotate_RH(orbitAngle->X, HMM_V3(1, 0, 0)), view);
     view = HMM_MulM4(HMM_Rotate_RH(orbitAngle->Y, HMM_V3(0, 1, 0)), view);
-    view = HMM_MulM4(main_alignToM4(*orbitOrigin), view);
+    view = HMM_MulM4(sku_alignToM4(*orbitOrigin), view);
     HMM_Vec3 cameraPos = HMM_MulM4V4(view, HMM_V4(0, 0, 0, 1)).XYZ;
 
-    HMM_Vec3 rayNormal = main_rayFromCamera(HMM_AngleDeg(90), view, inter->mousePosLocal, panelSize);
+    HMM_Vec3 mouseRayNormal = main_rayFromCamera(HMM_AngleDeg(90), view, inter->mousePosLocal, panelSize);
 
     view = HMM_InvGeneral(view);
 
@@ -259,13 +227,13 @@ void main_drawDemoScene(HMM_Vec2 panelSize, snz_Arena* scratch) {
 
     uint32_t w = (uint32_t)panelSize.X;
     uint32_t h = (uint32_t)panelSize.Y;
-    if (w != sceneFB.texture.width || h != sceneFB.texture.height) {
-        snzr_frameBufferDeinit(&sceneFB);
-        sceneFB = snzr_frameBufferInit(snzr_textureInitRBGA(w, h, NULL));
+    if (w != main_sceneFB.texture.width || h != main_sceneFB.texture.height) {
+        snzr_frameBufferDeinit(&main_sceneFB);
+        main_sceneFB = snzr_frameBufferInit(snzr_textureInitRBGA(w, h, NULL));
     }
 
     // FIXME: opengl here is gross
-    snzr_callGLFnOrError(glBindFramebuffer(GL_FRAMEBUFFER, sceneFB.glId));
+    snzr_callGLFnOrError(glBindFramebuffer(GL_FRAMEBUFFER, main_sceneFB.glId));
     snzr_callGLFnOrError(glViewport(0, 0, w, h));
     snzr_callGLFnOrError(glClearColor(ui_colorBackground.X, ui_colorBackground.Y, ui_colorBackground.Z, ui_colorBackground.W));
     snzr_callGLFnOrError(glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT));
@@ -274,48 +242,34 @@ void main_drawDemoScene(HMM_Vec2 panelSize, snz_Arena* scratch) {
     HMM_Mat4 vp = HMM_MulM4(proj, view);
 
     // FIXME: highlight edges :) + debug view of geometry
-    ren3d_drawMesh(&mesh, vp, model, HMM_V3(-1, -1, -1), ui_lightAmbient);
+    ren3d_drawMesh(&main_mesh, vp, model, HMM_V3(-1, -1, -1), ui_lightAmbient);
     ren3d_drawSkybox(vp, ui_skyBox);
 
-    float t = 0;
-    bool hit = csg_planeLineIntersection(sketchAlign.endPt, sketchAlign.endNormal, cameraPos, rayNormal, &t);
-    HMM_Vec3 point = HMM_Add(cameraPos, HMM_Mul(rayNormal, t));
-    if (!hit) {
-        point = HMM_V3(INFINITY, INFINITY, INFINITY);
-    }
-    point = HMM_Sub(point, sketchAlign.endPt);
-    HMM_Vec3 xAxis = HMM_Cross(sketchAlign.endVertical, sketchAlign.endNormal);
-    float x = HMM_Dot(point, xAxis);
-    float y = HMM_Dot(point, sketchAlign.endVertical);
-
-    float* const max = SNZU_USE_MEM(float, "max");
-    float* const min = SNZU_USE_MEM(float, "min");
-    float* const minTime = SNZU_USE_MEM(float, "minTime");
-    float* const smooth = SNZU_USE_MEM(float, "smooth");
-    float cur = sound_get();
-    *max = SNZ_MAX(*max, cur);
-    *min = SNZ_MIN(*min, cur);
-    snzu_easeExpUnbounded(smooth, cur * (*max - *min), 30);
-    *minTime += 0.0001;
-    if (*minTime > 1) {
-        *minTime = 0;
-        *min = cur;
-    }
-    float soundVal = (*smooth / *max - 0.5) * 0.25;
-    if (!main_inMusicMode || *max == 0) {
-        soundVal = 0;
+    // FIXME: this is gross af
+    float soundVal = 0;
+    {
+        float* const max = SNZU_USE_MEM(float, "max");
+        float* const min = SNZU_USE_MEM(float, "min");
+        float* const minTime = SNZU_USE_MEM(float, "minTime");
+        float* const smooth = SNZU_USE_MEM(float, "smooth");
+        float cur = sound_get();
+        *max = SNZ_MAX(*max, cur);
+        *min = SNZ_MIN(*min, cur);
+        snzu_easeExpUnbounded(smooth, cur * (*max - *min), 30);
+        *minTime += 0.0001;
+        if (*minTime > 1) {
+            *minTime = 0;
+            *min = cur;
+        }
+        soundVal = (*smooth / *max - 0.5) * 0.25;
+        if (!main_inMusicMode || *max == 0) {
+            soundVal = 0;
+        }
     }
 
-    sku_drawSketch(
-        &sketch,
-        vp,
-        main_alignToM4(sketchAlign),
-        scratch,
-        cameraPos,
-        HMM_V2(x, y),
-        inter->mouseActions[SNZU_MB_LEFT],
-        inter->keyMods & KMOD_SHIFT,
-        soundVal);
+    snzu_instanceSelect(&main_sketchUIInstance);
+    sku_drawSketch(&main_sketch, main_sketchAlign, vp, cameraPos, mouseRayNormal, inputs, soundVal, dt, scratch);
+    snzu_instanceSelect(&main_uiInstance);
 }
 
 void main_drawSettings() {
@@ -355,9 +309,11 @@ typedef enum {
 
 main_View main_currentView;
 
-void main_frame(float dt, snz_Arena* scratch) {
-    assert(scratch || !scratch);
-    assert(dt || !dt);
+void main_frame(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screenSize) {
+    snzu_instanceSelect(&main_sketchUIInstance);
+    snzu_frameStart(scratch, HMM_V2(0, 0), dt);
+    snzu_instanceSelect(&main_uiInstance);
+    snzu_frameStart(scratch, screenSize, dt);
 
     HMM_Vec2 rightPanelSize = HMM_V2(0, 0);
 
@@ -424,7 +380,7 @@ void main_frame(float dt, snz_Arena* scratch) {
             if (main_currentView == MAIN_VIEW_DOCS) {
                 docs_buildPage();
             } else if (main_currentView == MAIN_VIEW_SCENE) {
-                main_drawDemoScene(rightPanelSize, scratch);
+                main_drawDemoScene(rightPanelSize, scratch, dt, inputs);
                 sc_updateAndBuildHintWindow();
             } else if (main_currentView == MAIN_VIEW_SETTINGS) {
                 main_drawSettings();
@@ -446,11 +402,16 @@ void main_frame(float dt, snz_Arena* scratch) {
         snzu_boxSetSizeFromStartAx(SNZU_AX_Y, ui_borderThickness);
         snzu_boxSetColor(ui_colorText);
     }
+
+    snzr_callGLFnOrError(glBindFramebuffer(GL_FRAMEBUFFER, 0));
+    snzr_callGLFnOrError(glViewport(0, 0, screenSize.X, screenSize.Y));
+    HMM_Mat4 vp = HMM_Orthographic_RH_NO(0, screenSize.X, screenSize.Y, 0, 0, 1000000);
+    snzu_frameDrawAndGenInteractions(inputs, vp);
 }
 
 int main() {
     snz_main("ADDER V0.0", main_init, main_frame);
     sound_deinit();
-    poolAllocDeinit(&pool);
+    poolAllocDeinit(&main_pool);
     return 0;
 }

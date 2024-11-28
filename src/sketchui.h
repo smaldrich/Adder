@@ -3,7 +3,7 @@
 #include "snooze.h"
 #include "ui.h"
 
-static float main_gridLineGap(float area, float visibleCount) {
+static float _sku_gridLineGap(float area, float visibleCount) {
     float lineGap = area / visibleCount;
 
     float dec = lineGap;  // get the base ten decimal/exponents
@@ -27,6 +27,46 @@ static float main_gridLineGap(float area, float visibleCount) {
 
     return dec * powf(10, (float)exp);
 }
+
+typedef struct {
+    HMM_Vec3 startPt;
+    HMM_Vec3 startNormal;
+    HMM_Vec3 startVertical;
+
+    HMM_Vec3 endPt;
+    HMM_Vec3 endNormal;
+    HMM_Vec3 endVertical;
+} sku_Align;
+
+static float _sku_angleBetweenV3(HMM_Vec3 a, HMM_Vec3 b) {
+    return acosf(HMM_Dot(a, b) / (HMM_Len(a) * HMM_Len(b)));
+}
+
+HMM_Quat sku_alignToQuat(sku_Align a) {
+    HMM_Vec3 normalCross = HMM_Cross(a.startNormal, a.endNormal);
+    float normalAngle = _sku_angleBetweenV3(a.startNormal, a.endNormal);
+    HMM_Quat planeRotate = HMM_QFromAxisAngle_RH(normalCross, normalAngle);
+    if (csg_floatEqual(normalAngle, 0)) {
+        planeRotate = HMM_QFromAxisAngle_RH(HMM_V3(0, 0, 1), 0);
+    }
+
+    HMM_Vec3 postRotateVertical = HMM_MulM4V4(HMM_QToM4(planeRotate), HMM_V4(a.startVertical.X, a.startVertical.Y, a.startVertical.Z, 1)).XYZ;
+    // stolen: https://stackoverflow.com/questions/5188561/signed-angle-between-two-3d-vectors-with-same-origin-within-the-same-plane
+    // tysm internet
+    float y = HMM_Dot(HMM_Cross(postRotateVertical, a.endVertical), a.endNormal);
+    float x = HMM_Dot(postRotateVertical, a.endVertical);
+    float postRotateAngle = atan2(y, x);
+    HMM_Quat postRotate = HMM_QFromAxisAngle_RH(a.endNormal, postRotateAngle);
+
+    return HMM_MulQ(postRotate, planeRotate);
+}
+
+HMM_Mat4 sku_alignToM4(sku_Align a) {
+    HMM_Quat q = sku_alignToQuat(a);
+    HMM_Mat4 translate = HMM_Translate(HMM_Sub(a.endPt, a.startPt));
+    return HMM_Mul(translate, HMM_QToM4(q));
+}
+
 
 static HMM_Vec3 _sku_mulM4V3(HMM_Mat4 m, HMM_Vec3 v) {
     return HMM_Mul(m, HMM_V4(v.X, v.Y, v.Z, 1)).XYZ;
@@ -300,32 +340,69 @@ struct _sku_SketchEltUIStatus {
 };
 
 // FIXME: sketch element selection persists too much
-void sku_drawSketch(sk_Sketch* sketch, HMM_Mat4 vp, HMM_Mat4 model, snz_Arena* scratch, HMM_Vec3 cameraPos, HMM_Vec2 mousePosInPlane, snzu_Action mouseAct, bool shiftPressed, float soundPct) {
+
+// Expects a UI instance that isn't the main one to be selected, for use exclusively here
+// this fn will do frameStart/end calls for the instance
+// FIXME: that is disgusting and way to subtle, the instance variable should only be here, but then there are problems w/ not freeing usemems, etc.
+// so well see. Also not portable at all, but this doesn't seem like the kind of thing that is happening more than once.
+// Inputs should be inputs that are being fed to the box this instance is being drawn on. mouse coords are ignored because
+// everythin in the sketch has been projected.
+
+// FIXME: passing inputs like this is ignoring clipping interactions that are outside the viewport
+void sku_drawSketch(
+    sk_Sketch* sketch, sku_Align align,
+    HMM_Mat4 vp, HMM_Vec3 cameraPos,
+    HMM_Vec3 mouseRayNormal, snzu_Input inputs,
+    float sound, float dt,
+    snz_Arena* scratch) {
+
+    HMM_Mat4 model = sku_alignToM4(align);
     HMM_Mat4 mvp = HMM_Mul(vp, model);
+
+    {
+        float t = 0;
+        bool hit = csg_planeLineIntersection(align.endPt, align.endNormal, cameraPos, mouseRayNormal, &t);
+        HMM_Vec3 point = HMM_Add(cameraPos, HMM_Mul(mouseRayNormal, t));
+        if (!hit) {
+            point = HMM_V3(INFINITY, INFINITY, INFINITY);
+        }
+        point = HMM_Sub(point, align.endPt);
+        HMM_Vec3 xAxis = HMM_Cross(align.endVertical, align.endNormal);
+        float x = HMM_Dot(point, xAxis);
+        float y = HMM_Dot(point, align.endVertical);
+        inputs.mousePos = HMM_V2(x, y);
+    }
+
+    snzu_frameStart(scratch, HMM_V2(0, 0), dt);
+    snzu_boxNew("sketch ui parent");
+    snzu_boxSetStart(HMM_V2(-INFINITY, -INFINITY));
+    snzu_boxSetEnd(HMM_V2(INFINITY, INFINITY));
+    snzu_Interaction* const inter = SNZU_USE_MEM(snzu_Interaction, "inter");
+    snzu_boxSetInteractionOutput(inter, SNZU_IF_HOVER | SNZU_IF_MOUSE_BUTTONS | SNZU_IF_MOUSE_SCROLL);
 
     glDisable(GL_DEPTH_TEST);
 
     {  // grid around the cursor
-        HMM_Vec3 mousePos = HMM_V3(mousePosInPlane.X, mousePosInPlane.Y, 0);
+        HMM_Vec3 mousePos = HMM_V3(inter->mousePosGlobal.X, inter->mousePosGlobal.Y, 0);
         float scaleFactor = HMM_LenV3(HMM_Sub(_sku_mulM4V3(model, mousePos), cameraPos));
 
         // FIXME: jarring switches in gaplen
         // FIXME: unpleasant clipping into coplanar geometry
         int lineCount = 13;  // FIXME: batch all of these verts into one line
-        float lineGap = main_gridLineGap(scaleFactor * 2, lineCount);
+        float lineGap = _sku_gridLineGap(scaleFactor * 2, lineCount);
         for (int ax = 0; ax < 2; ax++) {
-            float axOffset = fmod(mousePosInPlane.Elements[ax], lineGap);
+            float axOffset = fmod(inter->mousePosGlobal.Elements[ax], lineGap);
             for (int i = 0; i < lineCount; i++) {
                 float x = (i - (lineCount / 2)) * lineGap;
                 x -= axOffset;
-                HMM_Vec2 pts[] = { mousePosInPlane, mousePosInPlane };
+                HMM_Vec2 pts[] = { inter->mousePosGlobal, inter->mousePosGlobal };
                 pts[0].Elements[ax] += x;
                 pts[0].Elements[!ax] += 1.5 * scaleFactor;
                 pts[1].Elements[ax] += x;
                 pts[1].Elements[!ax] += -1.5 * scaleFactor;
 
                 HMM_Vec3 fadeOrigin = { 0 };
-                fadeOrigin.XY = mousePosInPlane;
+                fadeOrigin.XY = inter->mousePosGlobal;
                 // FIXME: have this invert color when behind smth in the scene
                 snzr_drawLineFaded(pts, 2, ui_colorAlmostBackground, 1, mvp, fadeOrigin, 0, 0.5 * scaleFactor);
             }
@@ -334,15 +411,27 @@ void sku_drawSketch(sk_Sketch* sketch, HMM_Mat4 vp, HMM_Mat4 model, snz_Arena* s
 
     {  // selection // UI state updates
         // doing this instead of snzu_Interaction.dragBeginning bc. mouse pos is projected
+        snzu_Action leftAct = inter->mouseActions[SNZU_MB_LEFT];
+        HMM_Vec2 mouse = inter->mousePosGlobal;
+
+        bool shiftPressed = SNZU_USE_MEM(bool, "shiftPressed");
+        {
+            if (!snzu_isNothingFocused()) {
+                shiftPressed = false;
+            } else {
+                shiftPressed = inter->keyMods & KMOD_SHIFT;
+            }
+        }
+
         HMM_Vec2* const dragOrigin = SNZU_USE_MEM(HMM_Vec2, "dragOrigin");
         bool* const dragging = SNZU_USE_MEM(bool, "dragging");
-        bool dragEnded = *dragging && mouseAct == SNZU_ACT_UP;
+        bool dragEnded = *dragging && leftAct == SNZU_ACT_UP;
 
-        if (mouseAct == SNZU_ACT_DOWN) {
-            *dragOrigin = mousePosInPlane;
+        if (leftAct == SNZU_ACT_DOWN) {
+            *dragOrigin = mouse;
             *dragging = true;
             // FIXME: what happens on the border of mouse not being projectable??
-        } else if (mouseAct == SNZU_ACT_NONE || mouseAct == SNZU_ACT_UP) {
+        } else if (leftAct == SNZU_ACT_NONE || leftAct == SNZU_ACT_UP) {
             *dragging = false;
         }
 
@@ -351,10 +440,10 @@ void sku_drawSketch(sk_Sketch* sketch, HMM_Mat4 vp, HMM_Mat4 model, snz_Arena* s
             // FIXME: this will also have to change to another variable that isn't selected once that happens, cause selected is persisted
             HMM_Vec2 start = HMM_V2(0, 0);
             HMM_Vec2 end = HMM_V2(0, 0);
-            start.X = SNZ_MIN(mousePosInPlane.X, dragOrigin->X);
-            start.Y = SNZ_MIN(mousePosInPlane.Y, dragOrigin->Y);
-            end.X = SNZ_MAX(mousePosInPlane.X, dragOrigin->X);
-            end.Y = SNZ_MAX(mousePosInPlane.Y, dragOrigin->Y);
+            start.X = SNZ_MIN(mouse.X, dragOrigin->X);
+            start.Y = SNZ_MIN(mouse.Y, dragOrigin->Y);
+            end.X = SNZ_MAX(mouse.X, dragOrigin->X);
+            end.Y = SNZ_MAX(mouse.Y, dragOrigin->Y);
             for (sk_Point* p = sketch->firstPoint; p; p = p->next) {
                 p->uiInfo.selected = false;
                 if (_sku_AABBContainsPt(start, end, p->pos)) {
@@ -372,8 +461,8 @@ void sku_drawSketch(sk_Sketch* sketch, HMM_Mat4 vp, HMM_Mat4 model, snz_Arena* s
                 HMM_Vec2 midpt = HMM_DivV2F(HMM_Add(l->p1->pos, l->p2->pos), 2.0f);
                 HMM_Vec3 transformedCenter = HMM_MulM4V4(model, HMM_V4(midpt.X, midpt.Y, 0, 1)).XYZ;
                 float distToCamera = HMM_Len(HMM_Sub(transformedCenter, cameraPos));
-                bool hovered = _sku_lineContainsPt(l->p1->pos, l->p2->pos, 0.01 * distToCamera, mousePosInPlane);
-                if (mouseAct == SNZU_ACT_DOWN && hovered) {
+                bool hovered = _sku_lineContainsPt(l->p1->pos, l->p2->pos, 0.01 * distToCamera, mouse);
+                if (leftAct == SNZU_ACT_DOWN && hovered) {
                     *dragging = false;  // cancel a drag before it is processed if it lands on this
                 }
 
@@ -391,8 +480,8 @@ void sku_drawSketch(sk_Sketch* sketch, HMM_Mat4 vp, HMM_Mat4 model, snz_Arena* s
                 HMM_Vec2 visualCenter;
                 float scaleFactor;
                 _sku_constraintScaleFactorAndCenter(c, model, cameraPos, &visualCenter, &scaleFactor);
-                bool hovered = _sku_constraintHovered(c, scaleFactor, visualCenter, mousePosInPlane);
-                if (mouseAct == SNZU_ACT_DOWN && hovered) {
+                bool hovered = _sku_constraintHovered(c, scaleFactor, visualCenter, mouse);
+                if (leftAct == SNZU_ACT_DOWN && hovered) {
                     *dragging = false;  // cancel a drag before it is processed if it lands on this
                 }
 
@@ -417,7 +506,7 @@ void sku_drawSketch(sk_Sketch* sketch, HMM_Mat4 vp, HMM_Mat4 model, snz_Arena* s
         }
 
         for (_sku_SketchEltUIStatus* status = firstStatus; status; status = status->next) {
-            if (mouseAct == SNZU_ACT_DOWN) {
+            if (leftAct == SNZU_ACT_DOWN) {
                 if (!shiftPressed && !status->hovered && !status->withinDragZone) {
                     status->eltUIInfo->selected = false;
                 } else if (status->hovered) {
@@ -439,7 +528,7 @@ void sku_drawSketch(sk_Sketch* sketch, HMM_Mat4 vp, HMM_Mat4 model, snz_Arena* s
         if (*dragging) {
             HMM_Vec4 color = ui_colorAccent;
             color.A = 0.2;
-            snzr_drawRect(*dragOrigin, mousePosInPlane,
+            snzr_drawRect(*dragOrigin, inter->mousePosGlobal,
                           HMM_V2(-100000, -100000), HMM_V2(100000, 100000),
                           color,
                           0, 0, HMM_V4(0, 0, 0, 0),
@@ -452,7 +541,7 @@ void sku_drawSketch(sk_Sketch* sketch, HMM_Mat4 vp, HMM_Mat4 model, snz_Arena* s
     }
 
     for (sk_Constraint* c = sketch->firstConstraint; c; c = c->nextAllocated) {
-        _sku_drawConstraint(c, model, cameraPos, scratch, mvp, soundPct);
+        _sku_drawConstraint(c, model, cameraPos, scratch, mvp, sound);
     }
 
     for (sk_Line* l = sketch->firstLine; l; l = l->next) {
@@ -464,6 +553,13 @@ void sku_drawSketch(sk_Sketch* sketch, HMM_Mat4 vp, HMM_Mat4 model, snz_Arena* s
         HMM_Vec4 color = HMM_LerpV4(ui_colorText, l->uiInfo.selectionAnim, ui_colorAccent);
         snzr_drawLine(points, 2, color, thickness, mvp);
     }
+
+    // for the main parent
+    snzu_boxScope() {
+        ui_buttonWithHighlight(true, "we 3d now");
+    }
+
+    snzu_frameDrawAndGenInteractions(inputs, mvp);
 
     glEnable(GL_DEPTH_TEST);
 }
