@@ -556,7 +556,7 @@ void sku_drawSketch(
 
     // for the main parent
     snzu_boxScope() {
-        ui_buttonWithHighlight(true, "we 3d now");
+        // ui_buttonWithHighlight(true, "we 3d now");
     }
 
     snzu_frameDrawAndGenInteractions(inputs, mvp);
