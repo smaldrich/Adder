@@ -289,7 +289,6 @@ void main_drawSettings() {
                 ui_setThemeDark();
                 // FIXME: when in dark mode, button with highlight is awful
                 // FIXME: when in dark mode, text in the scene is really weird but only when the left bar is moving
-                // FIXME: only the center of the grid around cursor is slightly dimmed???? the rest is normal?? why??
             }
         }
 

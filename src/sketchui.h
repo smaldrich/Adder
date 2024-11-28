@@ -261,7 +261,7 @@ static void _sku_drawConstraint(sk_Constraint* c, HMM_Mat4 model, HMM_Vec3 camer
         textTopLeft,
         HMM_V2(-100000, -100000), HMM_V2(100000, 100000),
         drawnColor, text, strlen(text), ui_titleFont,
-        mvp, drawnHeight, false, true);
+        mvp, drawnHeight, false);
 }
 
 static void _sku_drawManifold(sk_Point* p, HMM_Vec3 cameraPos, HMM_Mat4 model, HMM_Mat4 mvp, snz_Arena* scratch) {
@@ -556,9 +556,14 @@ void sku_drawSketch(
 
     // for the main parent
     snzu_boxScope() {
-        ui_buttonWithHighlight(true, "we 3d now");
+        snzu_boxNew("text area");
+        snzu_boxSetStartAx(4, SNZU_AX_Y);
+        snzu_boxSetColor(ui_colorAlmostBackground);
+        float height = 1;
+        snzuc_textArea(255, &ui_titleFont, height * 0.1, true, height, true);
     }
 
+    mvp = HMM_Mul(mvp, HMM_Scale(HMM_V3(1, -1, 1)));
     snzu_frameDrawAndGenInteractions(inputs, mvp);
 
     glEnable(GL_DEPTH_TEST);

@@ -66,7 +66,7 @@ void ui_init(snz_Arena* fontArena, snz_Arena* scratch) {
 // returns true on the frame it is clicked
 bool ui_buttonWithHighlight(bool selected, const char* name) {
     bool out = false;
-    HMM_Vec2 size = snzr_strSize(&ui_labelFont, name, strlen(name));
+    HMM_Vec2 size = snzr_strSize(&ui_labelFont, name, strlen(name), ui_labelFont.renderedSize);
 
     snzu_boxNew(name);
     snzu_boxSetSizeFromStart(size);

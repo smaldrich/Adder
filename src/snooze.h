@@ -627,7 +627,7 @@ static const stbtt_packedchar* _snzr_getGylphFromChar(const snzr_Font* font, cha
     return &font->packRange.chardata_for_range[glyph + 1];
 }
 
-HMM_Vec2 snzr_strSize(const snzr_Font* font, const char* str, uint64_t charCount) {
+HMM_Vec2 snzr_strSize(const snzr_Font* font, const char* str, uint64_t charCount, float targetHeight) {
     float x = 0;
     uint64_t lineCount = 1;
     for (uint64_t i = 0; i < charCount; i++) {
@@ -643,12 +643,14 @@ HMM_Vec2 snzr_strSize(const snzr_Font* font, const char* str, uint64_t charCount
         const stbtt_packedchar* glyph = _snzr_getGylphFromChar(font, str[i]);
         x += glyph->xadvance;
     }
-    return HMM_V2(x, lineCount * font->renderedSize);
+    float scaleFactor = targetHeight / font->renderedSize;
+    return HMM_Mul(HMM_V2(x, lineCount * font->renderedSize), scaleFactor);
 }
 
 // FIXME: disgusting function all the way down
-// flipVertical, when false, draws with +down, when true, +up
+// always renders with upwards on text being -, so do a matmul if that isn't ideal
 // when snap is on, rects per char get snapped to integer lines
+// FIXME: font should be a const*
 void snzr_drawTextScaled(HMM_Vec2 start,
                          HMM_Vec2 clipStart,
                          HMM_Vec2 clipEnd,
@@ -658,7 +660,7 @@ void snzr_drawTextScaled(HMM_Vec2 start,
                          snzr_Font font,
                          HMM_Mat4 vp,
                          float targetSize,
-                         bool snap, bool flipVertical) {
+                         bool snap) {
     // FIXME: layering system
     // FIXME: safe gl calls
     snzr_callGLFnOrError(glUseProgram(_snzr_globs.rectShaderId));
@@ -686,7 +688,6 @@ void snzr_drawTextScaled(HMM_Vec2 start,
     glUniform2f(loc, clipEnd.X, clipEnd.Y);
 
     float scaleFactor = targetSize / font.renderedSize;
-    float verticalFlip = flipVertical ? -1 : 1;
 
     HMM_Vec2 drawPos = HMM_V2(start.X, start.Y);
     assert(charCount < INT64_MAX);
@@ -695,7 +696,7 @@ void snzr_drawTextScaled(HMM_Vec2 start,
             break;
         }
         if (*c == '\n') {
-            drawPos.Y += (verticalFlip) * (font.lineGap + font.ascent - font.descent) * scaleFactor;
+            drawPos.Y += (font.lineGap + font.ascent - font.descent) * scaleFactor;
             drawPos.X = start.X;
             continue;
         } else if (*c == '\r') {
@@ -709,8 +710,8 @@ void snzr_drawTextScaled(HMM_Vec2 start,
         {
             const stbtt_packedchar* b = _snzr_getGylphFromChar(&font, *c);
 
-            HMM_Vec2 s = HMM_MulV2F(HMM_V2(b->xoff, b->yoff * verticalFlip), scaleFactor);
-            HMM_Vec2 e = HMM_MulV2F(HMM_V2(b->xoff2, b->yoff2 * verticalFlip), scaleFactor);
+            HMM_Vec2 s = HMM_MulV2F(HMM_V2(b->xoff, b->yoff), scaleFactor);
+            HMM_Vec2 e = HMM_MulV2F(HMM_V2(b->xoff2, b->yoff2), scaleFactor);
             dstStart = HMM_AddV2(drawPos, s);
             dstEnd = HMM_AddV2(dstStart, HMM_Sub(e, s));
 
@@ -748,7 +749,7 @@ void snzr_drawText(HMM_Vec2 start,
                    uint64_t charCount,
                    snzr_Font font,
                    HMM_Mat4 vp) {
-    snzr_drawTextScaled(start, clipStart, clipEnd, color, str, charCount, font, vp, font.renderedSize, true, false);
+    snzr_drawTextScaled(start, clipStart, clipEnd, color, str, charCount, font, vp, font.renderedSize, true);
 }
 
 // FIXME: disgusting hack on the shader for this
@@ -905,6 +906,8 @@ struct _snzu_Box {
     uint64_t displayStrLen;
     const snzr_Font* font;
     HMM_Vec4 displayStrColor;
+    bool displayStrRemoveSnap;
+    float displayStrRenderedHeight;
 
     HMM_Vec2 clippedStart;
     HMM_Vec2 clippedEnd;
@@ -1146,16 +1149,19 @@ static void _snzu_drawBoxAndChildren(_snzu_Box* parent, HMM_Vec2 clipStart, HMM_
 
     if (parent->displayStr != NULL) {
         HMM_Vec2 textPos = HMM_DivV2F(HMM_AddV2(parent->start, parent->end), 2);  // set to the midpoint of the box
-        HMM_Vec2 textSize = snzr_strSize(parent->font, parent->displayStr, parent->displayStrLen);
+        HMM_Vec2 textSize = snzr_strSize(parent->font, parent->displayStr, parent->displayStrLen, parent->displayStrRenderedHeight);
         textPos = HMM_SubV2(textPos, HMM_DivV2F(textSize, 2));
-        textPos = HMM_AddV2(textPos, HMM_V2(0, parent->font->ascent));
-        snzr_drawText(
+        float scaleFactor = (parent->displayStrRenderedHeight / parent->font->renderedSize);
+        textPos.Y += parent->font->ascent * scaleFactor;
+        snzr_drawTextScaled(
             textPos,
             clipStart, clipEnd,
             parent->displayStrColor,
             parent->displayStr, parent->displayStrLen,
             *parent->font,
-            vp);
+            vp,
+            parent->displayStrRenderedHeight,
+            !parent->displayStrRemoveSnap);
     }
 
     for (_snzu_Box* child = parent->firstChild; child; child = child->nextSibling) {
@@ -1383,6 +1389,7 @@ void snzu_boxSetDisplayStrLen(const snzr_Font* font, HMM_Vec4 color, const char*
     _snzu_instance->selectedBox->displayStrColor = color;
     _snzu_instance->selectedBox->displayStr = str;
     _snzu_instance->selectedBox->displayStrLen = strLen;
+    _snzu_instance->selectedBox->displayStrRenderedHeight = font->renderedSize;
 }
 
 // str is null terminated, must last until the end of the frame
@@ -1391,16 +1398,9 @@ void snzu_boxSetDisplayStr(const snzr_Font* font, HMM_Vec4 color, const char* st
     snzu_boxSetDisplayStrLen(font, color, str, strlen(str));
 }
 
-void snzu_boxSetDisplayStrF(snzr_Font* font, const char* fmt, ...) {
-    va_list argp;
-    va_start(argp, fmt);
-    int l = vsnprintf(NULL, 0, fmt, argp);
-    char* chars = SNZ_ARENA_PUSH_ARR(_snzu_instance->frameArena, l + 1, char);
-    vsnprintf(chars, l + 1, fmt, argp);
-    _snzu_instance->selectedBox->displayStr = chars;
-    _snzu_instance->selectedBox->displayStrLen = l;
-    _snzu_instance->selectedBox->font = font;
-    va_end(argp);
+void snzu_boxSetDisplayStrMode(float height, bool removeSnap) {
+    _snzu_instance->selectedBox->displayStrRenderedHeight = height;
+    _snzu_instance->selectedBox->displayStrRemoveSnap = removeSnap;
 }
 
 void snzu_boxSetStart(HMM_Vec2 newStart) {
@@ -1495,6 +1495,7 @@ void snzu_boxFillParent() {
     _snzu_instance->selectedBox->end = _snzu_instance->selectedBox->parent->end;
 }
 
+// FIXME: setSize
 void snzu_boxSizePctParent(float pct, snzu_Axis ax) {
     HMM_Vec2 newSize = snzu_boxGetSize(_snzu_instance->selectedBox->parent);
     snzu_boxSetSizeFromStartAx(ax, newSize.Elements[ax] * pct);
@@ -1600,12 +1601,13 @@ void snzu_boxOrderSiblingsInRowRecurse(float gap, snzu_Axis ax) {
 }
 
 // changes only end
-// padding in pixels, measures the gap between text and box on all sides
+// padding in pixels, measures the gap between text and box on all sides, isnt scaled by boxSetDisplayStrSettings
 void snzu_boxSetSizeFitText(float padding) {
-    const snzr_Font* font = _snzu_instance->selectedBox->font;
-    HMM_Vec2 size = snzr_strSize(font, _snzu_instance->selectedBox->displayStr, _snzu_instance->selectedBox->displayStrLen);
+    _snzu_Box* box = _snzu_instance->selectedBox;
+    const snzr_Font* font = box->font;
+    HMM_Vec2 size = snzr_strSize(font, box->displayStr, box->displayStrLen, box->displayStrRenderedHeight);
     size = HMM_AddV2(size, HMM_V2(padding * 2, padding * 2));
-    _snzu_instance->selectedBox->end = HMM_AddV2(_snzu_instance->selectedBox->start, size);
+    box->end = HMM_AddV2(box->start, size);
 }
 
 float snzu_boxGetMaxChildSizeAx(snzu_Axis ax) {
@@ -1833,13 +1835,13 @@ bool snzuc_textAreaRemove(snzuc_TextArea* text, int64_t removePos, int64_t remov
 }
 
 // doesn't account for newlines, end result is clamped to be a valid index within str
-static int64_t _snzuc_textAreaIndexFromCursorPos(snzuc_TextArea* text, float cursorRelativeToStart) {
+static int64_t _snzuc_textAreaIndexFromCursorPos(snzuc_TextArea* text, float cursorRelativeToStart, float textHeight) {
     // TODO: offset click zones to make right char boxes extend a little left
     _snzuc_textAreaAssertValid(text);
 
     for (int i = 0; i < text->charCount; i++) {
         // TODO: this could be incrementally calculated but i don't care
-        float charX = snzr_strSize(text->font, text->chars, i + 1).X;
+        float charX = snzr_strSize(text->font, text->chars, i + 1, textHeight).X;
         if (cursorRelativeToStart < charX) {
             return i;
         }
@@ -1915,7 +1917,7 @@ static int64_t _snzuc_textAreaNextWordFromCursor(snzuc_TextArea* text, bool dir)
 
 // FIXME: max char count should not change at any point, as it is only used to allocate on the first frame.
 // FIXME: bettery recovery than just not applying when it changes
-void snzuc_textArea(_snzu_Box* container, int64_t maxCharCount, const snzr_Font* font, float padding) {
+const char* snzuc_textArea(int64_t maxCharCount, const snzr_Font* font, float padding, bool removeSnap, float textHeight, bool hugContents) {
     /*
     FEATURES:
     [X] selection zones
@@ -1934,8 +1936,8 @@ void snzuc_textArea(_snzu_Box* container, int64_t maxCharCount, const snzr_Font*
     [ ] return chars
     */
 
-    snzu_boxSelect(container);  // TODO: it's unclear how this affects boxnew, fix please
-    snzu_boxClipChildren();
+    _snzu_Box* container = snzu_getSelectedBox();
+    // snzu_boxClipChildren();
 
     char* const chars = SNZU_USE_ARRAY(char, maxCharCount, "chars");
     snzuc_TextArea* const text = SNZU_USE_MEM(snzuc_TextArea, "struct");
@@ -1960,7 +1962,7 @@ void snzuc_textArea(_snzu_Box* container, int64_t maxCharCount, const snzr_Font*
             text->firstClickForFocus = true;
         } else {
             float mouseX = inter->mousePosLocal.X - padding;
-            text->selectionStart = _snzuc_textAreaIndexFromCursorPos(text, mouseX);
+            text->selectionStart = _snzuc_textAreaIndexFromCursorPos(text, mouseX, textHeight);
             text->cursorPos = text->selectionStart;
         }
         snzu_boxSetFocused();
@@ -1968,7 +1970,7 @@ void snzuc_textArea(_snzu_Box* container, int64_t maxCharCount, const snzr_Font*
 
     if (!text->firstClickForFocus && inter->mouseActions[SNZU_MB_LEFT] == SNZU_ACT_DRAG) {
         float mouseX = inter->mousePosLocal.X - padding;
-        text->cursorPos = _snzuc_textAreaIndexFromCursorPos(text, mouseX);
+        text->cursorPos = _snzuc_textAreaIndexFromCursorPos(text, mouseX, textHeight);
     }
 
     if (!text->firstClickForFocus && inter->mouseActions[SNZU_MB_LEFT] == SNZU_ACT_UP) {
@@ -1992,8 +1994,6 @@ void snzuc_textArea(_snzu_Box* container, int64_t maxCharCount, const snzr_Font*
     float* focusedAnim = SNZU_USE_MEM(float, "focusedAnim");
     snzu_easeExp(focusedAnim, focused, 20);
     snzu_boxHighlightByAnim(focusedAnim, HMM_V4(0.2, 0.2, 0.2, 1), 0.1);
-    snzu_boxSetCornerRadius(7 + 5 * *focusedAnim);
-    snzu_boxSetBorder(*focusedAnim * 3, HMM_V4(0, 0, 0, 0.5));
 
     // only process keystrokes when focused
     if (focused) {
@@ -2056,13 +2056,21 @@ void snzuc_textArea(_snzu_Box* container, int64_t maxCharCount, const snzr_Font*
         _snzuc_textAreaAssertValid(text);
     }  // end focus check to process keys
 
+    _snzuc_textAreaAssertValid(text);
+
+    if (hugContents) {
+        HMM_Vec2 size = snzr_strSize(text->font, text->chars, text->charCount, textHeight);
+        size = HMM_Add(size, HMM_Mul(HMM_V2(padding, padding), 2.0f));
+        snzu_boxSetSizeFromStart(size);
+    }
+
     snzu_boxScope() {
         if (focused) {
             if (text->selectionStart != -1 && text->selectionStart != text->cursorPos) {
                 snzu_boxNew("selectionBox");
                 snzu_boxSetSizeMarginFromParent(padding);
-                float startOffset = snzr_strSize(text->font, text->chars, text->selectionStart).X;
-                float endOffset = snzr_strSize(text->font, text->chars, text->cursorPos).X;
+                float startOffset = snzr_strSize(text->font, text->chars, text->selectionStart, textHeight).X;
+                float endOffset = snzr_strSize(text->font, text->chars, text->cursorPos, textHeight).X;
                 if (endOffset < startOffset) {
                     float temp = startOffset;
                     startOffset = endOffset;
@@ -2074,23 +2082,23 @@ void snzuc_textArea(_snzu_Box* container, int64_t maxCharCount, const snzr_Font*
             }
         }
 
-        // FIXME: clipping for text and innards
         snzu_boxNew("text");
         snzu_boxFillParent();
         snzu_boxSetDisplayStrLen(text->font, HMM_V4(1, 1, 1, 1), text->chars, text->charCount);
+        snzu_boxSetDisplayStrMode(textHeight, removeSnap);
         snzu_boxSetSizeFitText(padding);  // aligns text left
 
         if (focused) {
             snzu_boxNew("cursor");
-            float cursorStartX = snzr_strSize(text->font, text->chars, text->cursorPos).X + padding;
-            snzu_boxSetSizeMarginFromParent(8);  // TODO: make font based + fix alignment
+            float cursorStartX = (snzr_strSize(text->font, text->chars, text->cursorPos, textHeight).X) + padding;
+            snzu_boxFillParent();
             snzu_boxSetStartAx(container->start.X + cursorStartX, SNZU_AX_X);
-            snzu_boxSetSizeFromStartAx(SNZU_AX_X, 1);
+            snzu_boxSetSizeFromStartAx(SNZU_AX_X, padding);
             snzu_boxSetColor(HMM_V4(1, 1, 1, 1));
         }
     }  // end inners
 
-    _snzuc_textAreaAssertValid(text);
+    return text->chars;
 }  // end text area
 
 // outbox may be null - title used for the boxes id and display name
