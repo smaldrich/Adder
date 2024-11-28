@@ -310,8 +310,6 @@ typedef enum {
 main_View main_currentView;
 
 void main_frame(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screenSize) {
-    snzu_instanceSelect(&main_sketchUIInstance);
-    snzu_frameStart(scratch, HMM_V2(0, 0), dt);
     snzu_instanceSelect(&main_uiInstance);
     snzu_frameStart(scratch, screenSize, dt);
 
