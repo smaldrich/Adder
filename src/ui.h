@@ -19,6 +19,7 @@ float ui_lightAmbient;
 
 float ui_cornerRadius = 15;
 float ui_borderThickness = 4;
+float ui_padding = 5;
 
 snzr_Texture ui_skyBox = { 0 };
 snzr_Texture ui_lightSky = { 0 };
@@ -88,7 +89,7 @@ bool ui_buttonWithHighlight(bool selected, const char* name) {
         snzu_boxNew("text");
         snzu_boxSetStartFromParentKeepSizeRecurse(HMM_V2((*hoverAnim + *selectedAnim) * 10, 0));
         snzu_boxSetDisplayStr(&ui_labelFont, ui_colorText, name);
-        snzu_boxSetSizeFitText();
+        snzu_boxSetSizeFitText(ui_padding);
     }
     snzu_boxSetSizeFromStartAx(SNZU_AX_Y, snzu_boxGetSizeToFitChildrenAx(SNZU_AX_Y));
 
@@ -119,7 +120,7 @@ void ui_switch(const char* boxTag, const char* label, bool* const state) {
 
     snzu_boxScope() {
         snzu_boxNew("switch back");
-        snzu_boxSetStart(HMM_V2(0, SNZU_TEXT_PADDING - 0.1 * ui_labelFont.renderedSize));  // FIXME: ew
+        snzu_boxSetStart(HMM_V2(0, ui_padding - 0.1 * ui_labelFont.renderedSize));  // FIXME: ew
         snzu_boxSetSizeFromStart(HMM_V2(sliderWidth, textHeight));
         snzu_boxSetCornerRadius(textHeight / 2);
 
@@ -141,7 +142,7 @@ void ui_switch(const char* boxTag, const char* label, bool* const state) {
 
         snzu_boxNew("label");
         snzu_boxSetDisplayStr(&ui_labelFont, ui_colorText, label);
-        snzu_boxSetSizeFitText();
+        snzu_boxSetSizeFitText(ui_padding);
         snzu_boxSetPosAfterRecurse(10, SNZU_AX_X);  // FIXME: spacing var
     }
     snzu_boxSetSizeFitChildren();

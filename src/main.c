@@ -277,7 +277,7 @@ void main_drawSettings() {
     snzu_boxScope() {
         snzu_boxNew("title");
         snzu_boxSetDisplayStr(&ui_titleFont, ui_colorText, "Settings");
-        snzu_boxSetSizeFitText();
+        snzu_boxSetSizeFitText(ui_padding);
 
         bool prev = main_inDarkMode;
         ui_switch("darkmode", "Dark Theme", &main_inDarkMode);

@@ -79,11 +79,11 @@ void docs_buildPage() {
         snzu_boxScope() {
             snzu_boxNew("header");
             snzu_boxSetDisplayStr(&ui_titleFont, ui_colorText, _docs_currentFile->name);
-            snzu_boxSetSizeFitText();
+            snzu_boxSetSizeFitText(ui_padding);
 
             snzu_boxNew("text");
             snzu_boxSetDisplayStr(&ui_paragraphFont, ui_colorText, _docs_currentFile->text);
-            snzu_boxSetSizeFitText();
+            snzu_boxSetSizeFitText(ui_padding);
         }  // scroll area for files
         snzu_boxOrderChildrenInRowRecurse(10, SNZU_AX_Y);
         snzuc_scrollArea();

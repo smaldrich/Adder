@@ -120,17 +120,17 @@ void sc_updateAndBuildHintWindow() {
                     _sc_Command* c = &_sc_commands[i];
                     snzu_boxNew(c->nameLabel);
                     snzu_boxFillParent();
-                    snzu_boxSetSizeFromStartAx(SNZU_AX_Y, ui_lightLabelFont.renderedSize + 2 * SNZU_TEXT_PADDING);
+                    snzu_boxSetSizeFromStartAx(SNZU_AX_Y, ui_lightLabelFont.renderedSize + 2 * ui_padding);
                     snzu_boxScope() {
                         snzu_boxNew("desc");
                         snzu_boxSetDisplayStr(&ui_lightLabelFont, ui_colorText, c->nameLabel);
-                        snzu_boxSetSizeFitText();
+                        snzu_boxSetSizeFitText(ui_padding);
                         snzu_boxAlignInParent(SNZU_AX_X, SNZU_ALIGN_RIGHT);
                         snzu_boxAlignInParent(SNZU_AX_Y, SNZU_ALIGN_CENTER);
 
                         snzu_boxNew("key");
                         snzu_boxSetDisplayStr(&ui_shortcutFont, ui_colorText, c->keyLabel);
-                        snzu_boxSetSizeFitText();
+                        snzu_boxSetSizeFitText(ui_padding);
                         snzu_boxAlignInParent(SNZU_AX_X, SNZU_ALIGN_LEFT);
                         snzu_boxAlignInParent(SNZU_AX_Y, SNZU_ALIGN_CENTER);
                     }
@@ -147,7 +147,7 @@ void sc_buildSettings() {
     snzu_boxScope() {
         snzu_boxNew("title");
         snzu_boxSetDisplayStr(&ui_titleFont, ui_colorText, "Shortcuts");
-        snzu_boxSetSizeFitText();
+        snzu_boxSetSizeFitText(ui_padding);
     }
     snzu_boxOrderChildrenInRowRecurse(10, SNZU_AX_Y);
     snzuc_scrollArea();

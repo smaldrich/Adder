@@ -814,9 +814,6 @@ void snzr_drawLine(HMM_Vec2* pts, uint64_t ptCount, HMM_Vec4 color, float thickn
 // UI ==========================================================================
 // UI ==========================================================================
 
-#define SNZU_TEXT_PADDING 5
-// FIXME: ^ these should be part of the component lib, not hardcoded
-
 // TODO: new as parent
 // TODO: easing functions
 // TODO: test shiz
@@ -1603,10 +1600,11 @@ void snzu_boxOrderSiblingsInRowRecurse(float gap, snzu_Axis ax) {
 }
 
 // changes only end
-void snzu_boxSetSizeFitText() {
+// padding in pixels, measures the gap between text and box on all sides
+void snzu_boxSetSizeFitText(float padding) {
     const snzr_Font* font = _snzu_instance->selectedBox->font;
     HMM_Vec2 size = snzr_strSize(font, _snzu_instance->selectedBox->displayStr, _snzu_instance->selectedBox->displayStrLen);
-    size = HMM_AddV2(size, HMM_V2(SNZU_TEXT_PADDING * 2, SNZU_TEXT_PADDING * 2));
+    size = HMM_AddV2(size, HMM_V2(padding * 2, padding * 2));
     _snzu_instance->selectedBox->end = HMM_AddV2(_snzu_instance->selectedBox->start, size);
 }
 
@@ -1917,7 +1915,7 @@ static int64_t _snzuc_textAreaNextWordFromCursor(snzuc_TextArea* text, bool dir)
 
 // FIXME: max char count should not change at any point, as it is only used to allocate on the first frame.
 // FIXME: bettery recovery than just not applying when it changes
-void snzuc_textArea(_snzu_Box* container, int64_t maxCharCount, const snzr_Font* font) {
+void snzuc_textArea(_snzu_Box* container, int64_t maxCharCount, const snzr_Font* font, float padding) {
     /*
     FEATURES:
     [X] selection zones
@@ -1961,7 +1959,7 @@ void snzuc_textArea(_snzu_Box* container, int64_t maxCharCount, const snzr_Font*
             text->cursorPos = text->charCount;
             text->firstClickForFocus = true;
         } else {
-            float mouseX = inter->mousePosLocal.X - SNZU_TEXT_PADDING;
+            float mouseX = inter->mousePosLocal.X - padding;
             text->selectionStart = _snzuc_textAreaIndexFromCursorPos(text, mouseX);
             text->cursorPos = text->selectionStart;
         }
@@ -1969,7 +1967,7 @@ void snzuc_textArea(_snzu_Box* container, int64_t maxCharCount, const snzr_Font*
     }
 
     if (!text->firstClickForFocus && inter->mouseActions[SNZU_MB_LEFT] == SNZU_ACT_DRAG) {
-        float mouseX = inter->mousePosLocal.X - SNZU_TEXT_PADDING;
+        float mouseX = inter->mousePosLocal.X - padding;
         text->cursorPos = _snzuc_textAreaIndexFromCursorPos(text, mouseX);
     }
 
@@ -2062,7 +2060,7 @@ void snzuc_textArea(_snzu_Box* container, int64_t maxCharCount, const snzr_Font*
         if (focused) {
             if (text->selectionStart != -1 && text->selectionStart != text->cursorPos) {
                 snzu_boxNew("selectionBox");
-                snzu_boxSetSizeMarginFromParent(SNZU_TEXT_PADDING);
+                snzu_boxSetSizeMarginFromParent(padding);
                 float startOffset = snzr_strSize(text->font, text->chars, text->selectionStart).X;
                 float endOffset = snzr_strSize(text->font, text->chars, text->cursorPos).X;
                 if (endOffset < startOffset) {
@@ -2070,8 +2068,8 @@ void snzuc_textArea(_snzu_Box* container, int64_t maxCharCount, const snzr_Font*
                     startOffset = endOffset;
                     endOffset = temp;
                 }
-                snzu_boxSetStartAx(container->start.X + SNZU_TEXT_PADDING + startOffset, SNZU_AX_X);
-                snzu_boxSetEndAx(container->start.X + SNZU_TEXT_PADDING + endOffset, SNZU_AX_X);
+                snzu_boxSetStartAx(container->start.X + padding + startOffset, SNZU_AX_X);
+                snzu_boxSetEndAx(container->start.X + padding + endOffset, SNZU_AX_X);
                 snzu_boxSetColor(HMM_V4(47 / 255.0, 145 / 255.0, 237 / 255.0, 0.6));
             }
         }
@@ -2080,11 +2078,11 @@ void snzuc_textArea(_snzu_Box* container, int64_t maxCharCount, const snzr_Font*
         snzu_boxNew("text");
         snzu_boxFillParent();
         snzu_boxSetDisplayStrLen(text->font, HMM_V4(1, 1, 1, 1), text->chars, text->charCount);
-        snzu_boxSetSizeFitText();  // aligns text left
+        snzu_boxSetSizeFitText(padding);  // aligns text left
 
         if (focused) {
             snzu_boxNew("cursor");
-            float cursorStartX = snzr_strSize(text->font, text->chars, text->cursorPos).X + SNZU_TEXT_PADDING;
+            float cursorStartX = snzr_strSize(text->font, text->chars, text->cursorPos).X + padding;
             snzu_boxSetSizeMarginFromParent(8);  // TODO: make font based + fix alignment
             snzu_boxSetStartAx(container->start.X + cursorStartX, SNZU_AX_X);
             snzu_boxSetSizeFromStartAx(SNZU_AX_X, 1);
@@ -2096,10 +2094,10 @@ void snzuc_textArea(_snzu_Box* container, int64_t maxCharCount, const snzr_Font*
 }  // end text area
 
 // outbox may be null - title used for the boxes id and display name
-bool snzuc_button(const snzr_Font* font, const char* title) {
+bool snzuc_button(const snzr_Font* font, const char* title, float padding) {
     snzu_boxNew(title);
     snzu_boxSetDisplayStr(font, HMM_V4(1, 1, 1, 1), title);
-    snzu_boxSetSizeFitText();
+    snzu_boxSetSizeFitText(padding);
     snzu_Interaction* inter = SNZU_USE_MEM(snzu_Interaction, "interaction");
     snzu_boxSetInteractionOutput(inter, SNZU_IF_MOUSE_BUTTONS | SNZU_IF_HOVER);
 
