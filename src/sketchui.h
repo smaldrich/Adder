@@ -296,6 +296,7 @@ static void _sku_drawAndBuildConstraint(sk_Constraint* c, HMM_Mat4 model, HMM_Ve
         if (c->kind == SK_CK_ANGLE) {
             renderedVal = HMM_ToDeg(renderedVal);
         }
+        // FIXME: cull trailing zeros
         const char* str = snz_arenaFormatStr(scratch, "%.2f%s", renderedVal, suffix);
         strcpy(textArea->chars, str);
         textArea->charCount = strlen(str);
