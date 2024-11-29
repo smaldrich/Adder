@@ -264,6 +264,7 @@ static void _sku_drawAndBuildConstraint(sk_Constraint* c, HMM_Mat4 model, HMM_Ve
         ui_textAreaInit(text, textArea);
     }
     ui_textArea(textArea, &ui_titleFont, drawnHeight);
+    todo make double clicks work and also selection via the big giant label that this is;
 
     // FIXME: flip labels if camera is on the other side
     // FIXME: less self intersection on angled lines
@@ -518,6 +519,10 @@ void sku_drawSketch(
         }
 
         for (_sku_SketchEltUIStatus* status = firstStatus; status; status = status->next) {
+            if (!snzu_isNothingFocused()) {
+                status->eltUIInfo->selected = false;
+            }
+
             if (leftAct == SNZU_ACT_DOWN) {
                 if (!shiftPressed && !status->hovered && !status->withinDragZone) {
                     status->eltUIInfo->selected = false;
