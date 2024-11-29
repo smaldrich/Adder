@@ -235,6 +235,17 @@ static void _sku_drawAndBuildConstraint(sk_Constraint* c, HMM_Mat4 model, HMM_Ve
             HMM_Vec2 angles = _sku_angleOfLinesInAngleConstraint(c);
             float startAngle = angles.X;
             float angleRange = angles.Y - startAngle;
+            if (c->value < 0) {
+                while (angleRange > 0) {
+                    angleRange -= HMM_AngleDeg(360);
+                }
+            } else {
+                while (angleRange < 0) {
+                    angleRange += HMM_AngleDeg(360);
+                }
+            } // force angle range to go the correct way around based on the sign of the constraint value
+            // FIXME: this is kinda hacky, i'm sure theres a more direct way of fixing this by modifying _sku_angleOfLinesInAngleConstraint,
+            // but this works so were gonna leave it.
 
             int ptCount = (int)(fabsf(angleRange) / HMM_AngleDeg(10)) + 1;
             HMM_Vec2* linePts = SNZ_ARENA_PUSH_ARR(scratch, ptCount, HMM_Vec2);
