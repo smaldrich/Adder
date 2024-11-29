@@ -263,8 +263,7 @@ static void _sku_drawAndBuildConstraint(sk_Constraint* c, HMM_Mat4 model, HMM_Ve
     if (snzu_useMemIsPrevNew()) {
         ui_textAreaInit(text, textArea);
     }
-    ui_textArea(textArea, &ui_titleFont, drawnHeight);
-    todo make double clicks work and also selection via the big giant label that this is;
+    ui_textArea(textArea, &ui_titleFont, drawnHeight, drawnColor);
 
     // FIXME: flip labels if camera is on the other side
     // FIXME: less self intersection on angled lines

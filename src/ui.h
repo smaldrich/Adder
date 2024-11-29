@@ -154,7 +154,7 @@ typedef struct {
     int64_t selectionStart;
 
     bool wasFocused;
-    bool firstClickForFocus;
+    bool firstClickForFocus; // needs to be persisted so that other things don't trigger while mouse is down
 
     const snzr_Font* font;
 
@@ -315,7 +315,8 @@ void ui_textAreaInit(const char* str, ui_TextArea* const text) {
 // FIXME: max char count should not change at any point, it is likely to mess up some internal state severely, and thats bad
 // charCount and chars are read/write vars
 // use ui_textAreaInit before passing in a textArea struct
-void ui_textArea(ui_TextArea* const text, const snzr_Font* font, float textHeight) {
+// text is expected to be usememd
+void ui_textArea(ui_TextArea* const text, const snzr_Font* font, float textHeight, HMM_Vec4 textColor) {
     /*
     FEATURES:
     [X] selection zones
@@ -343,46 +344,60 @@ void ui_textArea(ui_TextArea* const text, const snzr_Font* font, float textHeigh
     snzu_Interaction* inter = SNZU_USE_MEM(snzu_Interaction, "inter");
     snzu_boxSetInteractionOutput(inter, SNZU_IF_HOVER | SNZU_IF_MOUSE_BUTTONS);
 
-    if (inter->mouseActions[SNZU_MB_LEFT] == SNZU_ACT_DOWN) {
+    // if (inter->mouseActions[SNZU_MB_LEFT] == SNZU_ACT_DOWN) {
+    //     if (!text->wasFocused) {
+    //         if (text->charCount != 0) {
+    //             text->selectionStart = 0;
+    //         }
+    //         text->cursorPos = text->charCount;
+    //         firstClickForFocus = true;
+    //     } else {
+    //         float mouseX = inter->mousePosLocal.X - padding;
+    //         text->selectionStart = _ui_textAreaIndexFromCursorPos(text, mouseX, textHeight);
+    //         text->cursorPos = text->selectionStart;
+    //     }
+    //     snzu_boxSetFocused();
+    // }
+
+    if (inter->doubleClicked) {
+        text->firstClickForFocus = true;
+        snzu_boxSetFocused();
+
+        if (text->charCount != 0) {
+            text->selectionStart = 0;
+        }
+        text->cursorPos = text->charCount;
+    } else if (inter->mouseActions[SNZU_MB_LEFT] == SNZU_ACT_DOWN) {
         text->firstClickForFocus = false;
-        if (!text->wasFocused) {
-            if (text->charCount != 0) {
-                text->selectionStart = 0;
-            }
-            text->cursorPos = text->charCount;
-            text->firstClickForFocus = true;
-        } else {
+        if (text->wasFocused) {
+            snzu_boxSetFocused();
             float mouseX = inter->mousePosLocal.X - padding;
             text->selectionStart = _ui_textAreaIndexFromCursorPos(text, mouseX, textHeight);
             text->cursorPos = text->selectionStart;
-        }
-        snzu_boxSetFocused();
-    }
-
-    if (!text->firstClickForFocus && inter->mouseActions[SNZU_MB_LEFT] == SNZU_ACT_DRAG) {
-        float mouseX = inter->mousePosLocal.X - padding;
-        text->cursorPos = _ui_textAreaIndexFromCursorPos(text, mouseX, textHeight);
-    }
-
-    if (!text->firstClickForFocus && inter->mouseActions[SNZU_MB_LEFT] == SNZU_ACT_UP) {
-        if (text->selectionStart == text->cursorPos) {
-            text->selectionStart = -1;
-        }
-    }
-
-    if (inter->keyAction == SNZU_ACT_DOWN) {
-        if (inter->keyCode == SDLK_ESCAPE || inter->keyCode == SDLK_RETURN) {
-            if (snzu_boxFocused()) {
-                snzu_clearFocus();
-                text->selectionStart = -1;
-            }
         }
     }
 
     bool focused = snzu_boxFocused();
     text->wasFocused = focused;
-    float* focusedAnim = SNZU_USE_MEM(float, "focusedAnim");
-    snzu_easeExp(focusedAnim, focused, 20);
+    if (focused) {
+        if (!text->firstClickForFocus && inter->mouseActions[SNZU_MB_LEFT] == SNZU_ACT_DRAG) {
+            float mouseX = inter->mousePosLocal.X - padding;
+            text->cursorPos = _ui_textAreaIndexFromCursorPos(text, mouseX, textHeight);
+        }
+
+        if (!text->firstClickForFocus && inter->mouseActions[SNZU_MB_LEFT] == SNZU_ACT_UP) {
+            if (text->selectionStart == text->cursorPos) {
+                text->selectionStart = -1;
+            }
+        }
+
+        if (inter->keyAction == SNZU_ACT_DOWN) {
+            if (inter->keyCode == SDLK_ESCAPE || inter->keyCode == SDLK_RETURN) {
+                snzu_clearFocus();
+                text->selectionStart = -1;
+            }
+        }
+    }
 
     // only process keystrokes when focused
     if (focused) {
@@ -471,7 +486,7 @@ void ui_textArea(ui_TextArea* const text, const snzr_Font* font, float textHeigh
 
         snzu_boxNew("text");
         snzu_boxFillParent();
-        snzu_boxSetDisplayStrLen(text->font, ui_colorText, text->chars, text->charCount);
+        snzu_boxSetDisplayStrLen(text->font, textColor, text->chars, text->charCount);
         snzu_boxSetDisplayStrMode(textHeight, true);
         snzu_boxSetSizeFitText(padding);  // aligns text left
 

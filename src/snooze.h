@@ -1717,17 +1717,7 @@ void snz_main(const char* windowTitle, snz_InitFunc initFunc, snz_FrameFunc fram
         SDL_GL_GetDrawableSize(window, &screenW, &screenH);
         _snzr_globs.screenSize = HMM_V2(screenW, screenH);
 
-        int mouseX, mouseY;
-        uint32_t mouseButtons = SDL_GetMouseState(&mouseX, &mouseY);
-
-        snzu_Input uiInputs = (snzu_Input){
-            .mousePos = HMM_V2(mouseX, mouseY),
-            .mouseStates[SNZU_MB_LEFT] = (SDL_BUTTON(SDL_BUTTON_LEFT) & mouseButtons),
-            .mouseStates[SNZU_MB_RIGHT] = (SDL_BUTTON(SDL_BUTTON_RIGHT) & mouseButtons),
-            .mouseStates[SNZU_MB_MIDDLE] = (SDL_BUTTON(SDL_BUTTON_MIDDLE) & mouseButtons),
-            .keyMods = SDL_GetModState(),
-            // chars entered and keycode/action taken care of via event polling loop
-        };
+        snzu_Input uiInputs = (snzu_Input){ 0 };
 
         SDL_Event e;
         while (SDL_PollEvent(&e)) {
@@ -1753,6 +1743,13 @@ void snz_main(const char* windowTitle, snz_InitFunc initFunc, snz_FrameFunc fram
             }
         }  // end event polling
 
+        int mouseX, mouseY;
+        uint32_t mouseButtons = SDL_GetMouseState(&mouseX, &mouseY);
+        uiInputs.mousePos = HMM_V2(mouseX, mouseY);
+        uiInputs.mouseStates[SNZU_MB_LEFT] = (SDL_BUTTON(SDL_BUTTON_LEFT) & mouseButtons);
+        uiInputs.mouseStates[SNZU_MB_RIGHT] = (SDL_BUTTON(SDL_BUTTON_RIGHT) & mouseButtons);
+        uiInputs.mouseStates[SNZU_MB_MIDDLE] = (SDL_BUTTON(SDL_BUTTON_MIDDLE) & mouseButtons);
+        uiInputs.keyMods = SDL_GetModState();
 
         snzr_callGLFnOrError(glBindFramebuffer(GL_FRAMEBUFFER, 0));
         snzr_callGLFnOrError(glViewport(0, 0, screenW, screenH));
