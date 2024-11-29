@@ -66,7 +66,8 @@ void sc_updateAndBuildHintWindow() {
                 .mods = inter->keyMods,
             };
 
-            if (!*activeCommand) {
+            // FIXME: this activates even when typing in a scene textbox bc it's a different instance
+            if (!*activeCommand && snzu_isNothingFocused()) {
                 for (int i = 0; i < _sc_commandCount; i++) {
                     _sc_Command* c = &_sc_commands[i];
                     if (kp.key == c->key.key && kp.mods == c->key.mods) {
@@ -76,7 +77,7 @@ void sc_updateAndBuildHintWindow() {
                 }
             }
 
-            if (kp.key == SDLK_ESCAPE) {
+            if (kp.key == SDLK_ESCAPE || !snzu_isNothingFocused()) {
                 *activeCommand = NULL;
             }
         }

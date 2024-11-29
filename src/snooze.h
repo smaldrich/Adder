@@ -882,9 +882,11 @@ struct snzu_Interaction {
     uint64_t keyMods;
     snzu_Action keyAction;
 
-    bool dragged;
+    bool dragged; // only uses LMB to detect
     HMM_Vec2 dragBeginningLocal;
     HMM_Vec2 dragBeginningGlobal;
+
+    bool doubleClicked; // only uses LMB
 };
 
 // FIXME: opaque ptr type
@@ -940,6 +942,7 @@ typedef struct {
     uint64_t keyCode;
     uint64_t keyMods;
     snzu_Action keyAction;
+    bool doubleClick; // only lmb
 } snzu_Input;
 
 typedef struct {
@@ -1242,6 +1245,7 @@ static void _snzu_genInteractionsForBoxAndChildren(_snzu_Box* box, uint64_t* rem
                 if (box->interactionTarget != NULL) {
                     snzu_Interaction* inter = box->interactionTarget;
                     memcpy(inter->mouseActions, _snzu_instance->mouseActions, sizeof(_snzu_instance->mouseActions));
+                    inter->doubleClicked = _snzu_instance->currentInputs.doubleClick;
                 }
             }  // end flag checks
         }  // end mouse button checks
@@ -1742,6 +1746,10 @@ void snz_main(const char* windowTitle, snz_InitFunc initFunc, snz_FrameFunc fram
                 for (uint64_t i = 0; i < _SNZU_TEXT_INPUT_CHAR_MAX; i++) {
                     uiInputs.charsEntered[i] = e.text.text[i];
                 }
+            } else if (e.type == SDL_MOUSEBUTTONDOWN) {
+                if (e.button.clicks == 2 && e.button.button == SDL_BUTTON_LEFT) {
+                    uiInputs.doubleClick = true;
+                }
             }
         }  // end event polling
 
@@ -1765,341 +1773,6 @@ void snz_main(const char* windowTitle, snz_InitFunc initFunc, snz_FrameFunc fram
 // UI COMPONENTS ===============================================================
 // UI COMPONENTS ===============================================================
 // UI COMPONENTS ===============================================================
-
-typedef struct {
-    char* chars;
-    int64_t charCount;
-    int64_t maxCharCount;
-
-    int64_t cursorPos;
-    int64_t selectionStart;
-
-    bool wasFocused;
-    bool firstClickForFocus;
-
-    const snzr_Font* font;
-} snzuc_TextArea;
-
-static void _snzuc_textAreaAssertValid(snzuc_TextArea* text) {
-    SNZ_ASSERTF(text->maxCharCount, "textarea maxCharCount negative or zero. was: %lld", text->maxCharCount);
-    SNZ_ASSERTF(text->charCount >= 0, "textarea charCount out of bounds. was: %lld", text->charCount);
-    SNZ_ASSERTF(text->charCount <= text->maxCharCount, "textarea charCount out of bounds. was: %lld", text->charCount);
-    SNZ_ASSERTF(text->cursorPos >= 0, "textarea cursor out of bounds. was: %lld", text->cursorPos);
-    SNZ_ASSERTF(text->cursorPos <= text->charCount, "textarea cursor out of bounds. was: %lld", text->cursorPos);
-    SNZ_ASSERTF(text->selectionStart >= -1, "textarea selection start out of bounds. was: %lld", text->selectionStart);
-    SNZ_ASSERTF(text->selectionStart <= text->charCount, "textarea selection start out of bounds. was: %lld", text->selectionStart);
-    SNZ_ASSERT(text->font != NULL, "text area font was NULL");
-}
-
-static void _snzuc_textAreaNormalizeCursor(snzuc_TextArea* text) {
-    if (text->cursorPos < 0) {
-        text->cursorPos = 0;
-    } else if (text->cursorPos > text->charCount) {
-        text->cursorPos = text->charCount;
-    }
-}
-
-// returns whether it was a successful insert (too long is a failure)
-bool snzuc_textAreaInsert(snzuc_TextArea* text, char* insertChars, int64_t insertLen, int64_t insertPos) {
-    _snzuc_textAreaAssertValid(text);
-
-    if (text->charCount + insertLen > text->maxCharCount) {
-        return false;
-    }
-
-    assert(insertPos >= 0);
-    assert(insertPos <= text->charCount);
-
-    memmove(&text->chars[insertPos + insertLen], &text->chars[insertPos], text->maxCharCount - insertPos - insertLen);
-    for (int64_t i = 0; i < insertLen; i++) {
-        text->chars[insertPos + i] = insertChars[i];
-    }
-    text->charCount += insertLen;
-    return true;
-}
-
-bool snzuc_textAreaRemove(snzuc_TextArea* text, int64_t removePos, int64_t removeLen) {
-    _snzuc_textAreaAssertValid(text);
-
-    if (text->charCount - removeLen < 0) {
-        return false;
-    } else if (removePos > text->charCount - removeLen) {
-        return false;
-    } else if (removePos < 0) {
-        return false;  // FIXME: this case should really clamp removepos to be valid and sub it from len
-    }
-
-    memmove(&text->chars[removePos], &text->chars[removePos + removeLen], text->maxCharCount - removePos - removeLen);
-    text->charCount -= removeLen;
-    return true;
-}
-
-// doesn't account for newlines, end result is clamped to be a valid index within str
-static int64_t _snzuc_textAreaIndexFromCursorPos(snzuc_TextArea* text, float cursorRelativeToStart, float textHeight) {
-    // TODO: offset click zones to make right char boxes extend a little left
-    _snzuc_textAreaAssertValid(text);
-
-    for (int i = 0; i < text->charCount; i++) {
-        // TODO: this could be incrementally calculated but i don't care
-        float charX = snzr_strSize(text->font, text->chars, i + 1, textHeight).X;
-        if (cursorRelativeToStart < charX) {
-            return i;
-        }
-    }
-    return text->charCount;
-}
-
-static void _snzuc_textAreaClearSelection(snzuc_TextArea* text) {
-    bool startIsSmaller = text->selectionStart < text->cursorPos;
-    int64_t lowerBound = (startIsSmaller ? text->selectionStart : text->cursorPos);
-    int64_t upperBound = (startIsSmaller ? text->cursorPos : text->selectionStart);
-    snzuc_textAreaRemove(text, lowerBound, upperBound - lowerBound);
-    text->cursorPos = lowerBound;
-    text->selectionStart = -1;
-    _snzuc_textAreaNormalizeCursor(text);
-}
-
-// dir = true is to the right, false to the left // returns index of the beginning of the next or previous word
-static int64_t _snzuc_textAreaNextWordFromCursor(snzuc_TextArea* text, bool dir) {
-    _snzuc_textAreaAssertValid(text);
-
-    if (dir) {
-        bool endedChars = false;
-        char initial = text->chars[text->cursorPos];
-        if (!isalnum(initial) && !isspace(initial)) {
-            endedChars = true;
-        }
-        for (int64_t i = (text->cursorPos + 1); i < text->charCount; i++) {
-            char c = text->chars[i];
-            if (!endedChars) {
-                // skip all alnums
-                if (isalnum(c) || c == '_') {
-                    continue;
-                }
-                endedChars = true;
-            }
-
-            // skip all whitespace
-            if (!isspace(c)) {
-                return i;
-            }
-        }
-        return text->charCount;
-    } else {
-        bool endedWhitespace = false;
-        bool endWithinWord = false;
-        for (int64_t i = (text->cursorPos - 1); i >= 0; i--) {
-            char c = text->chars[i];
-            // skip all whitespace
-            if (!endedWhitespace) {
-                if (isspace(c)) {
-                    continue;
-                }
-                endedWhitespace = true;
-            }
-
-            // skip all alnums
-            if (isalnum(c) || c == '_') {
-                endWithinWord = true;
-                continue;
-            }
-
-            if (!endWithinWord) {
-                // return on the invalid char if we have not seen any alnums so far, it's puncuation and it's own word
-                return i;
-            }
-            // otherwise, the breaking char is terminating a word, which case we should end within the word
-            return i + 1;
-        }
-        return 0;
-    }
-}
-
-// FIXME: max char count should not change at any point, as it is only used to allocate on the first frame.
-// FIXME: bettery recovery than just not applying when it changes
-const char* snzuc_textArea(int64_t maxCharCount, const snzr_Font* font, float padding, bool removeSnap, float textHeight, bool hugContents) {
-    /*
-    FEATURES:
-    [X] selection zones
-    [X] select all on initial click
-    [X] edits work with selections
-    [X] click to move cursor
-    [X] drag to select
-    [X] shift + arrows to select
-    [X] ctrl arrows to move betw words
-    [ ] home/end
-    [ ] ctrl+A
-    [ ] copy + paste to clipboard
-    [ ] multiple line support
-    [ ] scrolling view to fit more text/view cursor
-    [ ] FIXME: test cases for the whole thing lol
-    [ ] return chars
-    */
-
-    _snzu_Box* container = snzu_getSelectedBox();
-    // snzu_boxClipChildren();
-
-    char* const chars = SNZU_USE_ARRAY(char, maxCharCount, "chars");
-    snzuc_TextArea* const text = SNZU_USE_MEM(snzuc_TextArea, "struct");
-    if (snzu_useMemIsPrevNew()) {
-        text->chars = chars;
-        text->selectionStart = -1;
-        text->maxCharCount = maxCharCount;
-    }
-    text->font = font;
-    _snzuc_textAreaAssertValid(text);
-
-    snzu_Interaction* inter = SNZU_USE_MEM(snzu_Interaction, "inter");
-    snzu_boxSetInteractionOutput(inter, SNZU_IF_HOVER | SNZU_IF_MOUSE_BUTTONS);
-
-    if (inter->mouseActions[SNZU_MB_LEFT] == SNZU_ACT_DOWN) {
-        text->firstClickForFocus = false;
-        if (!text->wasFocused) {
-            if (text->charCount != 0) {
-                text->selectionStart = 0;
-            }
-            text->cursorPos = text->charCount;
-            text->firstClickForFocus = true;
-        } else {
-            float mouseX = inter->mousePosLocal.X - padding;
-            text->selectionStart = _snzuc_textAreaIndexFromCursorPos(text, mouseX, textHeight);
-            text->cursorPos = text->selectionStart;
-        }
-        snzu_boxSetFocused();
-    }
-
-    if (!text->firstClickForFocus && inter->mouseActions[SNZU_MB_LEFT] == SNZU_ACT_DRAG) {
-        float mouseX = inter->mousePosLocal.X - padding;
-        text->cursorPos = _snzuc_textAreaIndexFromCursorPos(text, mouseX, textHeight);
-    }
-
-    if (!text->firstClickForFocus && inter->mouseActions[SNZU_MB_LEFT] == SNZU_ACT_UP) {
-        if (text->selectionStart == text->cursorPos) {
-            text->selectionStart = -1;
-        }
-    }
-
-    if (inter->keyAction == SNZU_ACT_DOWN) {
-        if (inter->keyCode == SDLK_ESCAPE || inter->keyCode == SDLK_RETURN) {
-            if (snzu_boxFocused()) {
-                snzu_clearFocus();
-                text->selectionStart = -1;
-            }
-        }
-    }
-
-    bool focused = snzu_boxFocused();
-    text->wasFocused = focused;
-
-    float* focusedAnim = SNZU_USE_MEM(float, "focusedAnim");
-    snzu_easeExp(focusedAnim, focused, 20);
-    snzu_boxHighlightByAnim(focusedAnim, HMM_V4(0.2, 0.2, 0.2, 1), 0.1);
-
-    // only process keystrokes when focused
-    if (focused) {
-        bool selecting = text->selectionStart != -1 && text->selectionStart != text->cursorPos;
-        if (inter->keyChars[0] != '\0') {
-            if (selecting) {
-                _snzuc_textAreaClearSelection(text);
-            }
-
-            // TODO: do we need a more sophisticated check?
-            // TODO: support >1 char/unicode shit
-            if (snzuc_textAreaInsert(text, &(inter->keyChars[0]), 1, text->cursorPos)) {
-                text->cursorPos++;
-            }
-        } else if (inter->keyAction == SNZU_ACT_DOWN) {
-            if (inter->keyCode == SDLK_BACKSPACE) {
-                if (selecting) {
-                    _snzuc_textAreaClearSelection(text);
-                } else {
-                    bool removed = snzuc_textAreaRemove(text, text->cursorPos - 1, 1);
-                    if (removed) {
-                        text->cursorPos--;
-                    }
-                }
-            } else if (inter->keyCode == SDLK_DELETE) {
-                if (selecting) {
-                    _snzuc_textAreaClearSelection(text);
-                } else {
-                    snzuc_textAreaRemove(text, text->cursorPos, 1);
-                }
-            } else if (inter->keyCode == SDLK_LEFT || inter->keyCode == SDLK_RIGHT) {
-                bool dir = (inter->keyCode == SDLK_RIGHT);  // true when right, false when left
-                int64_t initialCursorPos = text->cursorPos;
-
-                bool selectionHandled = false;
-                if (inter->keyMods & KMOD_CTRL) {
-                    text->cursorPos = _snzuc_textAreaNextWordFromCursor(text, dir);
-                } else if (inter->keyMods & KMOD_SHIFT) {
-                    text->cursorPos += (dir ? 1 : -1);
-                } else if (selecting) {
-                    int64_t min = SNZ_MIN(text->cursorPos, text->selectionStart);
-                    int64_t max = SNZ_MAX(text->cursorPos, text->selectionStart);
-                    text->cursorPos = (dir) ? max : min;
-                    text->selectionStart = -1;
-                    selectionHandled = true;
-                } else {
-                    text->cursorPos += (dir ? 1 : -1);
-                }
-
-                // error here when ctrl + right normally
-                if (!selectionHandled && (inter->keyMods & KMOD_SHIFT)) {
-                    if (text->selectionStart == -1) {
-                        text->selectionStart = initialCursorPos;
-                    }
-                }
-            }
-        }  // end button press checks
-
-        _snzuc_textAreaNormalizeCursor(text);
-        _snzuc_textAreaAssertValid(text);
-    }  // end focus check to process keys
-
-    _snzuc_textAreaAssertValid(text);
-
-    if (hugContents) {
-        HMM_Vec2 size = snzr_strSize(text->font, text->chars, text->charCount, textHeight);
-        size = HMM_Add(size, HMM_Mul(HMM_V2(padding, padding), 2.0f));
-        snzu_boxSetSizeFromStart(size);
-    }
-
-    snzu_boxScope() {
-        if (focused) {
-            if (text->selectionStart != -1 && text->selectionStart != text->cursorPos) {
-                snzu_boxNew("selectionBox");
-                snzu_boxSetSizeMarginFromParent(padding);
-                float startOffset = snzr_strSize(text->font, text->chars, text->selectionStart, textHeight).X;
-                float endOffset = snzr_strSize(text->font, text->chars, text->cursorPos, textHeight).X;
-                if (endOffset < startOffset) {
-                    float temp = startOffset;
-                    startOffset = endOffset;
-                    endOffset = temp;
-                }
-                snzu_boxSetStartAx(container->start.X + padding + startOffset, SNZU_AX_X);
-                snzu_boxSetEndAx(container->start.X + padding + endOffset, SNZU_AX_X);
-                snzu_boxSetColor(HMM_V4(47 / 255.0, 145 / 255.0, 237 / 255.0, 0.6));
-            }
-        }
-
-        snzu_boxNew("text");
-        snzu_boxFillParent();
-        snzu_boxSetDisplayStrLen(text->font, HMM_V4(1, 1, 1, 1), text->chars, text->charCount);
-        snzu_boxSetDisplayStrMode(textHeight, removeSnap);
-        snzu_boxSetSizeFitText(padding);  // aligns text left
-
-        if (focused) {
-            snzu_boxNew("cursor");
-            float cursorStartX = (snzr_strSize(text->font, text->chars, text->cursorPos, textHeight).X) + padding;
-            snzu_boxFillParent();
-            snzu_boxSetStartAx(container->start.X + cursorStartX, SNZU_AX_X);
-            snzu_boxSetSizeFromStartAx(SNZU_AX_X, padding);
-            snzu_boxSetColor(HMM_V4(1, 1, 1, 1));
-        }
-    }  // end inners
-
-    return text->chars;
-}  // end text area
 
 // outbox may be null - title used for the boxes id and display name
 bool snzuc_button(const snzr_Font* font, const char* title, float padding) {

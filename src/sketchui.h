@@ -256,11 +256,14 @@ static void _sku_drawAndBuildConstraint(sk_Constraint* c, HMM_Mat4 model, HMM_Ve
 
     char* boxName = snz_arenaFormatStr(scratch, "%p", c);
     snzu_boxNew(boxName);
-    snzu_boxSetDisplayStr(&ui_titleFont, drawnColor, text);
-    snzu_boxSetDisplayStrMode(drawnHeight, true);
     textTopLeft.Y *= -1; // flip to UI space before drawing
     snzu_boxSetStart(textTopLeft);
-    snzu_boxSetSizeFitText(drawnHeight * 0.1f);
+
+    ui_TextArea* const textArea = SNZU_USE_MEM(ui_TextArea, "text");
+    if (snzu_useMemIsPrevNew()) {
+        ui_textAreaInit(text, textArea);
+    }
+    ui_textArea(textArea, &ui_titleFont, drawnHeight);
 
     // FIXME: flip labels if camera is on the other side
     // FIXME: less self intersection on angled lines
@@ -561,14 +564,6 @@ void sku_drawSketch(
         float thickness = HMM_Lerp(2.0f, l->uiInfo.hoverAnim, 5.0f);
         HMM_Vec4 color = HMM_LerpV4(ui_colorText, l->uiInfo.selectionAnim, ui_colorAccent);
         snzr_drawLine(points, 2, color, thickness, sketchMVP);
-    }
-
-    // for the main parent
-    snzu_boxScope() {
-        snzu_boxNew("text area");
-        snzu_boxSetStartAx(-4, SNZU_AX_Y);
-        snzu_boxSetColor(ui_colorAlmostBackground);
-        snzuc_textArea(255, &ui_titleFont, 0.1, true, 1, true);
     }
 
     snzu_frameDrawAndGenInteractions(inputs, uiMVP);
