@@ -26,6 +26,7 @@ ren3d_Mesh main_mesh;
 
 bool main_inDarkMode = true;
 bool main_inMusicMode = true;
+bool main_skybox = true;
 
 sku_Align main_sketchAlign;
 
@@ -246,7 +247,9 @@ void main_drawDemoScene(HMM_Vec2 panelSize, snz_Arena* scratch, float dt, snzu_I
 
     // FIXME: highlight edges :) + debug view of geometry
     ren3d_drawMesh(&main_mesh, vp, model, HMM_V3(-1, -1, -1), ui_lightAmbient);
-    ren3d_drawSkybox(vp, ui_skyBox);
+    if (main_skybox) {
+        ren3d_drawSkybox(vp, ui_skyBox);
+    }
 
     // FIXME: this is gross af
     float soundVal = 0;
@@ -283,7 +286,7 @@ void main_drawSettings() {
         snzu_boxSetSizeFitText(ui_padding);
 
         bool prev = main_inDarkMode;
-        ui_switch("darkmode", "Dark Theme", &main_inDarkMode);
+        ui_switch("darkmode", "dark theme", &main_inDarkMode);
 
         if (prev != main_inDarkMode) {
             if (!main_inDarkMode) {
@@ -295,7 +298,9 @@ void main_drawSettings() {
             }
         }
 
-        ui_switch("musicmode", "Music Mode", &main_inMusicMode);
+        ui_switch("musicmode", "music mode", &main_inMusicMode);
+
+        ui_switch("skybox", "sky box", &main_skybox);
     }
     // FIXME: UI variable for gap here
     snzu_boxOrderChildrenInRowRecurse(10, SNZU_AX_Y);
