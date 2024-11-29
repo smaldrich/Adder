@@ -367,6 +367,16 @@ static float _sk_angleOfLine(HMM_Vec2 p1, HMM_Vec2 p2, bool flip) {
     return angle;
 }
 
+static float _sk_angleNormalized(float a) {
+    while (a > HMM_AngleDeg(180)) {
+        a -= HMM_AngleDeg(360);
+    }
+    while (a < HMM_AngleDeg(-180)) {
+        a += HMM_AngleDeg(360);
+    }
+    return a;
+}
+
 // return indicates whether sketch was solved completely
 void sk_sketchSolve(sk_Sketch* sketch, sk_Point* originPt, sk_Line* originLine, float originLineAngle) {
     int64_t sketchPointCount = 0;
@@ -533,10 +543,10 @@ void sk_sketchSolve(sk_Sketch* sketch, sk_Point* originPt, sk_Line* originLine, 
                 }
 
                 // Can't use the angle prop because that is the expected angle, not the actual
-                float l1Angle = _sk_angleOfLine(c->line1->p2->pos, c->line1->p1->pos, c->flipLine1);
-                float l2Angle = _sk_angleOfLine(c->line2->p2->pos, c->line2->p1->pos, c->flipLine2);
+                float l1Angle = _sk_angleOfLine(c->line1->p1->pos, c->line1->p2->pos, c->flipLine1);
+                float l2Angle = _sk_angleOfLine(c->line2->p1->pos, c->line2->p2->pos, c->flipLine2);
 
-                float angleDiff = (c->value - (l2Angle - l1Angle)) / 2;
+                float angleDiff = _sk_angleNormalized(c->value - _sk_angleNormalized(l2Angle - l1Angle)) / 2;
                 error = angleDiff * 2;
                 _sk_rotatePtsWhenUnsolved(c->line1->p1, c->line1->p2, -angleDiff);
                 _sk_rotatePtsWhenUnsolved(c->line2->p1, c->line2->p2, angleDiff);

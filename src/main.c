@@ -109,28 +109,29 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
         main_sketch = sk_sketchInit();
         sk_Point* originPt = sk_sketchAddPoint(&main_sketch, &main_sketchArena, HMM_V2(0, 0));
         sk_Point* left = sk_sketchAddPoint(&main_sketch, &main_sketchArena, HMM_V2(-1, -1));
-        sk_Point* right = sk_sketchAddPoint(&main_sketch, &main_sketchArena, HMM_V2(1, 0));
-        sk_Point* up = sk_sketchAddPoint(&main_sketch, &main_sketchArena, HMM_V2(0, 1));
+        // sk_Point* right = sk_sketchAddPoint(&main_sketch, &main_sketchArena, HMM_V2(1, 0));
+        // sk_Point* up = sk_sketchAddPoint(&main_sketch, &main_sketchArena, HMM_V2(0, 1));
 
-        sk_Line* vertical = sk_sketchAddLine(&main_sketch, &main_sketchArena, originPt, up);
-        sk_sketchAddConstraintDistance(&main_sketch, &main_sketchArena, vertical, 0.5);
+        // sk_Line* vertical = sk_sketchAddLine(&main_sketch, &main_sketchArena, originPt, up);
+        // sk_sketchAddConstraintDistance(&main_sketch, &main_sketchArena, vertical, 0.5);
 
         sk_Line* leftLine = sk_sketchAddLine(&main_sketch, &main_sketchArena, left, originPt);
-        sk_sketchAddConstraintAngle(&main_sketch, &main_sketchArena, vertical, false, leftLine, true, HMM_AngleDeg(90));
+        // sk_sketchAddConstraintAngle(&main_sketch, &main_sketchArena, vertical, false, leftLine, true, HMM_AngleDeg(90));
         sk_sketchAddConstraintDistance(&main_sketch, &main_sketchArena, leftLine, 0.8);
-        sk_Line* rightLine = sk_sketchAddLine(&main_sketch, &main_sketchArena, originPt, right);
-        sk_sketchAddConstraintDistance(&main_sketch, &main_sketchArena, rightLine, 1);
-        sk_sketchAddConstraintAngle(&main_sketch, &main_sketchArena, rightLine, false, vertical, false, HMM_AngleDeg(120));
+        // sk_Line* rightLine = sk_sketchAddLine(&main_sketch, &main_sketchArena, originPt, right);
+        // sk_sketchAddConstraintDistance(&main_sketch, &main_sketchArena, rightLine, 1);
+        // sk_sketchAddConstraintAngle(&main_sketch, &main_sketchArena, rightLine, false, vertical, false, HMM_AngleDeg(120));
 
         sk_Point* other = sk_sketchAddPoint(&main_sketch, &main_sketchArena, HMM_V2(-1, 1));
         sk_Line* l = sk_sketchAddLine(&main_sketch, &main_sketchArena, left, other);
         sk_sketchAddConstraintAngle(&main_sketch, &main_sketchArena, l, false, leftLine, false, HMM_AngleDeg(-120));
         // sk_sketchAddConstraintDistance(&sketch, &sketchArena, l, 0.2);
 
-        sk_sketchAddLine(&main_sketch, &main_sketchArena, up, right);
+        // sk_sketchAddLine(&main_sketch, &main_sketchArena, up, right);
 
-        main_sketchOriginLine = vertical;
-        sk_sketchSolve(&main_sketch, main_sketchOriginLine->p1, main_sketchOriginLine, HMM_AngleDeg(90));
+        // main_sketchOriginLine = vertical;
+        main_sketchOriginLine = leftLine;
+        sk_sketchSolve(&main_sketch, main_sketchOriginLine->p1, main_sketchOriginLine, HMM_AngleDeg(0));
     }
 }
 
@@ -314,7 +315,7 @@ void main_frame(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screen
     snzu_instanceSelect(&main_uiInstance);
     snzu_frameStart(scratch, screenSize, dt);
 
-    sk_sketchSolve(&main_sketch, main_sketchOriginLine->p1, main_sketchOriginLine, HMM_AngleDeg(90));
+    sk_sketchSolve(&main_sketch, main_sketchOriginLine->p1, main_sketchOriginLine, HMM_AngleDeg(0));
 
     HMM_Vec2 rightPanelSize = HMM_V2(0, 0);
 
