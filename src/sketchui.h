@@ -181,6 +181,7 @@ static bool _sku_constraintHovered(sk_Constraint* c, float scaleFactor, HMM_Vec2
     return false;
 }
 
+// modifies constraint value based on user input
 static void _sku_drawAndBuildConstraint(sk_Constraint* c, HMM_Mat4 model, HMM_Vec3 cameraPos, snz_Arena* scratch, HMM_Mat4 sketchMVP, float soundPct) {
     HMM_Vec4 drawnColor = ui_colorText;
     if (c->violated) {
@@ -195,7 +196,6 @@ static void _sku_drawAndBuildConstraint(sk_Constraint* c, HMM_Mat4 model, HMM_Ve
     float drawnThickness = HMM_Lerp(SKU_CONSTRAINT_THICKNESS, c->uiInfo.hoverAnim, SKU_CONSTRAINT_HOVERED_THICKNESS);
 
     HMM_Vec2 textTopLeft = HMM_V2(0, 0); // TL of the label in sketch space
-    const char* text = NULL;
 
     if (c->kind == SK_CK_DISTANCE) {
         HMM_Vec2 p1 = c->line1->p1->pos;
@@ -208,7 +208,6 @@ static void _sku_drawAndBuildConstraint(sk_Constraint* c, HMM_Mat4 model, HMM_Ve
         snzr_drawLine(points, 2, drawnColor, drawnThickness, sketchMVP);
 
         textTopLeft = HMM_Add(visualCenter, HMM_Mul(offset, 2.0f));
-        text = snz_arenaFormatStr(scratch, "%.2fm", c->value);
     } else if (c->kind == SK_CK_ANGLE) {
         sk_Point* joint = NULL;
         if (c->line1->p1 == c->line2->p1 || c->line1->p1 == c->line2->p2) {
@@ -247,8 +246,6 @@ static void _sku_drawAndBuildConstraint(sk_Constraint* c, HMM_Mat4 model, HMM_Ve
 
             textTopLeft = HMM_RotateV2(HMM_V2(offset * 1.5, 0), startAngle + angleRange / 2);
             textTopLeft = HMM_Add(textTopLeft, visualCenter);
-            text = snz_arenaFormatStr(scratch, "%.1fdeg", HMM_ToDeg(fabsf(c->value)));
-            // FIXME: ^^ unicode + the degree symol
         }
     }
 
@@ -261,9 +258,15 @@ static void _sku_drawAndBuildConstraint(sk_Constraint* c, HMM_Mat4 model, HMM_Ve
 
     ui_TextArea* const textArea = SNZU_USE_MEM(ui_TextArea, "text");
     if (snzu_useMemIsPrevNew()) {
-        ui_textAreaInit(text, textArea);
+        ui_textAreaInit(snz_arenaFormatStr(scratch, "%.2f", c->value), textArea);
+        // FIXME: unicode + the degree symol
     }
     ui_textArea(textArea, &ui_titleFont, drawnHeight, drawnColor);
+
+    float val = atof(textArea->chars);
+    if (!csg_floatZero(val)) {
+        c->value = val;
+    }
 
     // FIXME: flip labels if camera is on the other side
     // FIXME: less self intersection on angled lines

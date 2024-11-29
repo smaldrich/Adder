@@ -18,6 +18,7 @@ PoolAlloc main_pool;
 
 snzr_FrameBuffer main_sceneFB;
 sk_Sketch main_sketch;
+sk_Line* main_sketchOriginLine;
 snzu_Instance main_sketchUIInstance;
 snz_Arena main_sketchArena;
 
@@ -128,7 +129,8 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
 
         sk_sketchAddLine(&main_sketch, &main_sketchArena, up, right);
 
-        sk_sketchSolve(&main_sketch, originPt, vertical, HMM_AngleDeg(90));
+        main_sketchOriginLine = vertical;
+        sk_sketchSolve(&main_sketch, main_sketchOriginLine->p1, main_sketchOriginLine, HMM_AngleDeg(90));
     }
 }
 
@@ -311,6 +313,8 @@ main_View main_currentView;
 void main_frame(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screenSize) {
     snzu_instanceSelect(&main_uiInstance);
     snzu_frameStart(scratch, screenSize, dt);
+
+    sk_sketchSolve(&main_sketch, main_sketchOriginLine->p1, main_sketchOriginLine, HMM_AngleDeg(90));
 
     HMM_Vec2 rightPanelSize = HMM_V2(0, 0);
 

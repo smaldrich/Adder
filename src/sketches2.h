@@ -376,11 +376,13 @@ void sk_sketchSolve(sk_Sketch* sketch, sk_Point* originPt, sk_Line* originLine, 
         for (sk_Point* point = sketch->firstPoint; point; point = point->next) {
             point->manifold = (sk_Manifold){ .kind = SK_MK_ANY };
             sketchPointCount++;
+            point->solved = false;
         }
 
         for (sk_Line* line = sketch->firstLine; line; line = line->next) {
             line->expectedAngle = 0;
             line->angleSolved = false;
+            line->angleApplied = false;
         }
 
         sketch->firstUnappliedConstraint = NULL;

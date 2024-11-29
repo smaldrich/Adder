@@ -163,10 +163,11 @@ typedef struct {
 
     snzu_Interaction* inter;
 } ui_TextArea;
+// FIXME: testing to make sure the null char at the end works
 
 static void _ui_textAreaAssertValid(ui_TextArea* text) {
     SNZ_ASSERTF(text->charCount >= 0, "textarea charCount out of bounds. was: %lld", text->charCount);
-    SNZ_ASSERTF(text->charCount <= UI_TEXTAREA_MAX_CHARS, "textarea charCount out of bounds. was: %lld", text->charCount);
+    SNZ_ASSERTF(text->charCount < UI_TEXTAREA_MAX_CHARS, "textarea charCount out of bounds. was: %lld", text->charCount);
     SNZ_ASSERTF(text->cursorPos >= 0, "textarea cursor out of bounds. was: %lld", text->cursorPos);
     SNZ_ASSERTF(text->cursorPos <= text->charCount, "textarea cursor out of bounds. was: %lld", text->cursorPos);
     SNZ_ASSERTF(text->selectionStart >= -1, "textarea selection start out of bounds. was: %lld", text->selectionStart);
@@ -186,10 +187,11 @@ static void _ui_textAreaNormalizeCursor(ui_TextArea* text) {
 static bool _ui_textAreaInsert(ui_TextArea* text, char* insertChars, int64_t insertLen, int64_t insertPos) {
     _ui_textAreaAssertValid(text);
 
-    if (text->charCount + insertLen > UI_TEXTAREA_MAX_CHARS) {
+    if (text->charCount + insertLen >= UI_TEXTAREA_MAX_CHARS) {
         return false;
     }
 
+    // FIXME: fancy asserts
     assert(insertPos >= 0);
     assert(insertPos <= text->charCount);
 
