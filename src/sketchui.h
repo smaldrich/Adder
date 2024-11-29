@@ -114,6 +114,23 @@ static float _sku_normalizeAngle(float a) {
     return a;
 }
 
+static float _sku_angleDifferenceForConstraint(sk_Constraint* c, float a1, float a2) {
+    SNZ_ASSERT(c->kind == SK_CK_ANGLE, "constraint wasn't an angle constraint.");
+    float diff = a2 - a1;
+    if (c->value < 0) {
+        while (diff > 0) {
+            diff -= HMM_AngleDeg(360);
+        }
+    } else {
+        while (diff < 0) {
+            diff += HMM_AngleDeg(360);
+        }
+    } // force angle range to go the correct way around based on the sign of the constraint value
+    // FIXME: this is kinda hacky, i'm sure theres a more direct way of fixing this by modifying _sku_angleOfLinesInAngleConstraint,
+    // but this works so were gonna leave it.
+    return diff;
+}
+
 // Returned X comp is line 1's angle, Y comp is line 2's
 static HMM_Vec2 _sku_angleOfLinesInAngleConstraint(sk_Constraint* c) {
     SNZ_ASSERTF(c->kind == SK_CK_ANGLE, "constraint wasn't an angle constraint. kind: %d", c->kind);
@@ -164,13 +181,14 @@ static bool _sku_constraintHovered(sk_Constraint* c, float scaleFactor, HMM_Vec2
         return _sku_lineContainsPt(p1, p2, 0.01 * scaleFactor, mousePos);
     } else if (c->kind == SK_CK_ANGLE) {
         HMM_Vec2 angles = _sku_angleOfLinesInAngleConstraint(c);
+        float angleDiff = _sku_angleDifferenceForConstraint(c, angles.Left, angles.Right);
         HMM_Vec2 diff = HMM_Sub(mousePos, visualCenter);
         if (HMM_Len(diff) > (SKU_ANGLE_CONSTRAINT_OFFSET * 1.4 * scaleFactor)) {
             return false;
         }
         float mouseAngle = _sku_angleOfV2(diff);
-        float midAngle = (angles.Right + angles.Left) / 2;
-        float halfRange = fabsf(_sku_normalizeAngle(angles.Right - angles.Left) / 2);
+        float midAngle = angles.Left + (angleDiff / 2);
+        float halfRange = fabsf(angleDiff / 2);
         if (fabsf(_sku_normalizeAngle(midAngle - mouseAngle)) > halfRange) {
             return false;
         }
@@ -234,18 +252,7 @@ static void _sku_drawAndBuildConstraint(sk_Constraint* c, HMM_Mat4 model, HMM_Ve
         } else {
             HMM_Vec2 angles = _sku_angleOfLinesInAngleConstraint(c);
             float startAngle = angles.X;
-            float angleRange = angles.Y - startAngle;
-            if (c->value < 0) {
-                while (angleRange > 0) {
-                    angleRange -= HMM_AngleDeg(360);
-                }
-            } else {
-                while (angleRange < 0) {
-                    angleRange += HMM_AngleDeg(360);
-                }
-            } // force angle range to go the correct way around based on the sign of the constraint value
-            // FIXME: this is kinda hacky, i'm sure theres a more direct way of fixing this by modifying _sku_angleOfLinesInAngleConstraint,
-            // but this works so were gonna leave it.
+            float angleRange = _sku_angleDifferenceForConstraint(c, angles.Left, angles.Right);
 
             int ptCount = (int)(fabsf(angleRange) / HMM_AngleDeg(10)) + 1;
             HMM_Vec2* linePts = SNZ_ARENA_PUSH_ARR(scratch, ptCount, HMM_Vec2);
