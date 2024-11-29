@@ -474,6 +474,8 @@ void sku_drawSketch(
                 HMM_Vec3 transformedCenter = HMM_MulM4V4(model, HMM_V4(midpt.X, midpt.Y, 0, 1)).XYZ;
                 float distToCamera = HMM_Len(HMM_Sub(transformedCenter, cameraPos));
                 bool hovered = _sku_lineContainsPt(l->p1->pos, l->p2->pos, 0.01 * distToCamera, mouse);
+                hovered &= inter->hovered;
+
                 if (leftAct == SNZU_ACT_DOWN && hovered) {
                     *dragging = false;  // cancel a drag before it is processed if it lands on this
                 }
@@ -492,7 +494,10 @@ void sku_drawSketch(
                 HMM_Vec2 visualCenter;
                 float scaleFactor;
                 _sku_constraintScaleFactorAndCenter(c, model, cameraPos, &visualCenter, &scaleFactor);
+
                 bool hovered = _sku_constraintHovered(c, scaleFactor, visualCenter, mouse);
+                hovered &= inter->hovered;
+
                 if (leftAct == SNZU_ACT_DOWN && hovered) {
                     *dragging = false;  // cancel a drag before it is processed if it lands on this
                 }

@@ -160,6 +160,8 @@ typedef struct {
 
     int64_t charCount;
     char chars[UI_TEXTAREA_MAX_CHARS];
+
+    snzu_Interaction* inter;
 } ui_TextArea;
 
 static void _ui_textAreaAssertValid(ui_TextArea* text) {
@@ -341,25 +343,10 @@ void ui_textArea(ui_TextArea* const text, const snzr_Font* font, float textHeigh
     text->font = font;
     _ui_textAreaAssertValid(text);
 
-    snzu_Interaction* inter = SNZU_USE_MEM(snzu_Interaction, "inter");
-    snzu_boxSetInteractionOutput(inter, SNZU_IF_HOVER | SNZU_IF_MOUSE_BUTTONS);
+    text->inter = SNZU_USE_MEM(snzu_Interaction, "inter");
+    snzu_boxSetInteractionOutput(text->inter, SNZU_IF_HOVER | SNZU_IF_MOUSE_BUTTONS);
 
-    // if (inter->mouseActions[SNZU_MB_LEFT] == SNZU_ACT_DOWN) {
-    //     if (!text->wasFocused) {
-    //         if (text->charCount != 0) {
-    //             text->selectionStart = 0;
-    //         }
-    //         text->cursorPos = text->charCount;
-    //         firstClickForFocus = true;
-    //     } else {
-    //         float mouseX = inter->mousePosLocal.X - padding;
-    //         text->selectionStart = _ui_textAreaIndexFromCursorPos(text, mouseX, textHeight);
-    //         text->cursorPos = text->selectionStart;
-    //     }
-    //     snzu_boxSetFocused();
-    // }
-
-    if (inter->doubleClicked) {
+    if (text->inter->doubleClicked) {
         text->firstClickForFocus = true;
         snzu_boxSetFocused();
 
@@ -367,11 +354,11 @@ void ui_textArea(ui_TextArea* const text, const snzr_Font* font, float textHeigh
             text->selectionStart = 0;
         }
         text->cursorPos = text->charCount;
-    } else if (inter->mouseActions[SNZU_MB_LEFT] == SNZU_ACT_DOWN) {
+    } else if (text->inter->mouseActions[SNZU_MB_LEFT] == SNZU_ACT_DOWN) {
         text->firstClickForFocus = false;
         if (text->wasFocused) {
             snzu_boxSetFocused();
-            float mouseX = inter->mousePosLocal.X - padding;
+            float mouseX = text->inter->mousePosLocal.X - padding;
             text->selectionStart = _ui_textAreaIndexFromCursorPos(text, mouseX, textHeight);
             text->cursorPos = text->selectionStart;
         }
@@ -380,19 +367,19 @@ void ui_textArea(ui_TextArea* const text, const snzr_Font* font, float textHeigh
     bool focused = snzu_boxFocused();
     text->wasFocused = focused;
     if (focused) {
-        if (!text->firstClickForFocus && inter->mouseActions[SNZU_MB_LEFT] == SNZU_ACT_DRAG) {
-            float mouseX = inter->mousePosLocal.X - padding;
+        if (!text->firstClickForFocus && text->inter->mouseActions[SNZU_MB_LEFT] == SNZU_ACT_DRAG) {
+            float mouseX = text->inter->mousePosLocal.X - padding;
             text->cursorPos = _ui_textAreaIndexFromCursorPos(text, mouseX, textHeight);
         }
 
-        if (!text->firstClickForFocus && inter->mouseActions[SNZU_MB_LEFT] == SNZU_ACT_UP) {
+        if (!text->firstClickForFocus && text->inter->mouseActions[SNZU_MB_LEFT] == SNZU_ACT_UP) {
             if (text->selectionStart == text->cursorPos) {
                 text->selectionStart = -1;
             }
         }
 
-        if (inter->keyAction == SNZU_ACT_DOWN) {
-            if (inter->keyCode == SDLK_ESCAPE || inter->keyCode == SDLK_RETURN) {
+        if (text->inter->keyAction == SNZU_ACT_DOWN) {
+            if (text->inter->keyCode == SDLK_ESCAPE || text->inter->keyCode == SDLK_RETURN) {
                 snzu_clearFocus();
                 text->selectionStart = -1;
             }
@@ -402,18 +389,18 @@ void ui_textArea(ui_TextArea* const text, const snzr_Font* font, float textHeigh
     // only process keystrokes when focused
     if (focused) {
         bool selecting = text->selectionStart != -1 && text->selectionStart != text->cursorPos;
-        if (inter->keyChars[0] != '\0') {
+        if (text->inter->keyChars[0] != '\0') {
             if (selecting) {
                 _ui_textAreaClearSelection(text);
             }
 
             // TODO: do we need a more sophisticated check?
             // TODO: support >1 char/unicode shit
-            if (_ui_textAreaInsert(text, &(inter->keyChars[0]), 1, text->cursorPos)) {
+            if (_ui_textAreaInsert(text, &(text->inter->keyChars[0]), 1, text->cursorPos)) {
                 text->cursorPos++;
             }
-        } else if (inter->keyAction == SNZU_ACT_DOWN) {
-            if (inter->keyCode == SDLK_BACKSPACE) {
+        } else if (text->inter->keyAction == SNZU_ACT_DOWN) {
+            if (text->inter->keyCode == SDLK_BACKSPACE) {
                 if (selecting) {
                     _ui_textAreaClearSelection(text);
                 } else {
@@ -422,20 +409,20 @@ void ui_textArea(ui_TextArea* const text, const snzr_Font* font, float textHeigh
                         text->cursorPos--;
                     }
                 }
-            } else if (inter->keyCode == SDLK_DELETE) {
+            } else if (text->inter->keyCode == SDLK_DELETE) {
                 if (selecting) {
                     _ui_textAreaClearSelection(text);
                 } else {
                     _ui_textAreaRemove(text, text->cursorPos, 1);
                 }
-            } else if (inter->keyCode == SDLK_LEFT || inter->keyCode == SDLK_RIGHT) {
-                bool dir = (inter->keyCode == SDLK_RIGHT);  // true when right, false when left
+            } else if (text->inter->keyCode == SDLK_LEFT || text->inter->keyCode == SDLK_RIGHT) {
+                bool dir = (text->inter->keyCode == SDLK_RIGHT);  // true when right, false when left
                 int64_t initialCursorPos = text->cursorPos;
 
                 bool selectionHandled = false;
-                if (inter->keyMods & KMOD_CTRL) {
+                if (text->inter->keyMods & KMOD_CTRL) {
                     text->cursorPos = _ui_textAreaNextWordFromCursor(text, dir);
-                } else if (inter->keyMods & KMOD_SHIFT) {
+                } else if (text->inter->keyMods & KMOD_SHIFT) {
                     text->cursorPos += (dir ? 1 : -1);
                 } else if (selecting) {
                     int64_t min = SNZ_MIN(text->cursorPos, text->selectionStart);
@@ -448,7 +435,7 @@ void ui_textArea(ui_TextArea* const text, const snzr_Font* font, float textHeigh
                 }
 
                 // error here when ctrl + right normally
-                if (!selectionHandled && (inter->keyMods & KMOD_SHIFT)) {
+                if (!selectionHandled && (text->inter->keyMods & KMOD_SHIFT)) {
                     if (text->selectionStart == -1) {
                         text->selectionStart = initialCursorPos;
                     }
