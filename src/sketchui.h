@@ -219,7 +219,7 @@ static void _sku_drawAndBuildConstraint(sk_Constraint* c, HMM_Mat4 model, HMM_Ve
         }
 
         float offset = SKU_ANGLE_CONSTRAINT_OFFSET * (1 + soundPct) * scaleFactor;
-        if (csg_floatEqual(c->value, HMM_AngleDeg(90))) {
+        if (csg_floatEqual(fabsf(c->value), HMM_AngleDeg(90))) {
             sk_Point* otherOnLine1 = (c->line1->p1 == joint) ? c->line1->p2 : c->line1->p1;
             sk_Point* otherOnLine2 = (c->line2->p1 == joint) ? c->line2->p2 : c->line2->p1;
             HMM_Vec2 offset1 = HMM_Mul(HMM_Norm(HMM_Sub(otherOnLine1->pos, joint->pos)), offset);
@@ -282,7 +282,7 @@ static void _sku_drawAndBuildConstraint(sk_Constraint* c, HMM_Mat4 model, HMM_Ve
     }
 
     if (!csg_floatZero(val)) {
-        c->value = val; // FIXME: when this turns into a 90deg angle, the text box immediately dissapears
+        c->value = val; // FIXME: when this turns into a 90deg angle, the text box immediately disappears
     }
 
     if (!textArea->wasFocused) { // FIXME: kinda wasteful to have this running constantly
