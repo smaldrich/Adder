@@ -71,7 +71,7 @@ struct sk_Constraint {
     sk_ConstraintKind kind;
     sk_Line* line1;
     sk_Line* line2;
-    // By default, the angle of a line is from p1 to p2.
+    // By default, the angle of a line is from p1 to p2. (in rads CCW)
     // if an angle constraint wants to use two lines, but have the angle between them sit on the lines p2s,
     // these values indicate that
     bool flipLine1;

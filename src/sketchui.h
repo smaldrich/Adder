@@ -257,15 +257,52 @@ static void _sku_drawAndBuildConstraint(sk_Constraint* c, HMM_Mat4 model, HMM_Ve
     snzu_boxSetStart(textTopLeft);
 
     ui_TextArea* const textArea = SNZU_USE_MEM(ui_TextArea, "text");
-    if (snzu_useMemIsPrevNew()) {
-        ui_textAreaInit(snz_arenaFormatStr(scratch, "%.2f", c->value), textArea);
-        // FIXME: unicode + the degree symol
-    }
+
+    // FIXME: double click on the rest of the constraint should also enter edit mode
     ui_textArea(textArea, &ui_titleFont, drawnHeight, drawnColor);
 
     float val = atof(textArea->chars);
+
+    // FIXME: unit spec parsing
+    if (c->kind == SK_CK_ANGLE) {
+        val = HMM_AngleDeg(val);
+
+        if (val > HMM_AngleDeg(2 * 360)) {
+            val = 0;
+        } else if (val < HMM_AngleDeg(-2 * 360)) {
+            val = 0;
+        }
+
+        while (val > HMM_AngleDeg(360)) {
+            val -= HMM_AngleDeg(360);
+        }
+        while (val < HMM_AngleDeg(-360)) {
+            val += HMM_AngleDeg(360);
+        }
+    }
+
     if (!csg_floatZero(val)) {
-        c->value = val;
+        c->value = val; // FIXME: when this turns into a 90deg angle, the text box immediately dissapears
+    }
+
+    if (!textArea->wasFocused) { // FIXME: kinda wasteful to have this running constantly
+        const char* suffix = NULL;
+        if (c->kind == SK_CK_ANGLE) {
+            suffix = "deg"; // FIXME: unicode + the degree symol
+        } else if (c->kind == SK_CK_DISTANCE) {
+            suffix = "m";
+        }
+        float renderedVal = c->value;
+        if (c->kind == SK_CK_ANGLE) {
+            renderedVal = HMM_ToDeg(renderedVal);
+        }
+        const char* str = snz_arenaFormatStr(scratch, "%.2f%s", renderedVal, suffix);
+        strcpy(textArea->chars, str);
+        textArea->charCount = strlen(str);
+        textArea->cursorPos = SNZ_MIN(textArea->cursorPos, textArea->charCount);
+        _ui_textAreaAssertValid(textArea);
+        // FIXME: setter for textArea string;
+        // FIXME: this has a one frame delay on scene open before things have text. ig its fine but not ideal.
     }
 
     // FIXME: flip labels if camera is on the other side
