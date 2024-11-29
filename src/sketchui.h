@@ -181,7 +181,7 @@ static bool _sku_constraintHovered(sk_Constraint* c, float scaleFactor, HMM_Vec2
     return false;
 }
 
-static void _sku_drawConstraint(sk_Constraint* c, HMM_Mat4 model, HMM_Vec3 cameraPos, snz_Arena* scratch, HMM_Mat4 mvp, float soundPct) {
+static void _sku_drawAndBuildConstraint(sk_Constraint* c, HMM_Mat4 model, HMM_Vec3 cameraPos, snz_Arena* scratch, HMM_Mat4 sketchMVP, float soundPct) {
     HMM_Vec4 drawnColor = ui_colorText;
     if (c->violated) {
         drawnColor = ui_colorErr;
@@ -194,7 +194,7 @@ static void _sku_drawConstraint(sk_Constraint* c, HMM_Mat4 model, HMM_Vec3 camer
 
     float drawnThickness = HMM_Lerp(SKU_CONSTRAINT_THICKNESS, c->uiInfo.hoverAnim, SKU_CONSTRAINT_HOVERED_THICKNESS);
 
-    HMM_Vec2 textTopLeft = HMM_V2(0, 0);
+    HMM_Vec2 textTopLeft = HMM_V2(0, 0); // TL of the label in sketch space
     const char* text = NULL;
 
     if (c->kind == SK_CK_DISTANCE) {
@@ -205,7 +205,7 @@ static void _sku_drawConstraint(sk_Constraint* c, HMM_Mat4 model, HMM_Vec3 camer
         p1 = HMM_Add(p1, offset);
         p2 = HMM_Add(p2, offset);
         HMM_Vec2 points[] = { p1, p2 };
-        snzr_drawLine(points, 2, drawnColor, drawnThickness, mvp);
+        snzr_drawLine(points, 2, drawnColor, drawnThickness, sketchMVP);
 
         textTopLeft = HMM_Add(visualCenter, HMM_Mul(offset, 2.0f));
         text = snz_arenaFormatStr(scratch, "%.2fm", c->value);
@@ -230,7 +230,7 @@ static void _sku_drawConstraint(sk_Constraint* c, HMM_Mat4 model, HMM_Vec3 camer
                 HMM_Add(joint->pos, HMM_Add(offset1, offset2)),
                 HMM_Add(joint->pos, offset2),
             };
-            snzr_drawLine(pts, 3, drawnColor, drawnThickness, mvp);
+            snzr_drawLine(pts, 3, drawnColor, drawnThickness, sketchMVP);
             return;
         } else {
             HMM_Vec2 angles = _sku_angleOfLinesInAngleConstraint(c);
@@ -243,7 +243,7 @@ static void _sku_drawConstraint(sk_Constraint* c, HMM_Mat4 model, HMM_Vec3 camer
                 HMM_Vec2 o = HMM_RotateV2(HMM_V2(offset, 0), startAngle + (i * c->value / (ptCount - 1)));
                 linePts[i] = HMM_Add(joint->pos, o);
             }
-            snzr_drawLine(linePts, ptCount, drawnColor, drawnThickness, mvp);
+            snzr_drawLine(linePts, ptCount, drawnColor, drawnThickness, sketchMVP);
 
             textTopLeft = HMM_RotateV2(HMM_V2(offset * 1.5, 0), startAngle + angleRange / 2);
             textTopLeft = HMM_Add(textTopLeft, visualCenter);
@@ -253,15 +253,17 @@ static void _sku_drawConstraint(sk_Constraint* c, HMM_Mat4 model, HMM_Vec3 camer
     }
 
     float drawnHeight = SKU_LABEL_SIZE * scaleFactor;
-    textTopLeft.Y -= drawnHeight / 2;
 
-    // FIXME: move labels if camera is on the other side
+    char* boxName = snz_arenaFormatStr(scratch, "%p", c);
+    snzu_boxNew(boxName);
+    snzu_boxSetDisplayStr(&ui_titleFont, drawnColor, text);
+    snzu_boxSetDisplayStrMode(drawnHeight, true);
+    textTopLeft.Y *= -1; // flip to UI space before drawing
+    snzu_boxSetStart(textTopLeft);
+    snzu_boxSetSizeFitText(drawnHeight * 0.1f);
+
+    // FIXME: flip labels if camera is on the other side
     // FIXME: less self intersection on angled lines
-    snzr_drawTextScaled(
-        textTopLeft,
-        HMM_V2(-100000, -100000), HMM_V2(100000, 100000),
-        drawnColor, text, strlen(text), ui_titleFont,
-        mvp, drawnHeight, false);
 }
 
 static void _sku_drawManifold(sk_Point* p, HMM_Vec3 cameraPos, HMM_Mat4 model, HMM_Mat4 mvp, snz_Arena* scratch) {
@@ -356,8 +358,13 @@ void sku_drawSketch(
     float sound, float dt,
     snz_Arena* scratch) {
 
+    // We are inverting the y axis because the UI library is built internally in a lot of places to
+    // work with down positive coords. It works out if we invert the data it gets fed along with the
+    // projection matrix. Very gross but there isn't an obvious better way. Adding a vertical toggle makes
+    // many things, notably including build code, much more unwieldy
     HMM_Mat4 model = sku_alignToM4(align);
-    HMM_Mat4 mvp = HMM_Mul(vp, model);
+    HMM_Mat4 sketchMVP = HMM_Mul(vp, model);
+    HMM_Mat4 uiMVP = HMM_Mul(sketchMVP, HMM_Scale(HMM_V3(1, -1, 1)));
 
     {
         float t = 0;
@@ -370,7 +377,7 @@ void sku_drawSketch(
         HMM_Vec3 xAxis = HMM_Cross(align.endVertical, align.endNormal);
         float x = HMM_Dot(point, xAxis);
         float y = HMM_Dot(point, align.endVertical);
-        inputs.mousePos = HMM_V2(x, y);
+        inputs.mousePos = HMM_V2(x, -y); // flip from sketch space to UI space here
     }
 
     snzu_frameStart(scratch, HMM_V2(0, 0), dt);
@@ -404,15 +411,15 @@ void sku_drawSketch(
                 HMM_Vec3 fadeOrigin = { 0 };
                 fadeOrigin.XY = inter->mousePosGlobal;
                 // FIXME: have this invert color when behind smth in the scene
-                snzr_drawLineFaded(pts, 2, ui_colorAlmostBackground, 1, mvp, fadeOrigin, 0, 0.5 * scaleFactor);
+                snzr_drawLineFaded(pts, 2, ui_colorAlmostBackground, 1, uiMVP, fadeOrigin, 0, 0.5 * scaleFactor);
             }
         }
     }  // end grid
 
     {  // selection // UI state updates
-        // doing this instead of snzu_Interaction.dragBeginning bc. mouse pos is projected
         snzu_Action leftAct = inter->mouseActions[SNZU_MB_LEFT];
         HMM_Vec2 mouse = inter->mousePosGlobal;
+        mouse.Y *= -1; // interaction mouse pos in UI space, this is in sketch space
 
         bool shiftPressed = SNZU_USE_MEM(bool, "shiftPressed");
         {
@@ -423,6 +430,8 @@ void sku_drawSketch(
             }
         }
 
+        // doing this instead of snzu_Interaction.dragBeginning bc. mouse pos is projected
+        // in sketch coords (up is Y+)
         HMM_Vec2* const dragOrigin = SNZU_USE_MEM(HMM_Vec2, "dragOrigin");
         bool* const dragging = SNZU_USE_MEM(bool, "dragging");
         bool dragEnded = *dragging && leftAct == SNZU_ACT_UP;
@@ -528,20 +537,20 @@ void sku_drawSketch(
         if (*dragging) {
             HMM_Vec4 color = ui_colorAccent;
             color.A = 0.2;
-            snzr_drawRect(*dragOrigin, inter->mousePosGlobal,
+            snzr_drawRect(*dragOrigin, mouse,
                           HMM_V2(-100000, -100000), HMM_V2(100000, 100000),
                           color,
                           0, 0, HMM_V4(0, 0, 0, 0),
-                          mvp, _snzr_globs.solidTex);  // FIXME: internals should not be hacked at like this
+                          sketchMVP, _snzr_globs.solidTex);  // FIXME: internals should not be hacked at like this
         }
     }  // end selection management scope
 
     for (sk_Point* p = sketch->firstPoint; p; p = p->next) {
-        _sku_drawManifold(p, cameraPos, model, mvp, scratch);
+        _sku_drawManifold(p, cameraPos, model, sketchMVP, scratch);
     }
 
     for (sk_Constraint* c = sketch->firstConstraint; c; c = c->nextAllocated) {
-        _sku_drawConstraint(c, model, cameraPos, scratch, mvp, sound);
+        _sku_drawAndBuildConstraint(c, model, cameraPos, scratch, sketchMVP, sound);
     }
 
     for (sk_Line* l = sketch->firstLine; l; l = l->next) {
@@ -551,20 +560,18 @@ void sku_drawSketch(
         };
         float thickness = HMM_Lerp(2.0f, l->uiInfo.hoverAnim, 5.0f);
         HMM_Vec4 color = HMM_LerpV4(ui_colorText, l->uiInfo.selectionAnim, ui_colorAccent);
-        snzr_drawLine(points, 2, color, thickness, mvp);
+        snzr_drawLine(points, 2, color, thickness, sketchMVP);
     }
 
     // for the main parent
     snzu_boxScope() {
         snzu_boxNew("text area");
-        snzu_boxSetStartAx(4, SNZU_AX_Y);
+        snzu_boxSetStartAx(-4, SNZU_AX_Y);
         snzu_boxSetColor(ui_colorAlmostBackground);
-        float height = 1;
-        snzuc_textArea(255, &ui_titleFont, height * 0.1, true, height, true);
+        snzuc_textArea(255, &ui_titleFont, 0.1, true, 1, true);
     }
 
-    mvp = HMM_Mul(mvp, HMM_Scale(HMM_V3(1, -1, 1)));
-    snzu_frameDrawAndGenInteractions(inputs, mvp);
+    snzu_frameDrawAndGenInteractions(inputs, uiMVP);
 
     glEnable(GL_DEPTH_TEST);
 }
