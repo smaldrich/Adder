@@ -294,6 +294,7 @@ void main_drawSettings() {
             } else {
                 ui_setThemeDark();
                 // FIXME: when in dark mode, button with highlight is awful
+                // FIXME: darkmode highligh is the same as err color
                 // FIXME: when in dark mode, text in the scene is really weird but only when the left bar is moving
             }
         }

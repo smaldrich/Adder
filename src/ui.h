@@ -52,7 +52,10 @@ void ui_init(snz_Arena* fontArena, snz_Arena* scratch) {
     SNZ_ASSERT(pixels, "Skybox load failed.");
     ui_darkSky = snzr_textureInitRBGA(w, h, pixels);
 
-    ui_lightSky = _snzr_globs.solidTex; // FIXME: make this public plz
+    // ui_lightSky = _snzr_globs.solidTex; // FIXME: make this public plz
+    pixels = stbi_load("res/textures/Untitled.png", &w, &h, &channels, 4);
+    SNZ_ASSERT(pixels, "Skybox load failed.");
+    ui_lightSky = snzr_textureInitRBGA(w, h, pixels);
 
     ui_setThemeDark();
 
