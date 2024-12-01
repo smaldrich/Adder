@@ -368,6 +368,8 @@ static void _sku_drawManifold(sk_Point* p, HMM_Vec3 cameraPos, HMM_Mat4 model, H
             pts[i] = HMM_RotateV2(pts[i], HMM_AngleDeg(10));
             pts[i] = HMM_AddV2(pts[i], p->pos);
         }
+    } else if (p->manifold.kind == SK_MK_TWO_POINTS) {
+        return;
     } else {
         SNZ_ASSERTF(false, "unreachable. kind was: %d", p->manifold.kind);
         return;

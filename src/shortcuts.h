@@ -54,10 +54,25 @@ bool _scc_delete(_sc_CommandArgs args) {
 }
 
 bool _scc_distanceConstraint(_sc_CommandArgs args) {
-    assert(args.activeSketch || !args.activeSketch);
-    bool cancelled = ui_buttonWithHighlight(true, "exit this");
-    snzu_boxOrderSiblingsInRowRecurse(10, SNZU_AX_Y);
-    return cancelled;
+    int selectedCount = 0;
+    sk_Line* firstLine = NULL;
+
+    for (sk_Line* line = args.activeSketch->firstLine; line; line = line->next) {
+        if (line->uiInfo.selected) {
+            firstLine = line;
+            selectedCount++;
+        }
+    }
+
+    if (selectedCount != 1) {
+        return true;
+    }
+
+    float currentLength = HMM_Len(HMM_Sub(firstLine->p2->pos, firstLine->p1->pos));
+    sk_sketchAddConstraintDistance(args.activeSketch, firstLine, currentLength);
+    // FIXME: focus the constraint as soon as it gets added
+
+    return true;
 }
 
 void sc_init(PoolAlloc* pool) {
@@ -103,19 +118,19 @@ void sc_updateAndBuildHintWindow(sk_Sketch* activeSketch) {
 
     snzu_boxScope() {
         if (*activeCommand != NULL) {
-            snzu_boxNew("commandWindow");
-            snzu_boxSetSizeFromStart(HMM_V2(300, 400));
-            snzu_boxAlignInParent(SNZU_AX_Y, SNZU_ALIGN_TOP);
-            snzu_boxAlignInParent(SNZU_AX_X, SNZU_ALIGN_RIGHT);
-            snzu_boxSetColor(ui_colorBackground);
-            snzu_boxSetBorder(ui_borderThickness, ui_colorText);
-            snzu_boxSetCornerRadius(ui_cornerRadius);
-            snzu_boxScope() {
-                bool done = (*activeCommand)->func(args);
-                if (done) {
-                    *activeCommand = NULL;
-                }
+            // snzu_boxNew("commandWindow");
+            // snzu_boxSetSizeFromStart(HMM_V2(300, 400));
+            // snzu_boxAlignInParent(SNZU_AX_Y, SNZU_ALIGN_TOP);
+            // snzu_boxAlignInParent(SNZU_AX_X, SNZU_ALIGN_RIGHT);
+            // snzu_boxSetColor(ui_colorBackground);
+            // snzu_boxSetBorder(ui_borderThickness, ui_colorText);
+            // snzu_boxSetCornerRadius(ui_cornerRadius);
+            // snzu_boxScope() {
+            bool done = (*activeCommand)->func(args);
+            if (done) {
+                *activeCommand = NULL;
             }
+            // }
         }
 
         snzu_boxNew("shortcutWindow");

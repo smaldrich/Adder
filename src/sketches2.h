@@ -102,30 +102,22 @@ typedef struct {
     sk_Line* originLine;
     float originAngle;
     // FIXME: make setters
+
+    snz_Arena* arena;
 } sk_Sketch;
 
-/*
-
-sketches:
-a collection of points, lines and constraints
-
-a failed add should highlight every other constraint in the chain to the origin that is preventing the add?
-favor angles?
-cause otherwise it's just every constrain in the sketch
-Fusions 'no response' aesthetic is really fuckin annoying
-
-also a better way of visualizing constraints
-*/
-sk_Sketch sk_sketchInit() {
+// arena is retained
+sk_Sketch sk_sketchInit(snz_Arena* arena) {
     return (sk_Sketch) {
         .firstPoint = NULL,
             .firstLine = NULL,
             .firstConstraint = NULL,
+            .arena = arena,
     };
 }
 
-sk_Point* sk_sketchAddPoint(sk_Sketch* sketch, snz_Arena* arena, HMM_Vec2 pos) {
-    sk_Point* p = SNZ_ARENA_PUSH(arena, sk_Point);
+sk_Point* sk_sketchAddPoint(sk_Sketch* sketch, HMM_Vec2 pos) {
+    sk_Point* p = SNZ_ARENA_PUSH(sketch->arena, sk_Point);
     *p = (sk_Point){
         .pos = pos,
         .next = sketch->firstPoint,
@@ -134,8 +126,8 @@ sk_Point* sk_sketchAddPoint(sk_Sketch* sketch, snz_Arena* arena, HMM_Vec2 pos) {
     return p;
 }
 
-sk_Line* sk_sketchAddLine(sk_Sketch* sketch, snz_Arena* arena, sk_Point* p1, sk_Point* p2) {
-    sk_Line* l = SNZ_ARENA_PUSH(arena, sk_Line);
+sk_Line* sk_sketchAddLine(sk_Sketch* sketch, sk_Point* p1, sk_Point* p2) {
+    sk_Line* l = SNZ_ARENA_PUSH(sketch->arena, sk_Line);
     *l = (sk_Line){
         .p1 = p1,
         .p2 = p2,
@@ -145,8 +137,8 @@ sk_Line* sk_sketchAddLine(sk_Sketch* sketch, snz_Arena* arena, sk_Point* p1, sk_
     return l;
 }
 
-sk_Constraint* sk_sketchAddConstraintDistance(sk_Sketch* sketch, snz_Arena* arena, sk_Line* l, float length) {
-    sk_Constraint* c = SNZ_ARENA_PUSH(arena, sk_Constraint);
+sk_Constraint* sk_sketchAddConstraintDistance(sk_Sketch* sketch, sk_Line* l, float length) {
+    sk_Constraint* c = SNZ_ARENA_PUSH(sketch->arena, sk_Constraint);
     *c = (sk_Constraint){
         .kind = SK_CK_DISTANCE,
         .line1 = l,
@@ -157,8 +149,8 @@ sk_Constraint* sk_sketchAddConstraintDistance(sk_Sketch* sketch, snz_Arena* aren
     return c;
 }
 
-sk_Constraint* sk_sketchAddConstraintAngle(sk_Sketch* sketch, snz_Arena* arena, sk_Line* line1, bool flipLine1, sk_Line* line2, bool flipLine2, float angle) {
-    sk_Constraint* c = SNZ_ARENA_PUSH(arena, sk_Constraint);
+sk_Constraint* sk_sketchAddConstraintAngle(sk_Sketch* sketch, sk_Line* line1, bool flipLine1, sk_Line* line2, bool flipLine2, float angle) {
+    sk_Constraint* c = SNZ_ARENA_PUSH(sketch->arena, sk_Constraint);
     *c = (sk_Constraint){
         .kind = SK_CK_ANGLE,
         .line1 = line1,
@@ -172,18 +164,6 @@ sk_Constraint* sk_sketchAddConstraintAngle(sk_Sketch* sketch, snz_Arena* arena, 
     return c;
 }
 
-// FIXME: this
-// FIXME: where is sketch validation happening
-// void sk_sketchRemovePointAndDeps(sk_Sketch* sketch, sk_Point* point) {
-// }
-
-// void sk_sketchRemoveLineAndDeps(sk_Sketch* sketch, sk_Line* line) {
-// }
-
-// void sk_sketchRemoveConstraint(sk_Sketch* sketch, sk_Constraint* constraint) {
-// }
-
-// FIXME: one big geometry file, not csg sketches and geo
 // FIXME: point/twopoint vs X cases :)))
 static sk_Manifold _sk_manifoldJoin(sk_Manifold a, sk_Manifold b) {
     int lineCount = (a.kind == SK_MK_LINE) + (b.kind == SK_MK_LINE);
@@ -826,19 +806,19 @@ void sk_tests() {
     snz_Arena a = snz_arenaInit(1000000, "sk testing arena");
 
     {
-        sk_Sketch s = sk_sketchInit();
+        sk_Sketch s = sk_sketchInit(&a);
 
-        sk_Point* p1 = sk_sketchAddPoint(&s, &a, HMM_V2(0, 0));
-        sk_Point* p2 = sk_sketchAddPoint(&s, &a, HMM_V2(2, 0));
-        sk_Point* p3 = sk_sketchAddPoint(&s, &a, HMM_V2(0, 2));
+        sk_Point* p1 = sk_sketchAddPoint(&s, HMM_V2(0, 0));
+        sk_Point* p2 = sk_sketchAddPoint(&s, HMM_V2(2, 0));
+        sk_Point* p3 = sk_sketchAddPoint(&s, HMM_V2(0, 2));
 
-        sk_Line* l1 = sk_sketchAddLine(&s, &a, p1, p2);
-        sk_Line* l2 = sk_sketchAddLine(&s, &a, p2, p3);
-        sk_Line* l3 = sk_sketchAddLine(&s, &a, p3, p1);
+        sk_Line* l1 = sk_sketchAddLine(&s, p1, p2);
+        sk_Line* l2 = sk_sketchAddLine(&s, p2, p3);
+        sk_Line* l3 = sk_sketchAddLine(&s, p3, p1);
 
-        sk_sketchAddConstraintDistance(&s, &a, l1, 1);
-        sk_sketchAddConstraintDistance(&s, &a, l2, 1);
-        sk_sketchAddConstraintDistance(&s, &a, l3, 1);
+        sk_sketchAddConstraintDistance(&s, l1, 1);
+        sk_sketchAddConstraintDistance(&s, l2, 1);
+        sk_sketchAddConstraintDistance(&s, l3, 1);
 
         s.originLine = l1;
         s.originPt = p1;
@@ -847,19 +827,19 @@ void sk_tests() {
     }
 
     {
-        sk_Sketch s = sk_sketchInit();
+        sk_Sketch s = sk_sketchInit(&a);
 
-        sk_Point* p1 = sk_sketchAddPoint(&s, &a, HMM_V2(0, 0));
-        sk_Point* p2 = sk_sketchAddPoint(&s, &a, HMM_V2(0, 0));
-        sk_Point* p3 = sk_sketchAddPoint(&s, &a, HMM_V2(0, 0));
+        sk_Point* p1 = sk_sketchAddPoint(&s, HMM_V2(0, 0));
+        sk_Point* p2 = sk_sketchAddPoint(&s, HMM_V2(0, 0));
+        sk_Point* p3 = sk_sketchAddPoint(&s, HMM_V2(0, 0));
 
-        sk_Line* l1 = sk_sketchAddLine(&s, &a, p1, p2);
-        sk_Line* l2 = sk_sketchAddLine(&s, &a, p2, p3);
-        sk_Line* l3 = sk_sketchAddLine(&s, &a, p3, p1);
+        sk_Line* l1 = sk_sketchAddLine(&s, p1, p2);
+        sk_Line* l2 = sk_sketchAddLine(&s, p2, p3);
+        sk_Line* l3 = sk_sketchAddLine(&s, p3, p1);
 
-        sk_sketchAddConstraintDistance(&s, &a, l1, 1);
-        sk_sketchAddConstraintAngle(&s, &a, l1, true, l2, false, HMM_AngleDeg(30));
-        sk_sketchAddConstraintAngle(&s, &a, l1, false, l3, true, HMM_AngleDeg(-30));
+        sk_sketchAddConstraintDistance(&s, l1, 1);
+        sk_sketchAddConstraintAngle(&s, l1, true, l2, false, HMM_AngleDeg(30));
+        sk_sketchAddConstraintAngle(&s, l1, false, l3, true, HMM_AngleDeg(-30));
 
         s.originLine = l1;
         s.originPt = p1;
