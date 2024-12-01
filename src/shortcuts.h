@@ -1,3 +1,5 @@
+#pragma once
+
 #include "PoolAlloc.h"
 #include "snooze.h"
 #include "ui.h"
@@ -75,10 +77,65 @@ bool _scc_distanceConstraint(_sc_CommandArgs args) {
     return true;
 }
 
+bool _scc_angleConstraint(_sc_CommandArgs args) {
+    int selectedCount = 0;
+    sk_Line* lines[2] = { NULL, NULL };
+    for (sk_Line* line = args.activeSketch->firstLine; line; line = line->next) {
+        if (line->uiInfo.selected) {
+            selectedCount++;
+            if (selectedCount > 2) {
+                return true;
+            }
+            lines[selectedCount - 1] = line;
+        }
+    }
+
+    if (selectedCount != 2) {
+        return true;
+    }
+
+    float minDist = INFINITY;
+    bool isP1OnLine1 = true;
+    bool isP1OnLine2 = true;
+    for (int i = 0; i < 2; i++) {
+        HMM_Vec2 a = lines[0]->pts[i]->pos;
+        for (int j = 0; j < 2; j++) {
+            HMM_Vec2 b = lines[1]->pts[j]->pos;
+            float dist = HMM_Len(HMM_Sub(b, a));
+            if (dist < minDist) {
+                minDist = dist;
+                isP1OnLine1 = i == 0;
+                isP1OnLine2 = j == 0;
+            }
+        }
+    }
+
+    float angle1 = sk_angleOfLine(lines[0]->p1->pos, lines[0]->p2->pos, !isP1OnLine1);
+    float angle2 = sk_angleOfLine(lines[1]->p1->pos, lines[1]->p2->pos, !isP1OnLine2);
+
+    float diff = angle2 - angle1;
+    while (diff > HMM_AngleDeg(180)) {
+        diff -= HMM_AngleDeg(360);
+    }
+    while (diff < HMM_AngleDeg(-180)) {
+        diff += HMM_AngleDeg(360);
+    }
+
+    if (diff < 0) {
+        sk_sketchAddConstraintAngle(args.activeSketch, lines[1], !isP1OnLine2, lines[0], !isP1OnLine1, -diff);
+    } else {
+        sk_sketchAddConstraintAngle(args.activeSketch, lines[0], !isP1OnLine1, lines[1], !isP1OnLine2, diff);
+    }
+
+    // FIXME: focus immediately
+    return true;
+}
+
 void sc_init(PoolAlloc* pool) {
     _sc_commandPool = pool;
     _sc_commandInit("delete", "X", SDLK_x, KMOD_NONE, _scc_delete);
     _sc_commandInit("distance", "D", SDLK_d, KMOD_NONE, _scc_distanceConstraint);
+    _sc_commandInit("angle", "A", SDLK_a, KMOD_NONE, _scc_angleConstraint);
 }
 
 void sc_updateAndBuildHintWindow(sk_Sketch* activeSketch) {

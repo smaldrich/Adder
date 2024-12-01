@@ -231,6 +231,7 @@ static void _sku_drawAndBuildConstraint(sk_Constraint* c, HMM_Mat4 model, HMM_Ve
         textTopLeft = HMM_Add(visualCenter, HMM_Mul(offset, 2.0f));
     } else if (c->kind == SK_CK_ANGLE) {
         sk_Point* joint = NULL;
+        // FIXME: this can be incorrect based on flippings, fix to always be accurate
         if (c->line1->p1 == c->line2->p1 || c->line1->p1 == c->line2->p2) {
             joint = c->line1->p1;
         } else if (c->line1->p2 == c->line2->p1 || c->line1->p2 == c->line2->p2) {

@@ -54,8 +54,13 @@ struct sk_Point {
 
 typedef struct sk_Line sk_Line;
 struct sk_Line {
-    sk_Point* p1;
-    sk_Point* p2;
+    union {
+        struct {
+            sk_Point* p1;
+            sk_Point* p2;
+        };
+        sk_Point* pts[2];
+    };
     sk_Line* next;
     bool angleApplied;
     bool angleSolved;
