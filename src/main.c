@@ -18,7 +18,6 @@ PoolAlloc main_pool;
 
 snzr_FrameBuffer main_sceneFB;
 sk_Sketch main_sketch;
-sk_Line* main_sketchOriginLine;
 snzu_Instance main_sketchUIInstance;
 snz_Arena main_sketchArena;
 
@@ -130,9 +129,10 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
 
         sk_sketchAddLine(&main_sketch, &main_sketchArena, up, right);
 
-        main_sketchOriginLine = vertical;
-        // main_sketchOriginLine = leftLine;
-        sk_sketchSolve(&main_sketch, main_sketchOriginLine->p1, main_sketchOriginLine, HMM_AngleDeg(0));
+        main_sketch.originLine = vertical;
+        main_sketch.originPt = main_sketch.originLine->p1;
+        main_sketch.originAngle = HMM_AngleDeg(90);
+        sk_sketchSolve(&main_sketch);
     }
 }
 
@@ -319,7 +319,8 @@ void main_frame(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screen
     snzu_instanceSelect(&main_uiInstance);
     snzu_frameStart(scratch, screenSize, dt);
 
-    sk_sketchSolve(&main_sketch, main_sketchOriginLine->p1, main_sketchOriginLine, HMM_AngleDeg(0));
+    sk_sketchClearElementsMarkedForDelete(&main_sketch);
+    sk_sketchSolve(&main_sketch);
 
     HMM_Vec2 rightPanelSize = HMM_V2(0, 0);
 
@@ -387,7 +388,7 @@ void main_frame(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screen
                 docs_buildPage();
             } else if (main_currentView == MAIN_VIEW_SCENE) {
                 main_drawDemoScene(rightPanelSize, scratch, dt, inputs);
-                sc_updateAndBuildHintWindow();
+                sc_updateAndBuildHintWindow(&main_sketch);
             } else if (main_currentView == MAIN_VIEW_SETTINGS) {
                 main_drawSettings();
             } else if (main_currentView == MAIN_VIEW_SHORTCUTS) {

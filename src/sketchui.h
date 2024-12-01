@@ -462,8 +462,12 @@ void sku_drawSketch(
         // FIXME: unpleasant clipping into coplanar geometry
         int lineCount = 13;  // FIXME: batch all of these verts into one line
         float lineGap = _sku_gridLineGap(scaleFactor * 2, lineCount);
+        HMM_Vec2 origin = inter->mousePosGlobal; // FIXME: snap to the last origins position instead of 0,0
+        if (sketch->originPt != NULL) {
+            origin = HMM_Sub(inter->mousePosGlobal, sketch->originPt->pos);
+        }
         for (int ax = 0; ax < 2; ax++) {
-            float axOffset = fmod(inter->mousePosGlobal.Elements[ax], lineGap);
+            float axOffset = fmod(origin.Elements[ax], lineGap);
             for (int i = 0; i < lineCount; i++) {
                 float x = (i - (lineCount / 2)) * lineGap;
                 x -= axOffset;

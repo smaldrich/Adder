@@ -49,6 +49,7 @@ struct sk_Point {
     sk_Manifold manifold;
     bool solved;
     sk_ElementUIInfo uiInfo;
+    bool markedForDelete;
 };
 
 typedef struct sk_Line sk_Line;
@@ -60,6 +61,7 @@ struct sk_Line {
     bool angleSolved;
     float expectedAngle;  // from p1 to p2, may not be normalized
     sk_ElementUIInfo uiInfo;
+    bool markedForDelete;
 };
 
 typedef enum {
@@ -81,6 +83,7 @@ struct sk_Constraint {
     float value;
 
     bool violated;
+    bool markedForDelete;
     sk_ElementUIInfo uiInfo;
 
     sk_Constraint* nextAllocated;
@@ -94,6 +97,11 @@ typedef struct {
     sk_Constraint* firstConstraint;
 
     sk_Constraint* firstUnappliedConstraint;
+
+    sk_Point* originPt;
+    sk_Line* originLine;
+    float originAngle;
+    // FIXME: make setters
 } sk_Sketch;
 
 /*
@@ -360,7 +368,7 @@ static void _sk_rotatePtsWhenUnsolved(sk_Point* const p1, sk_Point* const p2, fl
     }
 }
 
-static float _sk_angleOfLine(HMM_Vec2 p1, HMM_Vec2 p2, bool flip) {
+float sk_angleOfLine(HMM_Vec2 p1, HMM_Vec2 p2, bool flip) {
     HMM_Vec2 diff = HMM_Sub(p2, p1);
     float angle = atan2f(diff.Y, diff.X);
     if (flip) {
@@ -379,8 +387,7 @@ static float _sk_angleNormalized(float a) {
     return a;
 }
 
-// return indicates whether sketch was solved completely
-void sk_sketchSolve(sk_Sketch* sketch, sk_Point* originPt, sk_Line* originLine, float originLineAngle) {
+void sk_sketchSolve(sk_Sketch* sketch) {
     int64_t sketchPointCount = 0;
     int64_t solvedPointCount = 1;
 
@@ -404,13 +411,21 @@ void sk_sketchSolve(sk_Sketch* sketch, sk_Point* originPt, sk_Line* originLine, 
             sketch->firstUnappliedConstraint = c;
         }
 
-        originLine->expectedAngle = originLineAngle;
-        originLine->angleSolved = true;
-        originPt->solved = true;
-        originPt->manifold = (sk_Manifold){
-            .kind = SK_MK_POINT,
-            .point = originPt->pos,
-        };
+        if (sketchPointCount != 0) {
+            SNZ_ASSERT(sketch->originPt != NULL, "non-empty sketch w/ no origin pt.");
+            SNZ_ASSERT(sketch->originLine != NULL, "non-empty sketch w/ no origin line.");
+            SNZ_ASSERT(sketch->originPt == sketch->originLine->p1 || sketch->originPt == sketch->originLine->p2, "origin pt wasn't a part of origin line.");
+
+            sketch->originLine->angleSolved = true;
+            sketch->originLine->expectedAngle = sketch->originAngle;
+
+            sketch->originPt->solved = true;
+            sketch->originPt->manifold = (sk_Manifold){
+                .kind = SK_MK_POINT,
+                .point = sketch->originPt->pos,
+            };
+        }
+
     }
 
     while (true) {  // FIXME: cutoff
@@ -545,8 +560,8 @@ void sk_sketchSolve(sk_Sketch* sketch, sk_Point* originPt, sk_Line* originLine, 
                 }
 
                 // Can't use the angle prop because that is the expected angle, not the actual
-                float l1Angle = _sk_angleOfLine(c->line1->p1->pos, c->line1->p2->pos, c->flipLine1);
-                float l2Angle = _sk_angleOfLine(c->line2->p1->pos, c->line2->p2->pos, c->flipLine2);
+                float l1Angle = sk_angleOfLine(c->line1->p1->pos, c->line1->p2->pos, c->flipLine1);
+                float l2Angle = sk_angleOfLine(c->line2->p1->pos, c->line2->p2->pos, c->flipLine2);
 
                 float angleDiff = _sk_angleNormalized(c->value - _sk_angleNormalized(l2Angle - l1Angle)) / 2;
                 error = angleDiff * 2;
@@ -586,13 +601,114 @@ void sk_sketchSolve(sk_Sketch* sketch, sk_Point* originPt, sk_Line* originLine, 
                 c->violated = true;
             }
         } else if (c->kind == SK_CK_ANGLE) {
-            float l1Angle = _sk_angleOfLine(c->line1->p2->pos, c->line1->p2->pos, c->flipLine1);
-            float l2Angle = _sk_angleOfLine(c->line2->p2->pos, c->line2->p2->pos, c->flipLine2);
+            float l1Angle = sk_angleOfLine(c->line1->p2->pos, c->line1->p2->pos, c->flipLine1);
+            float l2Angle = sk_angleOfLine(c->line2->p2->pos, c->line2->p2->pos, c->flipLine2);
 
             float error = c->value - (l2Angle - l1Angle);
             if (!csg_floatZero(error)) {
                 c->violated = true;
             }
+        }
+    }
+}
+
+// picks a new origin if necessary
+void sk_sketchClearElementsMarkedForDelete(sk_Sketch* sketch) {
+    // propagate marking for deletion to anything dependent
+    {
+        for (sk_Line* l = sketch->firstLine; l; l = l->next) {
+            if (l->p1->markedForDelete || l->p2->markedForDelete) {
+                l->markedForDelete = true;
+            }
+        }
+
+        for (sk_Point* p = sketch->firstPoint; p; p = p->next) {
+            p->markedForDelete = true;
+        }
+
+        // keep any points connected to any lines that still exist
+        for (sk_Line* l = sketch->firstLine; l; l = l->next) {
+            if (!l->markedForDelete) {
+                l->p1->markedForDelete = false;
+                l->p2->markedForDelete = false;
+            }
+        }
+
+        for (sk_Constraint* c = sketch->firstConstraint; c; c = c->nextAllocated) {
+            if (c->kind == SK_CK_ANGLE) {
+                if (c->line1->markedForDelete || c->line2->markedForDelete) {
+                    c->markedForDelete = true;
+                }
+            } else if (c->kind == SK_CK_DISTANCE) {
+                if (c->line1->markedForDelete) {
+                    c->markedForDelete = true;
+                }
+            } else {
+                SNZ_ASSERTF(false, "unreachable. kind: %d", c->kind);
+            }
+        }
+    }
+
+    bool pickNewOrigin = false;
+    if (sketch->originLine || sketch->originPt) {
+        if (sketch->originPt->markedForDelete || sketch->originLine->markedForDelete) {
+            pickNewOrigin = true;
+        }
+    }
+
+    // FIXME: pool deleted elts so they can be reused
+
+    { // remake point list
+        sk_Point* newList = NULL;
+        sk_Point* next = NULL;
+        for (sk_Point* p = sketch->firstPoint; p; p = next) {
+            next = p->next;
+            if (!p->markedForDelete) {
+                p->next = newList;
+                newList = p;
+            } else {
+                memset(p, 0, sizeof(*p));
+            }
+        }
+        sketch->firstPoint = newList;
+    }
+
+    { // remake line list
+        sk_Line* newList = NULL;
+        sk_Line* next = NULL;
+        for (sk_Line* l = sketch->firstLine; l; l = next) {
+            next = l->next;
+            if (!l->markedForDelete) {
+                l->next = newList;
+                newList = l;
+            } else {
+                memset(l, 0, sizeof(*l));
+            }
+        }
+        sketch->firstLine = newList;
+    }
+
+    { // remake constraint list
+        sk_Constraint* newList = NULL;
+        sk_Constraint* next = NULL;
+        for (sk_Constraint* c = sketch->firstConstraint; c; c = next) {
+            next = c->nextAllocated;
+            if (!c->markedForDelete) {
+                c->nextAllocated = newList;
+                newList = c;
+            } else {
+                memset(c, 0, sizeof(*c));
+            }
+        }
+        sketch->firstConstraint = newList;
+    }
+
+    if (pickNewOrigin) {
+        sketch->originLine = sketch->firstLine;
+        sketch->originPt = NULL;
+        if (sketch->originLine) {
+            sketch->originPt = sketch->firstLine->p1;
+            sketch->originAngle = sk_angleOfLine(sketch->originLine->p1->pos, sketch->originLine->p2->pos, false);
         }
     }
 }
@@ -724,7 +840,10 @@ void sk_tests() {
         sk_sketchAddConstraintDistance(&s, &a, l2, 1);
         sk_sketchAddConstraintDistance(&s, &a, l3, 1);
 
-        sk_sketchSolve(&s, p1, l1, 30);  // FIXME: message?
+        s.originLine = l1;
+        s.originPt = p1;
+        s.originAngle = HMM_AngleDeg(30);
+        sk_sketchSolve(&s);  // FIXME: message?
     }
 
     {
@@ -742,7 +861,10 @@ void sk_tests() {
         sk_sketchAddConstraintAngle(&s, &a, l1, true, l2, false, HMM_AngleDeg(30));
         sk_sketchAddConstraintAngle(&s, &a, l1, false, l3, true, HMM_AngleDeg(-30));
 
-        sk_sketchSolve(&s, p1, l1, HMM_AngleDeg(90));  // FIXME: message?
+        s.originLine = l1;
+        s.originPt = p1;
+        s.originAngle = HMM_AngleDeg(90);
+        sk_sketchSolve(&s);  // FIXME: message?
     }
 
     snz_arenaDeinit(&a);
