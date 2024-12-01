@@ -298,9 +298,7 @@ void main_drawSettings() {
                 // FIXME: when in dark mode, text in the scene is really weird but only when the left bar is moving
             }
         }
-
         ui_switch("musicmode", "music mode", &main_inMusicMode);
-
         ui_switch("skybox", "sky box", &main_skybox);
     }
     // FIXME: UI variable for gap here

@@ -851,6 +851,7 @@ typedef enum {
     SNZU_IF_HOVER = (1 << 0),
     SNZU_IF_MOUSE_BUTTONS = (1 << 1),
     SNZU_IF_MOUSE_SCROLL = (1 << 2),
+    SNZU_IF_ALLOW_EVENT_FALLTHROUGH = (1 << 3), // also prevents the box from capturing mouse inputs
 } snzu_InteractionFlags;
 
 typedef enum {
@@ -1219,7 +1220,9 @@ static void _snzu_genInteractionsForBoxAndChildren(_snzu_Box* box, uint64_t* rem
     if (containsMouse && captureAllowsMouseEvents) {
         if (box->interactionMask & SNZU_IF_HOVER) {
             if ((*remainingInteractionFlags) & SNZU_IF_HOVER) {
-                (*remainingInteractionFlags) ^= SNZU_IF_HOVER;
+                if (!(box->interactionMask & SNZU_IF_ALLOW_EVENT_FALLTHROUGH)) {
+                    (*remainingInteractionFlags) ^= SNZU_IF_HOVER;
+                }
                 if (box->interactionTarget != NULL) {
                     box->interactionTarget->hovered = true;
                 }
@@ -1228,17 +1231,17 @@ static void _snzu_genInteractionsForBoxAndChildren(_snzu_Box* box, uint64_t* rem
 
         if (box->interactionMask & SNZU_IF_MOUSE_BUTTONS) {
             if ((*remainingInteractionFlags) & SNZU_IF_MOUSE_BUTTONS) {
-                (*remainingInteractionFlags) ^= SNZU_IF_MOUSE_BUTTONS;
+                if (!(box->interactionMask & SNZU_IF_ALLOW_EVENT_FALLTHROUGH)) {
+                    (*remainingInteractionFlags) ^= SNZU_IF_MOUSE_BUTTONS;
+                }
 
                 if (_snzu_instance->mouseCapturePathHash == 0) {
-                    // when a mousedown is captured, save the pathhash of the box
-                    // this is maintained until a mouseup happens
-                    // TODO: this system is completely fucked and very hard to locate when reading thru code
-                    // document well or refactor to something better
                     if (_snzu_instance->mouseActions[SNZU_MB_LEFT] == SNZU_ACT_DOWN ||
                         _snzu_instance->mouseActions[SNZU_MB_RIGHT] == SNZU_ACT_DOWN ||
                         _snzu_instance->mouseActions[SNZU_MB_MIDDLE] == SNZU_ACT_DOWN) {
-                        _snzu_instance->mouseCapturePathHash = box->pathHash;
+                        if (!(box->interactionMask & SNZU_IF_ALLOW_EVENT_FALLTHROUGH)) {
+                            _snzu_instance->mouseCapturePathHash = box->pathHash;
+                        }
                     }
                 }
 
@@ -1252,7 +1255,9 @@ static void _snzu_genInteractionsForBoxAndChildren(_snzu_Box* box, uint64_t* rem
 
         if (box->interactionMask & SNZU_IF_MOUSE_SCROLL) {
             if ((*remainingInteractionFlags) & SNZU_IF_MOUSE_SCROLL) {
-                (*remainingInteractionFlags) ^= SNZU_IF_MOUSE_SCROLL;
+                if (!(box->interactionMask & SNZU_IF_ALLOW_EVENT_FALLTHROUGH)) {
+                    (*remainingInteractionFlags) ^= SNZU_IF_MOUSE_SCROLL;
+                }
                 if (box->interactionTarget != NULL) {
                     box->interactionTarget->mouseScrollY = _snzu_instance->currentInputs.mouseScrollY;
                 }

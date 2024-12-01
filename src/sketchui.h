@@ -170,7 +170,7 @@ static void _sku_constraintScaleFactorAndCenter(sk_Constraint* c, HMM_Mat4 model
 }
 
 static bool _sku_constraintHovered(sk_Constraint* c, float scaleFactor, HMM_Vec2 visualCenter, HMM_Vec2 mousePos) {
-    // FIXME: include text in collision zone
+    bool out = true;
     if (c->kind == SK_CK_DISTANCE) {
         HMM_Vec2 p1 = c->line1->p1->pos;
         HMM_Vec2 p2 = c->line1->p2->pos;
@@ -178,25 +178,28 @@ static bool _sku_constraintHovered(sk_Constraint* c, float scaleFactor, HMM_Vec2
         HMM_Vec2 offset = HMM_Mul(HMM_V2(diff.Y, -diff.X), SKU_DISTANCE_CONSTRAINT_OFFSET * scaleFactor);
         p1 = HMM_Add(p1, offset);
         p2 = HMM_Add(p2, offset);
-        return _sku_lineContainsPt(p1, p2, 0.01 * scaleFactor, mousePos);
+        out = _sku_lineContainsPt(p1, p2, 0.01 * scaleFactor, mousePos);
     } else if (c->kind == SK_CK_ANGLE) {
         HMM_Vec2 angles = _sku_angleOfLinesInAngleConstraint(c);
         float angleDiff = _sku_angleDifferenceForConstraint(c, angles.Left, angles.Right);
         HMM_Vec2 diff = HMM_Sub(mousePos, visualCenter);
         if (HMM_Len(diff) > (SKU_ANGLE_CONSTRAINT_OFFSET * 1.4 * scaleFactor)) {
-            return false;
+            out = false;
         }
         float mouseAngle = _sku_angleOfV2(diff);
         float midAngle = angles.Left + (angleDiff / 2);
         float halfRange = fabsf(angleDiff / 2);
         if (fabsf(_sku_normalizeAngle(midAngle - mouseAngle)) > halfRange) {
-            return false;
+            out = false;
         }
-
-        return true;
+    } else {
+        SNZ_ASSERTF(false, "unreachable. kind: %d", c);
     }
-    SNZ_ASSERTF(false, "unreachable. kind: %d", c);
-    return false;
+
+    if (c->uiInfo.textArea.inter.hovered) {
+        out = true;
+    }
+    return out;
 }
 
 // modifies constraint value based on user input
@@ -274,12 +277,10 @@ static void _sku_drawAndBuildConstraint(sk_Constraint* c, HMM_Mat4 model, HMM_Ve
     textTopLeft.Y *= -1; // flip to UI space before drawing
     snzu_boxSetStart(textTopLeft);
 
-    ui_TextArea* const textArea = SNZU_USE_MEM(ui_TextArea, "text");
-
     // FIXME: double click on the rest of the constraint should also enter edit mode
-    ui_textArea(textArea, &ui_titleFont, drawnHeight, drawnColor);
+    ui_textArea(&c->uiInfo.textArea, &ui_titleFont, drawnHeight, drawnColor);
 
-    float val = atof(textArea->chars);
+    float val = atof(c->uiInfo.textArea.chars);
 
     // FIXME: unit spec parsing
     if (c->kind == SK_CK_ANGLE) {
@@ -303,7 +304,7 @@ static void _sku_drawAndBuildConstraint(sk_Constraint* c, HMM_Mat4 model, HMM_Ve
         c->value = val; // FIXME: when this turns into a 90deg angle, the text box immediately disappears
     }
 
-    if (!textArea->wasFocused) { // FIXME: kinda wasteful to have this running constantly
+    if (!c->uiInfo.textArea.wasFocused) { // FIXME: kinda wasteful to have this running constantly
         const char* suffix = NULL;
         if (c->kind == SK_CK_ANGLE) {
             suffix = "deg"; // FIXME: unicode + the degree symol
@@ -316,10 +317,10 @@ static void _sku_drawAndBuildConstraint(sk_Constraint* c, HMM_Mat4 model, HMM_Ve
         }
         // FIXME: cull trailing zeros
         const char* str = snz_arenaFormatStr(scratch, "%.2f%s", renderedVal, suffix);
-        strcpy(textArea->chars, str);
-        textArea->charCount = strlen(str);
-        textArea->cursorPos = SNZ_MIN(textArea->cursorPos, textArea->charCount);
-        _ui_textAreaAssertValid(textArea);
+        strcpy(c->uiInfo.textArea.chars, str);
+        c->uiInfo.textArea.charCount = strlen(str);
+        c->uiInfo.textArea.cursorPos = SNZ_MIN(c->uiInfo.textArea.cursorPos, c->uiInfo.textArea.charCount);
+        _ui_textAreaAssertValid(&c->uiInfo.textArea);
         // FIXME: setter for textArea string;
         // FIXME: this has a one frame delay on scene open before things have text. ig its fine but not ideal.
     }
@@ -447,7 +448,9 @@ void sku_drawSketch(
     snzu_boxSetStart(HMM_V2(-INFINITY, -INFINITY));
     snzu_boxSetEnd(HMM_V2(INFINITY, INFINITY));
     snzu_Interaction* const inter = SNZU_USE_MEM(snzu_Interaction, "inter");
-    snzu_boxSetInteractionOutput(inter, SNZU_IF_HOVER | SNZU_IF_MOUSE_BUTTONS | SNZU_IF_MOUSE_SCROLL);
+    snzu_boxSetInteractionOutput(inter, SNZU_IF_HOVER | SNZU_IF_MOUSE_BUTTONS | SNZU_IF_MOUSE_SCROLL | SNZU_IF_ALLOW_EVENT_FALLTHROUGH);
+    // fallthru required because otherwise this captures the mouse on click // i hate it but it it works
+    snzu_boxEnter();
 
     glDisable(GL_DEPTH_TEST);
 
@@ -479,7 +482,6 @@ void sku_drawSketch(
     }  // end grid
 
     {  // selection // UI state updates
-        snzu_Action leftAct = inter->mouseActions[SNZU_MB_LEFT];
         HMM_Vec2 mouse = inter->mousePosGlobal;
         mouse.Y *= -1; // interaction mouse pos in UI space, this is in sketch space
 
@@ -496,13 +498,17 @@ void sku_drawSketch(
         // in sketch coords (up is Y+)
         HMM_Vec2* const dragOrigin = SNZU_USE_MEM(HMM_Vec2, "dragOrigin");
         bool* const dragging = SNZU_USE_MEM(bool, "dragging");
-        bool dragEnded = *dragging && leftAct == SNZU_ACT_UP;
+        bool dragEnded = *dragging && inter->mouseActions[SNZU_MB_LEFT] == SNZU_ACT_UP;
 
-        if (leftAct == SNZU_ACT_DOWN) {
+        // NOTE: for this to work properly, any box inside of the container needs it's fallthrough flag set.
+        // well see if that pans out. Also it's grossly hard to find.
+        bool mouseDown = inter->mouseActions[SNZU_MB_LEFT] == SNZU_ACT_DOWN;
+
+        if (mouseDown) {
             *dragOrigin = mouse;
             *dragging = true;
             // FIXME: what happens on the border of mouse not being projectable??
-        } else if (leftAct == SNZU_ACT_NONE || leftAct == SNZU_ACT_UP) {
+        } else if (inter->mouseActions[SNZU_MB_LEFT] == SNZU_ACT_NONE || inter->mouseActions[SNZU_MB_LEFT] == SNZU_ACT_UP) {
             *dragging = false;
         }
 
@@ -533,9 +539,8 @@ void sku_drawSketch(
                 HMM_Vec3 transformedCenter = HMM_MulM4V4(model, HMM_V4(midpt.X, midpt.Y, 0, 1)).XYZ;
                 float distToCamera = HMM_Len(HMM_Sub(transformedCenter, cameraPos));
                 bool hovered = _sku_lineContainsPt(l->p1->pos, l->p2->pos, 0.01 * distToCamera, mouse);
-                hovered &= inter->hovered;
 
-                if (leftAct == SNZU_ACT_DOWN && hovered) {
+                if (mouseDown && hovered) {
                     *dragging = false;  // cancel a drag before it is processed if it lands on this
                 }
 
@@ -555,9 +560,8 @@ void sku_drawSketch(
                 _sku_constraintScaleFactorAndCenter(c, model, cameraPos, &visualCenter, &scaleFactor);
 
                 bool hovered = _sku_constraintHovered(c, scaleFactor, visualCenter, mouse);
-                hovered &= inter->hovered;
 
-                if (leftAct == SNZU_ACT_DOWN && hovered) {
+                if (mouseDown && hovered) {
                     *dragging = false;  // cancel a drag before it is processed if it lands on this
                 }
 
@@ -586,10 +590,11 @@ void sku_drawSketch(
                 status->eltUIInfo->selected = false;
             }
 
-            if (leftAct == SNZU_ACT_DOWN) {
+            if (mouseDown) {
                 if (!shiftPressed && !status->hovered && !status->withinDragZone) {
                     status->eltUIInfo->selected = false;
-                } else if (status->hovered) {
+                }
+                if (status->hovered) {
                     status->eltUIInfo->selected = !status->eltUIInfo->selected;
                 }
             }
@@ -634,6 +639,7 @@ void sku_drawSketch(
         snzr_drawLine(points, 2, color, thickness, sketchMVP);
     }
 
+    snzu_boxExit(); // exit main parent
     snzu_frameDrawAndGenInteractions(inputs, uiMVP);
 
     glEnable(GL_DEPTH_TEST);

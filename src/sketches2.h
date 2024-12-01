@@ -5,6 +5,7 @@
 #include "HMM/HandmadeMath.h"
 #include "csg.h"
 #include "snooze.h"
+#include "ui.h"
 
 typedef enum {
     SK_MK_ANY,
@@ -35,6 +36,7 @@ typedef struct {
 } sk_Manifold;
 
 typedef struct {
+    ui_TextArea textArea;
     bool selected;
     float selectionAnim;
     float hoverAnim;
