@@ -501,8 +501,10 @@ void sk_sketchSolve(sk_Sketch* sketch) {
                     .line.direction = HMM_RotateV2(HMM_V2(fixed == line->p1 ? 1 : -1, 0), line->expectedAngle),
                 };
                 sk_Manifold startManifold = variable->manifold;
-                variable->manifold = _sk_manifoldJoin(startManifold, m);
-                SNZ_ASSERT(variable->manifold.kind != SK_MK_NONE, "OVERCONSTRAINED!!");  // FIXME: remove
+                sk_Manifold newManifold = _sk_manifoldJoin(startManifold, m);
+                if (newManifold.kind != SK_MK_NONE) {
+                    variable->manifold = newManifold;
+                }
                 line->angleApplied = true;
                 anySolved = true;
             }
