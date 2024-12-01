@@ -340,10 +340,10 @@ static void _sku_drawManifold(sk_Point* p, HMM_Vec3 cameraPos, HMM_Mat4 model, H
     if (p->manifold.kind == SK_MK_POINT) {
         return;
     } else if (p->manifold.kind == SK_MK_CIRCLE) {
-        ptCount = 11;
+        ptCount = 20;
         pts = SNZ_ARENA_PUSH_ARR(scratch, ptCount, HMM_Vec2);
 
-        float angleRange = HMM_AngleDeg(40);
+        float angleRange = HMM_AngleDeg(90);
         HMM_Vec2 diff = HMM_Sub(p->pos, p->manifold.circle.origin);
         float startAngle = atan2f(diff.Y, diff.X);
         for (int i = 0; i < ptCount; i++) {
@@ -382,7 +382,7 @@ static void _sku_drawManifold(sk_Point* p, HMM_Vec3 cameraPos, HMM_Mat4 model, H
         // When it's a circle, there's not really a great way to scale up the manifold visually
         // and keep it's radius meaningful. So i'm leaving it like this for now.
         // FIXME: could scale up the visible radius to a point tho, which would probs work
-        scaleFactor = 0.07;
+        scaleFactor = 0.2;
     }
     snzr_drawLineFaded(
         pts, ptCount,
