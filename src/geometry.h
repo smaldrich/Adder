@@ -122,3 +122,123 @@ void geo_sketchToTris(snz_Arena* scratch, snz_Arena* outArena, sk_Sketch* sketch
 void geo_tests() {
     snz_testPrintSection("geo");
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+/*
+
+
+
+so we are making a way of identifying geometry for shit
+
+doing it LL of opp style is miserable in so many ways
+    each operation needs a method of location a piece of geometry
+    i.e. it's own struct/enum tag/values/handling code etc.
+    each op also needs a way of storing what made it
+
+a backup would be lovely -> 'closest fuckin position + normal?'
+
+
+
+
+
+so sketches are 'primatives' (stored ptr style to identify components, edge+dir to ident faces)
+the planned operations we have are:
+
+union
+difference
+intersection
+extrusion
+revolve
+pattern
+shell
+loft
+fillet
+chamfer
+
+
+and the outputted geometry can be distinguished via:
+and that gives you the exact fucking thing you need to find a source sketch by golly ive done it again
+
+union:
+    f1+f2->line
+    or f->f
+    or l->l
+    or l+f->p
+    or p->p
+diff: same as union
+intersection: same as union
+
+extrude:
+    f->f1
+    f->f2
+    l->f
+    p->l
+    p->p1
+    p->p2
+    l->l1
+    l->l2
+
+revolve:
+    l->f
+    l->l
+    f->f1
+    f->f2
+    p->p1
+    p->p2
+    p->l
+
+pattern:
+    l|f|p -> (l|f|p)i,j,k,etc.
+
+shell:
+    l->f
+    f->f
+    f->f1
+    f->f2
+    p->p1
+    p->p2
+    l->l1
+    l->l2
+
+loft:
+    f->f1
+    f->f2
+    l->f
+    l->l1
+    l->l2
+    p->l
+    p->p1
+    p->p2
+
+fillet:
+    l->f
+    l->l1
+    l->l2
+    p->f
+    p->l
+chamfer: same as fillet
+
+and then the face for some geometry just stores the ID for which of these it is and your're golden
+
+
+*/
