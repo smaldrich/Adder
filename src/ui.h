@@ -21,9 +21,9 @@ float ui_cornerRadius = 15;
 float ui_borderThickness = 4;
 float ui_padding = 5;
 
-snzr_Texture ui_skyBox = { 0 };
-snzr_Texture ui_lightSky = { 0 };
-snzr_Texture ui_darkSky = { 0 };
+snzr_Texture ui_skyBox = {0};
+snzr_Texture ui_lightSky = {0};
+snzr_Texture ui_darkSky = {0};
 
 void ui_setThemeLight() {
     ui_colorText = HMM_V4(60 / 255.0, 60 / 255.0, 60 / 255.0, 1);
@@ -46,11 +46,14 @@ void ui_setThemeDark() {
 }
 
 void ui_init(snz_Arena* fontArena, snz_Arena* scratch) {
+    int w, h, channels = 0;
+    uint8_t* pixels = NULL;
     // FIXME: load time on this is abhorrent
-    int w, h, channels;
-    uint8_t* pixels = stbi_load("res/textures/Deep Dusk Equirect.png", &w, &h, &channels, 4);
-    SNZ_ASSERT(pixels, "Skybox load failed.");
-    ui_darkSky = snzr_textureInitRBGA(w, h, pixels);
+    // int w, h, channels;
+    // uint8_t* pixels = stbi_load("res/textures/Deep Dusk Equirect.png", &w, &h, &channels, 4);
+    // SNZ_ASSERT(pixels, "Skybox load failed.");
+    // ui_darkSky = snzr_textureInitRBGA(w, h, pixels);
+    ui_darkSky = _snzr_globs.solidTex;
 
     // ui_lightSky = _snzr_globs.solidTex; // FIXME: make this public plz
     pixels = stbi_load("res/textures/Untitled.png", &w, &h, &channels, 4);
@@ -157,7 +160,7 @@ typedef struct {
     int64_t selectionStart;
 
     bool wasFocused;
-    bool firstClickForFocus; // needs to be persisted so that other things don't trigger while mouse is down
+    bool firstClickForFocus;  // needs to be persisted so that other things don't trigger while mouse is down
 
     const snzr_Font* font;
 
@@ -315,7 +318,7 @@ void ui_textAreaInit(const char* str, ui_TextArea* const text) {
         text->charCount = len;
         strcpy(text->chars, str);
     }
-    text->selectionStart = -1; // FIXME: sorry it's non zero. worked out easier.
+    text->selectionStart = -1;  // FIXME: sorry it's non zero. worked out easier.
 }
 
 // FIXME: bettery recovery than just not applying when it changes

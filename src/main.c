@@ -42,9 +42,9 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
     snzu_instanceSelect(&main_uiInstance);
     main_sketchUIInstance = snzu_instanceInit();
 
-    { // FIXME: move to snz
+    {  // FIXME: move to snz
         SDL_Surface* s = SDL_LoadBMP("res/textures/icon.bmp");
-        char buf[1000] = { 0 };
+        char buf[1000] = {0};
         const char* err = SDL_GetErrorMsg(buf, 1000);
         printf("%s", err);
         SNZ_ASSERT(s != NULL, "icon load failed.");
@@ -306,14 +306,7 @@ void main_drawSettings() {
     snzuc_scrollArea();
 }
 
-typedef enum {
-    MAIN_VIEW_SCENE,
-    MAIN_VIEW_DOCS,
-    MAIN_VIEW_SETTINGS,
-    MAIN_VIEW_SHORTCUTS,
-} main_View;
-
-main_View main_currentView;
+sc_View main_currentView;
 
 void main_frame(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screenSize) {
     snzu_instanceSelect(&main_uiInstance);
@@ -352,8 +345,8 @@ void main_frame(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screen
                 snzu_boxFillParent();
                 snzu_boxSizePctParent(0.5, SNZU_AX_Y);
                 snzu_boxScope() {
-                    if (ui_buttonWithHighlight(main_currentView == MAIN_VIEW_SCENE, "demo scene")) {
-                        main_currentView = MAIN_VIEW_SCENE;
+                    if (ui_buttonWithHighlight(main_currentView == SC_VIEW_SCENE, "demo scene")) {
+                        main_currentView = SC_VIEW_SCENE;
                     }
                 }
                 snzu_boxOrderChildrenInRowRecurse(5, SNZU_AX_Y);
@@ -363,14 +356,14 @@ void main_frame(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screen
                 snzu_boxFillParent();
                 snzu_boxSizeFromEndPctParent(0.5, SNZU_AX_Y);
                 snzu_boxScope() {
-                    if (ui_buttonWithHighlight(main_currentView == MAIN_VIEW_DOCS, "docs")) {
-                        main_currentView = MAIN_VIEW_DOCS;
+                    if (ui_buttonWithHighlight(main_currentView == SC_VIEW_DOCS, "docs")) {
+                        main_currentView = SC_VIEW_DOCS;
                     }
-                    if (ui_buttonWithHighlight(main_currentView == MAIN_VIEW_SETTINGS, "settings")) {
-                        main_currentView = MAIN_VIEW_SETTINGS;
+                    if (ui_buttonWithHighlight(main_currentView == SC_VIEW_SETTINGS, "settings")) {
+                        main_currentView = SC_VIEW_SETTINGS;
                     }
-                    if (ui_buttonWithHighlight(main_currentView == MAIN_VIEW_SHORTCUTS, "shortcuts")) {
-                        main_currentView = MAIN_VIEW_SHORTCUTS;
+                    if (ui_buttonWithHighlight(main_currentView == SC_VIEW_SHORTCUTS, "shortcuts")) {
+                        main_currentView = SC_VIEW_SHORTCUTS;
                     }
                 }
                 snzu_boxOrderChildrenInRowRecurseAlignEnd(5, SNZU_AX_Y);
@@ -384,14 +377,13 @@ void main_frame(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screen
         snzu_boxSetSizeFromEndAx(SNZU_AX_X, rightPanelSize.X);  // FIXME: set size remaining util fn
         snzu_boxSetColor(ui_colorBackground);
         snzu_boxScope() {
-            if (main_currentView == MAIN_VIEW_DOCS) {
+            if (main_currentView == SC_VIEW_DOCS) {
                 docs_buildPage();
-            } else if (main_currentView == MAIN_VIEW_SCENE) {
+            } else if (main_currentView == SC_VIEW_SCENE) {
                 main_drawDemoScene(rightPanelSize, scratch, dt, inputs);
-                sc_updateAndBuildHintWindow(&main_sketch);
-            } else if (main_currentView == MAIN_VIEW_SETTINGS) {
+            } else if (main_currentView == SC_VIEW_SETTINGS) {
                 main_drawSettings();
-            } else if (main_currentView == MAIN_VIEW_SHORTCUTS) {
+            } else if (main_currentView == SC_VIEW_SHORTCUTS) {
                 sc_buildSettings();
             } else {
                 SNZ_ASSERTF(false, "unreachable view case, view was: %d", main_currentView);
@@ -408,6 +400,8 @@ void main_frame(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screen
         snzu_boxFillParent();
         snzu_boxSetSizeFromStartAx(SNZU_AX_Y, ui_borderThickness);
         snzu_boxSetColor(ui_colorText);
+
+        sc_updateAndBuildHintWindow(&main_sketch, &main_currentView);
     }
 
     snzr_callGLFnOrError(glBindFramebuffer(GL_FRAMEBUFFER, 0));

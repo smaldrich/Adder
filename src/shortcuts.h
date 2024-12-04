@@ -1,9 +1,16 @@
 #pragma once
 
 #include "PoolAlloc.h"
+#include "sketches2.h"
 #include "snooze.h"
 #include "ui.h"
-#include "sketches2.h"
+
+typedef enum {
+    SC_VIEW_SCENE,
+    SC_VIEW_DOCS,
+    SC_VIEW_SETTINGS,
+    SC_VIEW_SHORTCUTS,
+} sc_View;
 
 typedef struct {
     SDL_KeyCode key;
@@ -12,6 +19,7 @@ typedef struct {
 
 typedef struct {
     sk_Sketch* activeSketch;
+    sc_View* currentView;  // read/write
 } _sc_CommandArgs;
 
 typedef bool (*_sc_CommandFunc)(_sc_CommandArgs args);
@@ -39,6 +47,26 @@ static _sc_Command* _sc_commandInit(const char* displayName, const char* keyName
         },
     };
     return c;
+}
+
+bool _scc_goToSettings(_sc_CommandArgs args) {
+    *args.currentView = SC_VIEW_SETTINGS;
+    return true;
+}
+
+bool _scc_goToDocs(_sc_CommandArgs args) {
+    *args.currentView = SC_VIEW_DOCS;
+    return true;
+}
+
+bool _scc_goToShortcuts(_sc_CommandArgs args) {
+    *args.currentView = SC_VIEW_SHORTCUTS;
+    return true;
+}
+
+bool _scc_goToMainScene(_sc_CommandArgs args) {
+    *args.currentView = SC_VIEW_SCENE;
+    return true;
 }
 
 bool _scc_delete(_sc_CommandArgs args) {
@@ -79,7 +107,7 @@ bool _scc_distanceConstraint(_sc_CommandArgs args) {
 
 bool _scc_angleConstraint(_sc_CommandArgs args) {
     int selectedCount = 0;
-    sk_Line* lines[2] = { NULL, NULL };
+    sk_Line* lines[2] = {NULL, NULL};
     for (sk_Line* line = args.activeSketch->firstLine; line; line = line->next) {
         if (line->uiInfo.selected) {
             selectedCount++;
@@ -133,12 +161,18 @@ bool _scc_angleConstraint(_sc_CommandArgs args) {
 
 void sc_init(PoolAlloc* pool) {
     _sc_commandPool = pool;
+
+    _sc_commandInit("goto shortcuts", "C", SDLK_c, KMOD_LSHIFT, _scc_goToShortcuts);
+    _sc_commandInit("goto docs", "D", SDLK_d, KMOD_LSHIFT, _scc_goToDocs);
+    _sc_commandInit("goto main scene", "M", SDLK_m, KMOD_LSHIFT, _scc_goToMainScene);
+    _sc_commandInit("goto settings", "S", SDLK_s, KMOD_LSHIFT, _scc_goToSettings);
+
     _sc_commandInit("delete", "X", SDLK_x, KMOD_NONE, _scc_delete);
     _sc_commandInit("distance", "D", SDLK_d, KMOD_NONE, _scc_distanceConstraint);
     _sc_commandInit("angle", "A", SDLK_a, KMOD_NONE, _scc_angleConstraint);
 }
 
-void sc_updateAndBuildHintWindow(sk_Sketch* activeSketch) {
+void sc_updateAndBuildHintWindow(sk_Sketch* activeSketch, sc_View* outCurrentView) {
     snzu_boxNew("updatesParent");
     snzu_boxSetSizeMarginFromParent(30);
 
@@ -156,7 +190,8 @@ void sc_updateAndBuildHintWindow(sk_Sketch* activeSketch) {
             if (!*activeCommand && snzu_isNothingFocused()) {
                 for (int i = 0; i < _sc_commandCount; i++) {
                     _sc_Command* c = &_sc_commands[i];
-                    if (kp.key == c->key.key && kp.mods == c->key.mods) {
+                    // FIXME: left shift only is required thats bad
+                    if (kp.key == c->key.key && (kp.mods == c->key.mods)) {
                         *activeCommand = c;
                         break;
                     }
@@ -171,6 +206,7 @@ void sc_updateAndBuildHintWindow(sk_Sketch* activeSketch) {
 
     _sc_CommandArgs args = (_sc_CommandArgs){
         .activeSketch = activeSketch,
+        .currentView = outCurrentView,
     };
 
     snzu_boxScope() {
