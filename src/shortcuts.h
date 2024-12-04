@@ -162,14 +162,15 @@ bool _scc_angleConstraint(_sc_CommandArgs args) {
 void sc_init(PoolAlloc* pool) {
     _sc_commandPool = pool;
 
+    _sc_commandInit("delete", "X", SDLK_x, KMOD_NONE, _scc_delete);
+    _sc_commandInit("distance", "D", SDLK_d, KMOD_NONE, _scc_distanceConstraint);
+    _sc_commandInit("angle", "A", SDLK_a, KMOD_NONE, _scc_angleConstraint);
+
     _sc_commandInit("goto shortcuts", "C", SDLK_c, KMOD_LSHIFT, _scc_goToShortcuts);
     _sc_commandInit("goto docs", "D", SDLK_d, KMOD_LSHIFT, _scc_goToDocs);
     _sc_commandInit("goto main scene", "M", SDLK_m, KMOD_LSHIFT, _scc_goToMainScene);
     _sc_commandInit("goto settings", "S", SDLK_s, KMOD_LSHIFT, _scc_goToSettings);
-
-    _sc_commandInit("delete", "X", SDLK_x, KMOD_NONE, _scc_delete);
-    _sc_commandInit("distance", "D", SDLK_d, KMOD_NONE, _scc_distanceConstraint);
-    _sc_commandInit("angle", "A", SDLK_a, KMOD_NONE, _scc_angleConstraint);
+    // FIXME: shift icon instead of these
 }
 
 void sc_updateAndBuildHintWindow(sk_Sketch* activeSketch, sc_View* outCurrentView) {
