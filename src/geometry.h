@@ -67,6 +67,9 @@ void geo_buildSelectedMesh(geo_Mesh* mesh, HMM_Mat4 vp, HMM_Vec3 cameraPos, HMM_
     geo_MeshFace* closestHovered = NULL;
     float closestHoveredDist = INFINITY;
 
+    assert(cameraPos.X || !cameraPos.X);
+    assert(mouseRayDir.X || !mouseRayDir.X);
+
     for (geo_MeshFace* face = mesh->firstFace; face; face = face->next) {
         HMM_Vec3 intersection = HMM_V3(0, 0, 0);
         // NOTE: any model transform will have to change this to adapt

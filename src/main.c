@@ -65,8 +65,8 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
     main_sceneFB = snzr_frameBufferInit(snzr_textureInitRBGA(500, 500, NULL));
 
     {
-        csg_TriList cubeA = csg_cube(scratch);
-        csg_TriList cubeB = csg_cube(scratch);
+        csg_TriList cubeA = csg_cube(&main_meshArena);
+        csg_TriList cubeB = csg_cube(&main_meshArena);
         csg_triListTransform(&cubeB, HMM_Rotate_RH(HMM_AngleDeg(30), HMM_V3(1, 1, 1)));
         csg_triListTransform(&cubeB, HMM_Translate(HMM_V3(1, 1, 1)));
 
