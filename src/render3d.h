@@ -73,47 +73,47 @@ void ren3d_init(snz_Arena* scratch) {
 
     {
         HMM_Vec3 verts[] = {
-            HMM_V3(-1.0f,  1.0f, -1.0f),
+            HMM_V3(-1.0f, 1.0f, -1.0f),
             HMM_V3(-1.0f, -1.0f, -1.0f),
             HMM_V3(1.0f, -1.0f, -1.0f),
             HMM_V3(1.0f, -1.0f, -1.0f),
-            HMM_V3(1.0f,  1.0f, -1.0f),
-            HMM_V3(-1.0f,  1.0f, -1.0f),
+            HMM_V3(1.0f, 1.0f, -1.0f),
+            HMM_V3(-1.0f, 1.0f, -1.0f),
 
-            HMM_V3(-1.0f, -1.0f,  1.0f),
+            HMM_V3(-1.0f, -1.0f, 1.0f),
             HMM_V3(-1.0f, -1.0f, -1.0f),
-            HMM_V3(-1.0f,  1.0f, -1.0f),
-            HMM_V3(-1.0f,  1.0f, -1.0f),
-            HMM_V3(-1.0f,  1.0f,  1.0f),
-            HMM_V3(-1.0f, -1.0f,  1.0f),
+            HMM_V3(-1.0f, 1.0f, -1.0f),
+            HMM_V3(-1.0f, 1.0f, -1.0f),
+            HMM_V3(-1.0f, 1.0f, 1.0f),
+            HMM_V3(-1.0f, -1.0f, 1.0f),
 
             HMM_V3(1.0f, -1.0f, -1.0f),
-            HMM_V3(1.0f, -1.0f,  1.0f),
-            HMM_V3(1.0f,  1.0f,  1.0f),
-            HMM_V3(1.0f,  1.0f,  1.0f),
-            HMM_V3(1.0f,  1.0f, -1.0f),
+            HMM_V3(1.0f, -1.0f, 1.0f),
+            HMM_V3(1.0f, 1.0f, 1.0f),
+            HMM_V3(1.0f, 1.0f, 1.0f),
+            HMM_V3(1.0f, 1.0f, -1.0f),
             HMM_V3(1.0f, -1.0f, -1.0f),
 
-            HMM_V3(-1.0f, -1.0f,  1.0f),
-            HMM_V3(-1.0f,  1.0f,  1.0f),
-            HMM_V3(1.0f,  1.0f,  1.0f),
-            HMM_V3(1.0f,  1.0f,  1.0f),
-            HMM_V3(1.0f, -1.0f,  1.0f),
-            HMM_V3(-1.0f, -1.0f,  1.0f),
+            HMM_V3(-1.0f, -1.0f, 1.0f),
+            HMM_V3(-1.0f, 1.0f, 1.0f),
+            HMM_V3(1.0f, 1.0f, 1.0f),
+            HMM_V3(1.0f, 1.0f, 1.0f),
+            HMM_V3(1.0f, -1.0f, 1.0f),
+            HMM_V3(-1.0f, -1.0f, 1.0f),
 
-            HMM_V3(-1.0f,  1.0f, -1.0f),
-            HMM_V3(1.0f,  1.0f, -1.0f),
-            HMM_V3(1.0f,  1.0f,  1.0f),
-            HMM_V3(1.0f,  1.0f,  1.0f),
-            HMM_V3(-1.0f,  1.0f,  1.0f),
-            HMM_V3(-1.0f,  1.0f, -1.0f),
+            HMM_V3(-1.0f, 1.0f, -1.0f),
+            HMM_V3(1.0f, 1.0f, -1.0f),
+            HMM_V3(1.0f, 1.0f, 1.0f),
+            HMM_V3(1.0f, 1.0f, 1.0f),
+            HMM_V3(-1.0f, 1.0f, 1.0f),
+            HMM_V3(-1.0f, 1.0f, -1.0f),
 
             HMM_V3(-1.0f, -1.0f, -1.0f),
-            HMM_V3(-1.0f, -1.0f,  1.0f),
+            HMM_V3(-1.0f, -1.0f, 1.0f),
             HMM_V3(1.0f, -1.0f, -1.0f),
             HMM_V3(1.0f, -1.0f, -1.0f),
-            HMM_V3(-1.0f, -1.0f,  1.0f),
-            HMM_V3(1.0f, -1.0f,  1.0f),
+            HMM_V3(-1.0f, -1.0f, 1.0f),
+            HMM_V3(1.0f, -1.0f, 1.0f),
         };
 
         _ren3d_skyboxMesh = (ren3d_Mesh){
@@ -146,7 +146,7 @@ void ren3d_drawMesh(const ren3d_Mesh* mesh, HMM_Mat4 vp, HMM_Mat4 model, HMM_Vec
     snzr_callGLFnOrError(glUniformMatrix4fv(loc, 1, false, (float*)&model));
 
     loc = glGetUniformLocation(_ren3d_shaderId, "uColor");
-    snzr_callGLFnOrError(glUniform3f(loc, 1, 1, 1));
+    snzr_callGLFnOrError(glUniform4f(loc, 1, 1, 1, 1));
 
     loc = glGetUniformLocation(_ren3d_shaderId, "uLightColor");
     snzr_callGLFnOrError(glUniform3f(loc, 1, 1, 1));

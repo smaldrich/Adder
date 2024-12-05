@@ -21,7 +21,7 @@ bool geo_intersectRayAndTri(HMM_Vec3 rayOrigin, HMM_Vec3 rayDir,
     HMM_Vec3 s = HMM_Sub(rayOrigin, a);
     float u = inv_det * HMM_Dot(s, ray_cross_e2);
 
-    if ((u < 0 && abs(u) > CSG_EPSILON) || (u > 1 && abs(u - 1) > CSG_EPSILON)) {
+    if ((u < 0 && fabsf(u) > CSG_EPSILON) || (u > 1 && fabsf(u - 1) > CSG_EPSILON)) {
         return false;
     }
 
@@ -51,9 +51,6 @@ void geo_tests() {
 }
 
 /*
-
-
-
 so we are making a way of identifying geometry for shit
 
 doing it LL of opp style is miserable in so many ways
@@ -62,9 +59,6 @@ doing it LL of opp style is miserable in so many ways
     each op also needs a way of storing what made it
 
 a backup would be lovely -> 'closest fuckin position + normal?'
-
-
-
 
 
 so sketches are 'primatives' (stored ptr style to identify components, edge+dir to ident faces)
@@ -145,6 +139,4 @@ fillet:
 chamfer: same as fillet
 
 and then the face for some geometry just stores the ID for which of these it is and your're golden
-
-
 */

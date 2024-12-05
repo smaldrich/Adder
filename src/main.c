@@ -88,7 +88,7 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
                     .normal = triNormal,
                 };
             }
-            if (triIdx == 7) {
+            if (triIdx == 9) {
                 main_sketchAlign = (sku_Align){
                     .startPt = HMM_V3(0, 0, 0),
                     .startNormal = HMM_V3(0, 0, 1),
@@ -247,8 +247,8 @@ void main_drawDemoScene(HMM_Vec2 panelSize, snz_Arena* scratch, float dt, snzu_I
 
     // FIXME: highlight edges :) + debug view of geometry
     ren3d_drawMesh(&main_mesh, vp, model, HMM_V3(-1, -1, -1), ui_lightAmbient);
-    if (main_skybox) {
-        ren3d_drawSkybox(vp, ui_skyBox);
+    if (main_skybox && ui_skyBox != NULL) {
+        ren3d_drawSkybox(vp, *ui_skyBox);
     }
 
     // FIXME: this is gross af
@@ -291,6 +291,7 @@ void main_drawSettings() {
         if (prev != main_inDarkMode) {
             if (!main_inDarkMode) {
                 ui_setThemeLight();
+                // FIXME: make this constant refresh so i don't have to diff it here
             } else {
                 ui_setThemeDark();
                 // FIXME: when in dark mode, button with highlight is awful
