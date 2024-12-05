@@ -37,10 +37,8 @@ typedef struct {
 
 typedef struct {
     ui_TextArea textArea;
-    bool selected;
-    float selectionAnim;
-    float hoverAnim;
-} sk_ElementUIInfo;
+    ui_SelectableState sel;
+} sk_ElementUIInfo; // FIXME: this struct shouldn't exist
 
 typedef struct sk_Point sk_Point;
 struct sk_Point {
@@ -48,8 +46,8 @@ struct sk_Point {
     sk_Point* next;
     sk_Manifold manifold;
     bool solved;
-    sk_ElementUIInfo uiInfo;
     bool markedForDelete;
+    bool inDragZone;
 };
 
 typedef struct sk_Line sk_Line;

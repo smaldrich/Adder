@@ -517,6 +517,10 @@ void ui_selectableRegionUpdate(ui_SelectableRegion* region, ui_SelectableStatus*
     bool mouseDown = mouseAct == SNZU_ACT_DOWN;
     bool dragEnded = (region->dragging) && (mouseAct == SNZU_ACT_UP);
 
+    if (dragEnded) {
+        region->dragging = false;
+    }
+
     for (ui_SelectableStatus* status = firstStatus; status; status = status->next) {
         if (!snzu_isNothingFocused()) {
             status->state->selected = false;

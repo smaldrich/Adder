@@ -17,7 +17,7 @@ static float _sku_gridLineGap(float area, float visibleCount) {
         exp++;
     }
 
-    int roundingTargets[] = {5, 2, 1};
+    int roundingTargets[] = { 5, 2, 1 };
     for (int i = 0; i < 3; i++) {
         if (dec > roundingTargets[i]) {
             dec = (float)roundingTargets[i];
@@ -207,13 +207,13 @@ static void _sku_drawAndBuildConstraint(sk_Constraint* c, HMM_Mat4 model, HMM_Ve
     if (c->violated) {
         drawnColor = ui_colorErr;
     }
-    drawnColor = HMM_LerpV4(drawnColor, c->uiInfo.selectionAnim, ui_colorAccent);
+    drawnColor = HMM_LerpV4(drawnColor, c->uiInfo.sel.selectionAnim, ui_colorAccent);
 
     HMM_Vec2 visualCenter = HMM_V2(0, 0);
     float scaleFactor = 1;
     _sku_constraintScaleFactorAndCenter(c, model, cameraPos, &visualCenter, &scaleFactor);
 
-    float drawnThickness = HMM_Lerp(SKU_CONSTRAINT_THICKNESS, c->uiInfo.hoverAnim, SKU_CONSTRAINT_HOVERED_THICKNESS);
+    float drawnThickness = HMM_Lerp(SKU_CONSTRAINT_THICKNESS, c->uiInfo.sel.hoverAnim, SKU_CONSTRAINT_HOVERED_THICKNESS);
 
     HMM_Vec2 textTopLeft = HMM_V2(0, 0);  // TL of the label in sketch space
 
@@ -224,7 +224,7 @@ static void _sku_drawAndBuildConstraint(sk_Constraint* c, HMM_Mat4 model, HMM_Ve
         HMM_Vec2 offset = HMM_Mul(HMM_V2(diff.Y, -diff.X), SKU_DISTANCE_CONSTRAINT_OFFSET * (1 + soundPct) * scaleFactor);
         p1 = HMM_Add(p1, offset);
         p2 = HMM_Add(p2, offset);
-        HMM_Vec2 points[] = {p1, p2};
+        HMM_Vec2 points[] = { p1, p2 };
         snzr_drawLine(points, 2, drawnColor, drawnThickness, sketchMVP);
 
         textTopLeft = HMM_Add(visualCenter, HMM_Mul(offset, 2.0f));
@@ -398,14 +398,6 @@ static bool _sku_AABBContainsPt(HMM_Vec2 boxStart, HMM_Vec2 boxEnd, HMM_Vec2 pt)
     return false;
 }
 
-typedef struct _sku_SketchEltUIStatus _sku_SketchEltUIStatus;
-struct _sku_SketchEltUIStatus {
-    bool hovered;
-    bool withinDragZone;
-    sk_ElementUIInfo* eltUIInfo;
-    _sku_SketchEltUIStatus* next;
-};
-
 // FIXME: sketch element selection persists too much
 
 // Expects a UI instance that isn't the main one to be selected, for use exclusively here
@@ -472,13 +464,13 @@ void sku_drawSketch(
             for (int i = 0; i < lineCount; i++) {
                 float x = (i - (lineCount / 2)) * lineGap;
                 x -= axOffset;
-                HMM_Vec2 pts[] = {inter->mousePosGlobal, inter->mousePosGlobal};
+                HMM_Vec2 pts[] = { inter->mousePosGlobal, inter->mousePosGlobal };
                 pts[0].Elements[ax] += x;
                 pts[0].Elements[!ax] += 1.5 * scaleFactor;
                 pts[1].Elements[ax] += x;
                 pts[1].Elements[!ax] += -1.5 * scaleFactor;
 
-                HMM_Vec3 fadeOrigin = {0};
+                HMM_Vec3 fadeOrigin = { 0 };
                 fadeOrigin.XY = inter->mousePosGlobal;
                 // FIXME: have this invert color when behind smth in the scene
                 snzr_drawLineFaded(pts, 2, ui_colorAlmostBackground, 1, uiMVP, fadeOrigin, 0, 0.5 * scaleFactor);
@@ -489,56 +481,37 @@ void sku_drawSketch(
     {  // selection // UI state updates
         HMM_Vec2 mouse = inter->mousePosGlobal;
         mouse.Y *= -1;  // interaction mouse pos in UI space, this is in sketch space
-
-        bool shiftPressed = SNZU_USE_MEM(bool, "shiftPressed");
-        {
-            if (!snzu_isNothingFocused()) {
-                shiftPressed = false;
-            } else {
-                shiftPressed = inter->keyMods & KMOD_SHIFT;
-            }
-        }
-
-        // doing this instead of snzu_Interaction.dragBeginning bc. mouse pos is projected
-        // in sketch coords (up is Y+)
-        HMM_Vec2* const dragOrigin = SNZU_USE_MEM(HMM_Vec2, "dragOrigin");
-        bool* const dragging = SNZU_USE_MEM(bool, "dragging");
-        bool dragEnded = *dragging && inter->mouseActions[SNZU_MB_LEFT] == SNZU_ACT_UP;
-
-        // NOTE: for this to work properly, any box inside of the container needs it's fallthrough flag set.
-        // well see if that pans out. Also it's grossly hard to find.
         bool mouseDown = inter->mouseActions[SNZU_MB_LEFT] == SNZU_ACT_DOWN;
 
+        ui_SelectableRegion* const region = SNZU_USE_MEM(ui_SelectableRegion, "region");
+
         if (mouseDown) {
-            *dragOrigin = mouse;
-            *dragging = true;
+            region->dragOrigin = mouse;
+            region->dragging = true;
             // FIXME: what happens on the border of mouse not being projectable??
-        } else if (inter->mouseActions[SNZU_MB_LEFT] == SNZU_ACT_NONE || inter->mouseActions[SNZU_MB_LEFT] == SNZU_ACT_UP) {
-            *dragging = false;
         }
 
         {  // loop over all points, check whether they are within the contained zone and update their selection status
-            // FIXME: kinda wasteful right now to have points contain full UIInfo structs, but once pt selection and drawing gets added maybe not
-            // FIXME: this will also have to change to another variable that isn't selected once that happens, cause selected is persisted
+            // FIXME: make selectable and visualizable
+            // FIXME: make contains check precise, not per vert
             HMM_Vec2 start = HMM_V2(0, 0);
             HMM_Vec2 end = HMM_V2(0, 0);
-            start.X = SNZ_MIN(mouse.X, dragOrigin->X);
-            start.Y = SNZ_MIN(mouse.Y, dragOrigin->Y);
-            end.X = SNZ_MAX(mouse.X, dragOrigin->X);
-            end.Y = SNZ_MAX(mouse.Y, dragOrigin->Y);
+            start.X = SNZ_MIN(mouse.X, region->dragOrigin.X);
+            start.Y = SNZ_MIN(mouse.Y, region->dragOrigin.Y);
+            end.X = SNZ_MAX(mouse.X, region->dragOrigin.X);
+            end.Y = SNZ_MAX(mouse.Y, region->dragOrigin.Y);
             for (sk_Point* p = sketch->firstPoint; p; p = p->next) {
-                p->uiInfo.selected = false;
+                p->inDragZone = false;
                 if (_sku_AABBContainsPt(start, end, p->pos)) {
-                    p->uiInfo.selected = true;
+                    p->inDragZone = true;
                 }
             }  // end point loop
         }
 
-        // batch lines and constraints into one list with all the info we are operating on
-        _sku_SketchEltUIStatus* firstStatus = NULL;
+        ui_SelectableStatus* firstStatus = NULL;
         {
             for (sk_Line* l = sketch->firstLine; l; l = l->next) {
-                bool withinDragZone = l->p1->uiInfo.selected && l->p2->uiInfo.selected;
+                bool withinDragZone = l->p1->inDragZone && l->p2->inDragZone;
 
                 HMM_Vec2 midpt = HMM_DivV2F(HMM_Add(l->p1->pos, l->p2->pos), 2.0f);
                 HMM_Vec3 transformedCenter = HMM_MulM4V4(model, HMM_V4(midpt.X, midpt.Y, 0, 1)).XYZ;
@@ -546,12 +519,12 @@ void sku_drawSketch(
                 bool hovered = _sku_lineContainsPt(l->p1->pos, l->p2->pos, 0.01 * distToCamera, mouse);
 
                 if (mouseDown && hovered) {
-                    *dragging = false;  // cancel a drag before it is processed if it lands on this
+                    region->dragging = false;  // cancel a drag before it is processed if it lands on this
                 }
 
-                _sku_SketchEltUIStatus* status = SNZ_ARENA_PUSH(scratch, _sku_SketchEltUIStatus);
-                *status = (_sku_SketchEltUIStatus){
-                    .eltUIInfo = &l->uiInfo,
+                ui_SelectableStatus* status = SNZ_ARENA_PUSH(scratch, ui_SelectableStatus);
+                *status = (ui_SelectableStatus){
+                    .state = &l->uiInfo.sel,
                     .hovered = hovered,
                     .withinDragZone = withinDragZone,
                     .next = firstStatus,
@@ -567,21 +540,21 @@ void sku_drawSketch(
                 bool hovered = _sku_constraintHovered(c, scaleFactor, visualCenter, mouse);
 
                 if (mouseDown && hovered) {
-                    *dragging = false;  // cancel a drag before it is processed if it lands on this
+                    region->dragging = false;  // cancel a drag before it is processed if it lands on this
                 }
 
                 bool withinDragZone = false;
                 if (c->kind == SK_CK_ANGLE) {
                     sk_Point* base1 = c->flipLine1 ? c->line1->p2 : c->line1->p1;
                     sk_Point* base2 = c->flipLine2 ? c->line2->p2 : c->line2->p1;
-                    withinDragZone = base1 == base2 && base1->uiInfo.selected;
+                    withinDragZone = base1 == base2 && base1->inDragZone;
                 } else if (c->kind == SK_CK_DISTANCE) {
-                    withinDragZone = c->line1->p1->uiInfo.selected && c->line1->p2->uiInfo.selected;
+                    withinDragZone = c->line1->p1->inDragZone && c->line1->p2->inDragZone;
                 }
 
-                _sku_SketchEltUIStatus* status = SNZ_ARENA_PUSH(scratch, _sku_SketchEltUIStatus);
-                *status = (_sku_SketchEltUIStatus){
-                    .eltUIInfo = &c->uiInfo,
+                ui_SelectableStatus* status = SNZ_ARENA_PUSH(scratch, ui_SelectableStatus);
+                *status = (ui_SelectableStatus){
+                    .state = &c->uiInfo.sel,
                     .hovered = hovered,
                     .withinDragZone = withinDragZone,
                     .next = firstStatus,
@@ -590,35 +563,19 @@ void sku_drawSketch(
             }
         }
 
-        for (_sku_SketchEltUIStatus* status = firstStatus; status; status = status->next) {
-            if (!snzu_isNothingFocused()) {
-                status->eltUIInfo->selected = false;
-            }
 
-            if (mouseDown) {
-                if (!shiftPressed && !status->hovered && !status->withinDragZone) {
-                    status->eltUIInfo->selected = false;
-                }
-                if (status->hovered) {
-                    status->eltUIInfo->selected = !status->eltUIInfo->selected;
-                }
-            }
-
-            if (dragEnded && status->withinDragZone) {
-                status->eltUIInfo->selected = true;
-            }
-
-            float hoverTarget = status->hovered && !*dragging;
-            snzu_easeExpUnbounded(&status->eltUIInfo->hoverAnim, hoverTarget, 15);
-
-            float selectionTarget = (status->withinDragZone && *dragging) || status->eltUIInfo->selected;
-            snzu_easeExpUnbounded(&status->eltUIInfo->selectionAnim, selectionTarget, 15);
+        bool shiftPressed = SNZU_USE_MEM(bool, "shiftPressed");
+        if (!snzu_isNothingFocused()) {
+            shiftPressed = false;
+        } else {
+            shiftPressed = inter->keyMods & KMOD_SHIFT;
         }
+        ui_selectableRegionUpdate(region, firstStatus, inter->mouseActions[SNZU_MB_LEFT], shiftPressed);
 
-        if (*dragging) {
+        if (region->dragging) {
             HMM_Vec4 color = ui_colorAccent;
             color.A = 0.2;
-            snzr_drawRect(*dragOrigin, mouse,
+            snzr_drawRect(region->dragOrigin, mouse,
                           HMM_V2(-100000, -100000), HMM_V2(100000, 100000),
                           color,
                           0, 0, HMM_V4(0, 0, 0, 0),
@@ -639,8 +596,8 @@ void sku_drawSketch(
             l->p1->pos,
             l->p2->pos,
         };
-        float thickness = HMM_Lerp(2.0f, l->uiInfo.hoverAnim, 5.0f);
-        HMM_Vec4 color = HMM_LerpV4(ui_colorText, l->uiInfo.selectionAnim, ui_colorAccent);
+        float thickness = HMM_Lerp(2.0f, l->uiInfo.sel.hoverAnim, 5.0f);
+        HMM_Vec4 color = HMM_LerpV4(ui_colorText, l->uiInfo.sel.selectionAnim, ui_colorAccent);
         snzr_drawLine(points, 2, color, thickness, sketchMVP);
     }
 
