@@ -427,7 +427,7 @@ void sku_drawSketch(
         bool hit = csg_planeLineIntersection(align.endPt, align.endNormal, cameraPos, mouseRayNormal, &t);
         HMM_Vec3 point = HMM_Add(cameraPos, HMM_Mul(mouseRayNormal, t));
         if (!hit || csg_floatLessEqual(t, 0)) {
-            point = HMM_V3(INFINITY, INFINITY, INFINITY);
+            point = HMM_V3(100000, 100000, 100000);
         }
         point = HMM_Sub(point, align.endPt);
         HMM_Vec3 xAxis = HMM_Cross(align.endVertical, align.endNormal);
