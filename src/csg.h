@@ -262,12 +262,17 @@ bool csg_BSPContainsPoint(csg_BSPNode* tree, HMM_Vec3 point) {
 // returns a T value along the line such that ((t*lineDir) + lineOrigin) = the point of intersection
 // done this way so that bounds checking can be done after the return
 // false retur nvalue indicates no intersection between the plane and line
+// t may be negative
 // outT assumed non-null, written for output
 bool csg_planeLineIntersection(HMM_Vec3 planeOrigin, HMM_Vec3 planeNormal, HMM_Vec3 lineOrigin, HMM_Vec3 lineDir, float* outT) {
     float t = HMM_Dot(HMM_SubV3(planeOrigin, lineOrigin), planeNormal);
     t /= HMM_DotV3(lineDir, planeNormal);
     *outT = t;
-    return isfinite(t);
+    if (!isfinite(t)) {
+        t = 0;
+        return false;
+    }
+    return true;
 }
 
 // FIXME: point deduplication of some kind?
