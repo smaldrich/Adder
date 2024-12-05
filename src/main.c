@@ -15,6 +15,7 @@
 snzu_Instance main_uiInstance;
 
 snz_Arena main_fontArena;
+snz_Arena main_meshArena;
 PoolAlloc main_pool;
 
 snzr_FrameBuffer main_sceneFB;
@@ -22,7 +23,7 @@ sk_Sketch main_sketch;
 snzu_Instance main_sketchUIInstance;
 snz_Arena main_sketchArena;
 
-ren3d_Mesh main_mesh;
+geo_Mesh main_mesh;
 
 bool main_inDarkMode = true;
 bool main_inMusicMode = true;
@@ -38,6 +39,7 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
 
     main_fontArena = snz_arenaInit(10000000, "main font arena");
     main_sketchArena = snz_arenaInit(10000000, "main sketch arena");
+    main_meshArena = snz_arenaInit(10000000, "main mesh arena");
     main_pool = poolAllocInit();
     main_uiInstance = snzu_instanceInit();
     snzu_instanceSelect(&main_uiInstance);
@@ -68,17 +70,19 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
         csg_triListTransform(&cubeB, HMM_Rotate_RH(HMM_AngleDeg(30), HMM_V3(1, 1, 1)));
         csg_triListTransform(&cubeB, HMM_Translate(HMM_V3(1, 1, 1)));
 
-        csg_BSPNode* treeA = csg_triListToBSP(&cubeA, scratch);
-        csg_BSPNode* treeB = csg_triListToBSP(&cubeB, scratch);
+        csg_BSPNode* treeA = csg_triListToBSP(&cubeA, &main_meshArena);
+        csg_BSPNode* treeB = csg_triListToBSP(&cubeB, &main_meshArena);
 
-        csg_TriList* aClipped = csg_bspClipTris(true, &cubeA, treeB, scratch);
-        csg_TriList* bClipped = csg_bspClipTris(true, &cubeB, treeA, scratch);
+        csg_TriList* aClipped = csg_bspClipTris(true, &cubeA, treeB, &main_meshArena);
+        csg_TriList* bClipped = csg_bspClipTris(true, &cubeB, treeA, &main_meshArena);
         csg_TriList* final = csg_triListJoin(aClipped, bClipped);
-        csg_triListRecoverNonBroken(&final, scratch);
+        csg_triListRecoverNonBroken(&final, &main_meshArena);
 
         PoolAlloc pool = poolAllocInit();
         ren3d_Vert* verts = poolAllocAlloc(&pool, 0);
         int64_t vertCount = 0;
+
+        geo_MeshFace* faceList = NULL;
 
         int triIdx = 0;
         for (csg_TriListNode* tri = final->first; tri; tri = tri->next) {
@@ -101,9 +105,23 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
                 };
             }
             triIdx++;
+
+            geo_MeshFace* face = SNZ_ARENA_PUSH(&main_meshArena, geo_MeshFace);
+            *face = (geo_MeshFace){
+                .next = faceList,
+                .tri = tri,
+            };
+            faceList = face;
         }
-        main_mesh = ren3d_meshInit(verts, vertCount);
+        ren3d_Mesh renMesh = ren3d_meshInit(verts, vertCount);
         poolAllocDeinit(&pool);
+
+        main_mesh = (geo_Mesh){
+            .bspTree = NULL,
+            .renderMesh = renMesh,
+            .triList = *final,
+            .firstFace = faceList,
+        };
     }  // end mesh for testing
 
     {
@@ -247,7 +265,7 @@ void main_drawDemoScene(HMM_Vec2 panelSize, snz_Arena* scratch, float dt, snzu_I
     HMM_Mat4 vp = HMM_MulM4(proj, view);
 
     // FIXME: debug wireframe
-    ren3d_drawMesh(&main_mesh, vp, model, HMM_V3(-1, -1, -1), ui_lightAmbient);
+    ren3d_drawMesh(&main_mesh.renderMesh, vp, model, HMM_V4(1, 1, 1, 1), HMM_V3(-1, -1, -1), ui_lightAmbient);
     geo_buildSelectedMesh(&main_mesh, vp, cameraPos, mouseRayNormal);
     if (main_skybox && ui_skyBox != NULL) {
         ren3d_drawSkybox(vp, *ui_skyBox);

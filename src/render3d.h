@@ -1,3 +1,4 @@
+#pragma once
 
 #include "GLAD/include/glad/glad.h"
 #include "HMM/HandmadeMath.h"
@@ -55,9 +56,9 @@ ren3d_Mesh ren3d_meshInit(ren3d_Vert* verts, uint64_t vertCount) {
 }
 
 void ren3d_meshDeinit(ren3d_Mesh* mesh) {
-    glDeleteVertexArrays(1, mesh->vaId);
-    glDeleteBuffers(1, mesh->vertexBufferId);
-    memset(mesh, 0, sizeof(mesh));
+    glDeleteVertexArrays(1, &mesh->vaId);
+    glDeleteBuffers(1, &mesh->vertexBufferId);
+    memset(mesh, 0, sizeof(*mesh));
 }
 
 static uint32_t _ren3d_shaderId;
@@ -141,7 +142,7 @@ void ren3d_init(snz_Arena* scratch) {
     }
 }
 
-void ren3d_drawMesh(const ren3d_Mesh* mesh, HMM_Mat4 vp, HMM_Mat4 model, HMM_Vec3 lightDir, float ambient) {
+void ren3d_drawMesh(const ren3d_Mesh* mesh, HMM_Mat4 vp, HMM_Mat4 model, HMM_Vec4 color, HMM_Vec3 lightDir, float ambient) {
     snzr_callGLFnOrError(glUseProgram(_ren3d_shaderId));
 
     // // FIXME: gl safe uniform loc calls
@@ -152,7 +153,7 @@ void ren3d_drawMesh(const ren3d_Mesh* mesh, HMM_Mat4 vp, HMM_Mat4 model, HMM_Vec
     snzr_callGLFnOrError(glUniformMatrix4fv(loc, 1, false, (float*)&model));
 
     loc = glGetUniformLocation(_ren3d_shaderId, "uColor");
-    snzr_callGLFnOrError(glUniform4f(loc, 1, 1, 1, 1));
+    snzr_callGLFnOrError(glUniform4f(loc, color.X, color.Y, color.Z, color.W));
 
     loc = glGetUniformLocation(_ren3d_shaderId, "uLightColor");
     snzr_callGLFnOrError(glUniform3f(loc, 1, 1, 1));

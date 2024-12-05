@@ -50,8 +50,6 @@ bool geo_intersectRayAndTri(HMM_Vec3 rayOrigin, HMM_Vec3 rayDir,
 
 typedef struct geo_MeshFace geo_MeshFace;
 struct geo_MeshFace {
-    float hoverAnim;
-    bool hovered;
     csg_TriListNode* tri;  // FIXME: this should be >1 but thats a project.
     geo_MeshFace* next;
 };
@@ -86,11 +84,20 @@ void geo_buildSelectedMesh(geo_Mesh* mesh, HMM_Mat4 vp, HMM_Vec3 cameraPos, HMM_
         return;
     }
 
+    float* const selectionAnim = SNZU_USE_MEM(float, "geo selection anim");
+    geo_MeshFace** const prevFace = SNZU_USE_MEM(geo_MeshFace*, "geo prevFace");
+    if (snzu_useMemIsPrevNew() || (*prevFace) != closestHovered) {
+        *selectionAnim = 0;
+    }
+    *prevFace = closestHovered;
+
+    snzu_easeExp(selectionAnim, true, 15);
+
     ren3d_meshDeinit(&_geo_selectedMesh);
     csg_TriListNode* t = closestHovered->tri;
     HMM_Vec3 normal = csg_triNormal(t->a, t->b, t->c);
     float scaleFactor = HMM_SqrtF(closestHoveredDist);
-    HMM_Vec3 offset = HMM_Mul(normal, scaleFactor * 0.03f);
+    HMM_Vec3 offset = HMM_Mul(normal, scaleFactor * 0.03f * *selectionAnim);
     ren3d_Vert verts[] = {
         (ren3d_Vert){
             .pos = HMM_Add(t->a, offset),
@@ -106,6 +113,10 @@ void geo_buildSelectedMesh(geo_Mesh* mesh, HMM_Mat4 vp, HMM_Vec3 cameraPos, HMM_
         },
     };
     _geo_selectedMesh = ren3d_meshInit(verts, 3);
+    HMM_Mat4 model = HMM_Translate(HMM_V3(0, 0, 0));
+    HMM_Vec4 color = ui_colorAccent;
+    color.A = 0.4;  // FIXME: ui val for this alpha
+    ren3d_drawMesh(&_geo_selectedMesh, vp, model, color, HMM_V3(-1, -1, -1), 1);
 }
 
 void geo_tests() {
