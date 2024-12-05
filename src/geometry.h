@@ -1,15 +1,17 @@
 #pragma once
 
 #include "csg.h"
+#include "render3d.h"
 #include "snooze.h"
+#include "ui.h"
 
 // https://en.wikipedia.org/wiki/M%C3%B6ller%E2%80%93Trumbore_intersection_algorithm
 bool geo_intersectRayAndTri(HMM_Vec3 rayOrigin, HMM_Vec3 rayDir,
-                            HMM_Vec3 a, HMM_Vec3 b, HMM_Vec3 c, HMM_Vec3* outPos) {
+                            HMM_Vec3 pts[3], HMM_Vec3* outPos) {
     *outPos = HMM_V3(0, 0, 0);
 
-    HMM_Vec3 edge1 = HMM_Sub(b, a);
-    HMM_Vec3 edge2 = HMM_Sub(c, a);
+    HMM_Vec3 edge1 = HMM_Sub(pts[1], pts[0]);
+    HMM_Vec3 edge2 = HMM_Sub(pts[2], pts[0]);
     HMM_Vec3 ray_cross_e2 = HMM_Cross(rayDir, edge2);
     float det = HMM_Dot(edge1, ray_cross_e2);
 
@@ -18,7 +20,7 @@ bool geo_intersectRayAndTri(HMM_Vec3 rayOrigin, HMM_Vec3 rayDir,
     }
 
     float inv_det = 1.0 / det;
-    HMM_Vec3 s = HMM_Sub(rayOrigin, a);
+    HMM_Vec3 s = HMM_Sub(rayOrigin, pts[0]);
     float u = inv_det * HMM_Dot(s, ray_cross_e2);
 
     if ((u < 0 && fabsf(u) > CSG_EPSILON) || (u > 1 && fabsf(u - 1) > CSG_EPSILON)) {
@@ -44,6 +46,38 @@ bool geo_intersectRayAndTri(HMM_Vec3 rayOrigin, HMM_Vec3 rayDir,
         // This means that there is a line intersection but not a ray intersection.
         return false;
     }
+}
+
+typedef struct geo_MeshFace geo_MeshFace;
+struct geo_MeshFace {
+    float hoverAnim;
+    bool hovered;
+    csg_TriListNode* tri;  // FIXME: this should be >1 but thats a project.
+    geo_MeshFace* next;
+};
+
+typedef struct {
+    ren3d_Mesh renderMesh;
+    csg_TriList triList;
+    csg_BSPNode* bspTree;
+    geo_MeshFace* firstFace;
+} geo_Mesh;
+
+ren3d_Mesh _geo_selectedMesh;
+
+void geo_buildMesh(geo_Mesh* mesh, HMM_Mat4 vp, HMM_Vec3 cameraPos, HMM_Vec3 mouseRayDir) {
+    for (geo_MeshFace* face = mesh->firstFace; face; face = face->next) {
+        HMM_Vec3 intersection = HMM_V3(0, 0, 0);
+        // NOTE: any model transform will have to change this to adapt
+        bool hovered = geo_intersectRayAndTri(cameraPos, mouseRayDir, face->tri->elems, &intersection);
+        if (hovered) {
+            ren3d_meshDeinit(&_geo_selectedMesh);
+            _geo_selectedMesh.
+        }
+    }
+
+    HMM_Mat4 model = HMM_Translate(HMM_V3(0, 0, 0));
+    ren3d_drawMesh(&mesh->renderMesh, vp, model, HMM_V3(-1, -1, -1), ui_lightAmbient);
 }
 
 void geo_tests() {

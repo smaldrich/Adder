@@ -54,6 +54,12 @@ ren3d_Mesh ren3d_meshInit(ren3d_Vert* verts, uint64_t vertCount) {
     return out;
 }
 
+void ren3d_meshDeinit(ren3d_Mesh* mesh) {
+    glDeleteVertexArrays(1, mesh->vaId);
+    glDeleteBuffers(1, mesh->vertexBufferId);
+    memset(mesh, 0, sizeof(mesh));
+}
+
 static uint32_t _ren3d_shaderId;
 static uint32_t _ren3d_skyboxShaderId;
 static ren3d_Mesh _ren3d_skyboxMesh;
