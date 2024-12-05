@@ -266,7 +266,7 @@ void main_drawDemoScene(HMM_Vec2 panelSize, snz_Arena* scratch, float dt, snzu_I
 
     // FIXME: debug wireframe
     ren3d_drawMesh(&main_mesh.renderMesh, vp, model, HMM_V4(1, 1, 1, 1), HMM_V3(-1, -1, -1), ui_lightAmbient);
-    geo_buildSelectedMesh(&main_mesh, vp, cameraPos, mouseRayNormal);
+    geo_buildHoverAndSelectionMesh(&main_mesh, vp, cameraPos, mouseRayNormal);
     if (main_skybox && ui_skyBox != NULL) {
         ren3d_drawSkybox(vp, *ui_skyBox);
     }

@@ -493,3 +493,52 @@ void ui_textArea(ui_TextArea* const text, const snzr_Font* font, float textHeigh
         }
     }  // end inners
 }  // end text area
+
+typedef struct {
+    bool selected;
+    float selectionAnim;
+    float hoverAnim;
+} ui_SelectableState;
+
+typedef struct ui_SelectableStatus ui_SelectableStatus;
+struct ui_SelectableStatus {
+    bool hovered;
+    bool withinDragZone;
+    ui_SelectableState* state;
+    ui_SelectableStatus* next;
+};
+
+typedef struct {
+    bool dragging;
+    HMM_Vec2 dragOrigin;
+} ui_SelectableRegion;
+
+void ui_selectableRegionUpdate(ui_SelectableRegion* region, ui_SelectableStatus* firstStatus, snzu_Action mouseAct, bool shiftPressed) {
+    bool mouseDown = mouseAct == SNZU_ACT_DOWN;
+    bool dragEnded = (region->dragging) && (mouseAct == SNZU_ACT_UP);
+
+    for (ui_SelectableStatus* status = firstStatus; status; status = status->next) {
+        if (!snzu_isNothingFocused()) {
+            status->state->selected = false;
+        }
+
+        if (mouseDown) {
+            if (!shiftPressed && !status->hovered && !status->withinDragZone) {
+                status->state->selected = false;
+            }
+            if (status->hovered) {
+                status->state->selected = !status->state->selected;
+            }
+        }
+
+        if (dragEnded && status->withinDragZone) {
+            status->state->selected = true;
+        }
+
+        float hoverTarget = status->hovered && !region->dragging;
+        snzu_easeExpUnbounded(&status->state->hoverAnim, hoverTarget, 15);
+
+        float selectionTarget = (status->withinDragZone && region->dragging) || status->state->selected;
+        snzu_easeExpUnbounded(&status->state->selectionAnim, selectionTarget, 15);
+    }
+}

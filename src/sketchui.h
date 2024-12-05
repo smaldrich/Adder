@@ -17,7 +17,7 @@ static float _sku_gridLineGap(float area, float visibleCount) {
         exp++;
     }
 
-    int roundingTargets[] = { 5, 2, 1 };
+    int roundingTargets[] = {5, 2, 1};
     for (int i = 0; i < 3; i++) {
         if (dec > roundingTargets[i]) {
             dec = (float)roundingTargets[i];
@@ -66,7 +66,6 @@ HMM_Mat4 sku_alignToM4(sku_Align a) {
     HMM_Mat4 translate = HMM_Translate(HMM_Sub(a.endPt, a.startPt));
     return HMM_Mul(translate, HMM_QToM4(q));
 }
-
 
 static HMM_Vec3 _sku_mulM4V3(HMM_Mat4 m, HMM_Vec3 v) {
     return HMM_Mul(m, HMM_V4(v.X, v.Y, v.Z, 1)).XYZ;
@@ -125,7 +124,7 @@ static float _sku_angleDifferenceForConstraint(sk_Constraint* c, float a1, float
         while (diff < 0) {
             diff += HMM_AngleDeg(360);
         }
-    } // force angle range to go the correct way around based on the sign of the constraint value
+    }  // force angle range to go the correct way around based on the sign of the constraint value
     // FIXME: this is kinda hacky, i'm sure theres a more direct way of fixing this by modifying _sku_angleOfLinesInAngleConstraint,
     // but this works so were gonna leave it.
     return diff;
@@ -216,7 +215,7 @@ static void _sku_drawAndBuildConstraint(sk_Constraint* c, HMM_Mat4 model, HMM_Ve
 
     float drawnThickness = HMM_Lerp(SKU_CONSTRAINT_THICKNESS, c->uiInfo.hoverAnim, SKU_CONSTRAINT_HOVERED_THICKNESS);
 
-    HMM_Vec2 textTopLeft = HMM_V2(0, 0); // TL of the label in sketch space
+    HMM_Vec2 textTopLeft = HMM_V2(0, 0);  // TL of the label in sketch space
 
     if (c->kind == SK_CK_DISTANCE) {
         HMM_Vec2 p1 = c->line1->p1->pos;
@@ -225,7 +224,7 @@ static void _sku_drawAndBuildConstraint(sk_Constraint* c, HMM_Mat4 model, HMM_Ve
         HMM_Vec2 offset = HMM_Mul(HMM_V2(diff.Y, -diff.X), SKU_DISTANCE_CONSTRAINT_OFFSET * (1 + soundPct) * scaleFactor);
         p1 = HMM_Add(p1, offset);
         p2 = HMM_Add(p2, offset);
-        HMM_Vec2 points[] = { p1, p2 };
+        HMM_Vec2 points[] = {p1, p2};
         snzr_drawLine(points, 2, drawnColor, drawnThickness, sketchMVP);
 
         textTopLeft = HMM_Add(visualCenter, HMM_Mul(offset, 2.0f));
@@ -275,7 +274,7 @@ static void _sku_drawAndBuildConstraint(sk_Constraint* c, HMM_Mat4 model, HMM_Ve
 
     char* boxName = snz_arenaFormatStr(scratch, "%p", c);
     snzu_boxNew(boxName);
-    textTopLeft.Y *= -1; // flip to UI space before drawing
+    textTopLeft.Y *= -1;  // flip to UI space before drawing
     snzu_boxSetStart(textTopLeft);
 
     // FIXME: double click on the rest of the constraint should also enter edit mode
@@ -302,13 +301,13 @@ static void _sku_drawAndBuildConstraint(sk_Constraint* c, HMM_Mat4 model, HMM_Ve
     }
 
     if (!csg_floatZero(val)) {
-        c->value = val; // FIXME: when this turns into a 90deg angle, the text box immediately disappears
+        c->value = val;  // FIXME: when this turns into a 90deg angle, the text box immediately disappears
     }
 
-    if (!c->uiInfo.textArea.wasFocused) { // FIXME: kinda wasteful to have this running constantly
+    if (!c->uiInfo.textArea.wasFocused) {  // FIXME: kinda wasteful to have this running constantly
         const char* suffix = NULL;
         if (c->kind == SK_CK_ANGLE) {
-            suffix = "deg"; // FIXME: unicode + the degree symol
+            suffix = "deg";  // FIXME: unicode + the degree symol
         } else if (c->kind == SK_CK_DISTANCE) {
             suffix = "m";
         }
@@ -423,7 +422,6 @@ void sku_drawSketch(
     HMM_Vec3 mouseRayNormal, snzu_Input inputs,
     float sound, float dt,
     snz_Arena* scratch) {
-
     // We are inverting the y axis because the UI library is built internally in a lot of places to
     // work with down positive coords. It works out if we invert the data it gets fed along with the
     // projection matrix. Very gross but there isn't an obvious better way. Adding a vertical toggle makes
@@ -443,7 +441,7 @@ void sku_drawSketch(
         HMM_Vec3 xAxis = HMM_Cross(align.endVertical, align.endNormal);
         float x = HMM_Dot(point, xAxis);
         float y = HMM_Dot(point, align.endVertical);
-        inputs.mousePos = HMM_V2(x, -y); // flip from sketch space to UI space here
+        inputs.mousePos = HMM_V2(x, -y);  // flip from sketch space to UI space here
     }
 
     snzu_frameStart(scratch, HMM_V2(0, 0), dt);
@@ -465,7 +463,7 @@ void sku_drawSketch(
         // FIXME: unpleasant clipping into coplanar geometry
         int lineCount = 13;  // FIXME: batch all of these verts into one line
         float lineGap = _sku_gridLineGap(scaleFactor * 2, lineCount);
-        HMM_Vec2 origin = inter->mousePosGlobal; // FIXME: snap to the last origins position instead of 0,0
+        HMM_Vec2 origin = inter->mousePosGlobal;  // FIXME: snap to the last origins position instead of 0,0
         if (sketch->originPt != NULL) {
             origin = HMM_Sub(inter->mousePosGlobal, sketch->originPt->pos);
         }
@@ -474,13 +472,13 @@ void sku_drawSketch(
             for (int i = 0; i < lineCount; i++) {
                 float x = (i - (lineCount / 2)) * lineGap;
                 x -= axOffset;
-                HMM_Vec2 pts[] = { inter->mousePosGlobal, inter->mousePosGlobal };
+                HMM_Vec2 pts[] = {inter->mousePosGlobal, inter->mousePosGlobal};
                 pts[0].Elements[ax] += x;
                 pts[0].Elements[!ax] += 1.5 * scaleFactor;
                 pts[1].Elements[ax] += x;
                 pts[1].Elements[!ax] += -1.5 * scaleFactor;
 
-                HMM_Vec3 fadeOrigin = { 0 };
+                HMM_Vec3 fadeOrigin = {0};
                 fadeOrigin.XY = inter->mousePosGlobal;
                 // FIXME: have this invert color when behind smth in the scene
                 snzr_drawLineFaded(pts, 2, ui_colorAlmostBackground, 1, uiMVP, fadeOrigin, 0, 0.5 * scaleFactor);
@@ -490,7 +488,7 @@ void sku_drawSketch(
 
     {  // selection // UI state updates
         HMM_Vec2 mouse = inter->mousePosGlobal;
-        mouse.Y *= -1; // interaction mouse pos in UI space, this is in sketch space
+        mouse.Y *= -1;  // interaction mouse pos in UI space, this is in sketch space
 
         bool shiftPressed = SNZU_USE_MEM(bool, "shiftPressed");
         {
@@ -646,7 +644,7 @@ void sku_drawSketch(
         snzr_drawLine(points, 2, color, thickness, sketchMVP);
     }
 
-    snzu_boxExit(); // exit main parent
+    snzu_boxExit();  // exit main parent
     snzu_frameDrawAndGenInteractions(inputs, uiMVP);
 
     glEnable(GL_DEPTH_TEST);

@@ -51,6 +51,8 @@ bool geo_intersectRayAndTri(HMM_Vec3 rayOrigin, HMM_Vec3 rayDir,
 typedef struct geo_MeshFace geo_MeshFace;
 struct geo_MeshFace {
     csg_TriListNode* tri;  // FIXME: this should be >1 but thats a project.
+    bool selected;
+    float selectedAnim;
     geo_MeshFace* next;
 };
 
@@ -61,65 +63,63 @@ typedef struct {
     geo_MeshFace* firstFace;
 } geo_Mesh;
 
-ren3d_Mesh _geo_selectedMesh;
+ren3d_Mesh _geo_hoverMesh;
 
-void geo_buildSelectedMesh(geo_Mesh* mesh, HMM_Mat4 vp, HMM_Vec3 cameraPos, HMM_Vec3 mouseRayDir) {
+void geo_buildHoverAndSelectionMesh(geo_Mesh* mesh, HMM_Mat4 vp, HMM_Vec3 cameraPos, HMM_Vec3 mouseRayDir) {
     geo_MeshFace* closestHovered = NULL;
-    float closestHoveredDist = INFINITY;
+    {  // find and draw the hovered face
+        float closestHoveredDist = INFINITY;
 
-    assert(cameraPos.X || !cameraPos.X);
-    assert(mouseRayDir.X || !mouseRayDir.X);
+        for (geo_MeshFace* face = mesh->firstFace; face; face = face->next) {
+            HMM_Vec3 intersection = HMM_V3(0, 0, 0);
+            // NOTE: any model transform will have to change this to adapt
+            bool hovered = geo_intersectRayAndTri(cameraPos, mouseRayDir, face->tri->elems, &intersection);
+            if (hovered) {
+                float dist = HMM_LenSqr(HMM_Sub(intersection, cameraPos));
+                if (dist < closestHoveredDist) {
+                    closestHoveredDist = dist;
+                    closestHovered = face;
+                }
+            }  // end hover check
+        }  // end face loop
 
-    for (geo_MeshFace* face = mesh->firstFace; face; face = face->next) {
-        HMM_Vec3 intersection = HMM_V3(0, 0, 0);
-        // NOTE: any model transform will have to change this to adapt
-        bool hovered = geo_intersectRayAndTri(cameraPos, mouseRayDir, face->tri->elems, &intersection);
-        if (hovered) {
-            float dist = HMM_LenSqr(HMM_Sub(intersection, cameraPos));
-            if (dist < closestHoveredDist) {
-                closestHoveredDist = dist;
-                closestHovered = face;
-            }
-        }  // end hover check
-    }  // end face loop
+        if (!closestHovered) {
+            return;
+        }
 
-    if (!closestHovered) {
-        return;
-    }
+        float* const selectionAnim = SNZU_USE_MEM(float, "geo selection anim");
+        geo_MeshFace** const prevFace = SNZU_USE_MEM(geo_MeshFace*, "geo prevFace");
+        if (snzu_useMemIsPrevNew() || (*prevFace) != closestHovered) {
+            *selectionAnim = 0;
+        }
+        *prevFace = closestHovered;
+        snzu_easeExp(selectionAnim, true, 15);
 
-    float* const selectionAnim = SNZU_USE_MEM(float, "geo selection anim");
-    geo_MeshFace** const prevFace = SNZU_USE_MEM(geo_MeshFace*, "geo prevFace");
-    if (snzu_useMemIsPrevNew() || (*prevFace) != closestHovered) {
-        *selectionAnim = 0;
-    }
-    *prevFace = closestHovered;
-
-    snzu_easeExp(selectionAnim, true, 15);
-
-    ren3d_meshDeinit(&_geo_selectedMesh);
-    csg_TriListNode* t = closestHovered->tri;
-    HMM_Vec3 normal = csg_triNormal(t->a, t->b, t->c);
-    float scaleFactor = HMM_SqrtF(closestHoveredDist);
-    HMM_Vec3 offset = HMM_Mul(normal, scaleFactor * 0.03f * *selectionAnim);
-    ren3d_Vert verts[] = {
-        (ren3d_Vert){
-            .pos = HMM_Add(t->a, offset),
-            .normal = normal,
-        },
-        (ren3d_Vert){
-            .pos = HMM_Add(t->b, offset),
-            .normal = normal,
-        },
-        (ren3d_Vert){
-            .pos = HMM_Add(t->c, offset),
-            .normal = normal,
-        },
-    };
-    _geo_selectedMesh = ren3d_meshInit(verts, 3);
-    HMM_Mat4 model = HMM_Translate(HMM_V3(0, 0, 0));
-    HMM_Vec4 color = ui_colorText;  // FIXME: not text colored
-    color.A = 0.1;                  // FIXME: ui val for this alpha
-    ren3d_drawMesh(&_geo_selectedMesh, vp, model, color, HMM_V3(-1, -1, -1), 1);
+        ren3d_meshDeinit(&_geo_hoverMesh);
+        csg_TriListNode* t = closestHovered->tri;
+        HMM_Vec3 normal = csg_triNormal(t->a, t->b, t->c);
+        float scaleFactor = HMM_SqrtF(closestHoveredDist);
+        HMM_Vec3 offset = HMM_Mul(normal, scaleFactor * 0.03f * *selectionAnim);
+        ren3d_Vert verts[] = {
+            (ren3d_Vert){
+                .pos = HMM_Add(t->a, offset),
+                .normal = normal,
+            },
+            (ren3d_Vert){
+                .pos = HMM_Add(t->b, offset),
+                .normal = normal,
+            },
+            (ren3d_Vert){
+                .pos = HMM_Add(t->c, offset),
+                .normal = normal,
+            },
+        };
+        _geo_hoverMesh = ren3d_meshInit(verts, 3);
+        HMM_Mat4 model = HMM_Translate(HMM_V3(0, 0, 0));
+        HMM_Vec4 color = ui_colorText;  // FIXME: not text colored
+        color.A = 0.1;                  // FIXME: ui val for this alpha
+        ren3d_drawMesh(&_geo_hoverMesh, vp, model, color, HMM_V3(-1, -1, -1), 1);
+    }  // end hovered drawing
 }
 
 void geo_tests() {
