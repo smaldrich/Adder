@@ -168,7 +168,7 @@ void sc_init(PoolAlloc* pool) {
 
     _sc_commandInit("goto shortcuts", "C", SDLK_c, KMOD_LSHIFT, _scc_goToShortcuts);
     _sc_commandInit("goto docs", "D", SDLK_d, KMOD_LSHIFT, _scc_goToDocs);
-    _sc_commandInit("goto main scene", "M", SDLK_m, KMOD_LSHIFT, _scc_goToMainScene);
+    _sc_commandInit("goto main scene", "W", SDLK_w, KMOD_LSHIFT, _scc_goToMainScene);
     _sc_commandInit("goto settings", "S", SDLK_s, KMOD_LSHIFT, _scc_goToSettings);
     // FIXME: shift icon instead of these
 }
@@ -229,7 +229,7 @@ void sc_updateAndBuildHintWindow(sk_Sketch* activeSketch, sc_View* outCurrentVie
 
         snzu_boxNew("shortcutWindow");
         snzu_boxFillParent();
-        snzu_boxSetSizeFromEnd(HMM_V2(300, 200));
+        snzu_boxSetSizeFromEnd(HMM_V2(400, 200));
         snzu_boxSetCornerRadius(ui_cornerRadius);
         snzu_boxSetBorder(ui_borderThickness, ui_colorText);
         snzu_boxSetColor(ui_colorBackground);

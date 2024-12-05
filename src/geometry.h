@@ -117,8 +117,8 @@ void geo_buildSelectedMesh(geo_Mesh* mesh, HMM_Mat4 vp, HMM_Vec3 cameraPos, HMM_
     };
     _geo_selectedMesh = ren3d_meshInit(verts, 3);
     HMM_Mat4 model = HMM_Translate(HMM_V3(0, 0, 0));
-    HMM_Vec4 color = ui_colorAccent;
-    color.A = 0.4;  // FIXME: ui val for this alpha
+    HMM_Vec4 color = ui_colorText;  // FIXME: not text colored
+    color.A = 0.1;                  // FIXME: ui val for this alpha
     ren3d_drawMesh(&_geo_selectedMesh, vp, model, color, HMM_V3(-1, -1, -1), 1);
 }
 
