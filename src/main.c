@@ -1,6 +1,7 @@
 #include "PoolAlloc.h"
 #include "csg.h"
 #include "docs.h"
+#include "geometry.h"
 #include "render3d.h"
 #include "serialization2.h"
 #include "shortcuts.h"
@@ -245,8 +246,9 @@ void main_drawDemoScene(HMM_Vec2 panelSize, snz_Arena* scratch, float dt, snzu_I
     HMM_Mat4 model = HMM_Translate(HMM_V3(0, 0, 0));
     HMM_Mat4 vp = HMM_MulM4(proj, view);
 
-    // FIXME: highlight edges :) + debug view of geometry
+    // FIXME: debug wireframe
     ren3d_drawMesh(&main_mesh, vp, model, HMM_V3(-1, -1, -1), ui_lightAmbient);
+    geo_buildSelectedMesh(&main_mesh, vp, cameraPos, mouseRayNormal);
     if (main_skybox && ui_skyBox != NULL) {
         ren3d_drawSkybox(vp, *ui_skyBox);
     }

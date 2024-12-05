@@ -65,19 +65,47 @@ typedef struct {
 
 ren3d_Mesh _geo_selectedMesh;
 
-void geo_buildMesh(geo_Mesh* mesh, HMM_Mat4 vp, HMM_Vec3 cameraPos, HMM_Vec3 mouseRayDir) {
+void geo_buildSelectedMesh(geo_Mesh* mesh, HMM_Mat4 vp, HMM_Vec3 cameraPos, HMM_Vec3 mouseRayDir) {
+    geo_MeshFace* closestHovered = NULL;
+    float closestHoveredDist = INFINITY;
+
     for (geo_MeshFace* face = mesh->firstFace; face; face = face->next) {
         HMM_Vec3 intersection = HMM_V3(0, 0, 0);
         // NOTE: any model transform will have to change this to adapt
         bool hovered = geo_intersectRayAndTri(cameraPos, mouseRayDir, face->tri->elems, &intersection);
         if (hovered) {
-            ren3d_meshDeinit(&_geo_selectedMesh);
-            _geo_selectedMesh.
-        }
+            float dist = HMM_LenSqr(HMM_Sub(intersection, cameraPos));
+            if (dist < closestHoveredDist) {
+                closestHoveredDist = dist;
+                closestHovered = face;
+            }
+        }  // end hover check
+    }  // end face loop
+
+    if (!closestHovered) {
+        return;
     }
 
-    HMM_Mat4 model = HMM_Translate(HMM_V3(0, 0, 0));
-    ren3d_drawMesh(&mesh->renderMesh, vp, model, HMM_V3(-1, -1, -1), ui_lightAmbient);
+    ren3d_meshDeinit(&_geo_selectedMesh);
+    csg_TriListNode* t = closestHovered->tri;
+    HMM_Vec3 normal = csg_triNormal(t->a, t->b, t->c);
+    float scaleFactor = HMM_SqrtF(closestHoveredDist);
+    HMM_Vec3 offset = HMM_Mul(normal, scaleFactor * 0.03f);
+    ren3d_Vert verts[] = {
+        (ren3d_Vert){
+            .pos = HMM_Add(t->a, offset),
+            .normal = normal,
+        },
+        (ren3d_Vert){
+            .pos = HMM_Add(t->b, offset),
+            .normal = normal,
+        },
+        (ren3d_Vert){
+            .pos = HMM_Add(t->c, offset),
+            .normal = normal,
+        },
+    };
+    _geo_selectedMesh = ren3d_meshInit(verts, 3);
 }
 
 void geo_tests() {
