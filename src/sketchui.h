@@ -491,6 +491,7 @@ void sku_drawSketch(
             // FIXME: what happens on the border of mouse not being projectable??
         }
 
+        ui_SelectableStatus* firstStatus = NULL;
         {  // loop over all points, check whether they are within the contained zone and update their selection status
             // FIXME: make selectable and visualizable
             // FIXME: make contains check precise, not per vert
@@ -505,10 +506,23 @@ void sku_drawSketch(
                 if (_sku_AABBContainsPt(start, end, p->pos)) {
                     p->inDragZone = true;
                 }
+
+                HMM_Vec3 transformed = HMM_MulM4V4(model, HMM_V4(p->pos.X, p->pos.Y, 0, 1)).XYZ;
+                float scaleFactor = HMM_Len(HMM_Sub(cameraPos, transformed));
+                p->scaleFactor = scaleFactor;
+                bool hovered = HMM_Len(HMM_Sub(mouse, p->pos)) < (0.02 * scaleFactor);
+
+                ui_SelectableStatus* status = SNZ_ARENA_PUSH(scratch, ui_SelectableStatus);
+                *status = (ui_SelectableStatus){
+                    .state = &p->sel,
+                    .hovered = hovered,
+                    .withinDragZone = p->inDragZone,
+                    .next = firstStatus,
+                };
+                firstStatus = status;
             }  // end point loop
         }
 
-        ui_SelectableStatus* firstStatus = NULL;
         {
             for (sk_Line* l = sketch->firstLine; l; l = l->next) {
                 bool withinDragZone = l->p1->inDragZone && l->p2->inDragZone;
@@ -563,7 +577,6 @@ void sku_drawSketch(
             }
         }
 
-
         bool shiftPressed = SNZU_USE_MEM(bool, "shiftPressed");
         if (!snzu_isNothingFocused()) {
             shiftPressed = false;
@@ -585,6 +598,18 @@ void sku_drawSketch(
 
     for (sk_Point* p = sketch->firstPoint; p; p = p->next) {
         _sku_drawManifold(p, cameraPos, model, sketchMVP, scratch);
+    }
+
+    for (sk_Point* p = sketch->firstPoint; p; p = p->next) {
+        HMM_Vec4 color = HMM_LerpV4(ui_colorText, p->sel.selectionAnim, ui_colorAccent);
+        float sizeAnim = SNZ_MAX(p->sel.hoverAnim, p->sel.selectionAnim);
+        float size = HMM_Lerp(0.0f, sizeAnim, .01f * p->scaleFactor);
+        snzr_drawRect(
+            HMM_Sub(p->pos, HMM_V2(size, size)), HMM_Add(p->pos, HMM_V2(size, size)),
+            HMM_V2(-INFINITY, -INFINITY), HMM_V2(INFINITY, INFINITY),
+            color, 0, 0, HMM_V4(0, 0, 0, 0),
+            sketchMVP, _snzr_globs.solidTex);
+        // FIXME: circle instead of square
     }
 
     for (sk_Constraint* c = sketch->firstConstraint; c; c = c->nextAllocated) {
