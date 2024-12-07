@@ -47,7 +47,7 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
 
     {  // FIXME: move to snz
         SDL_Surface* s = SDL_LoadBMP("res/textures/icon.bmp");
-        char buf[1000] = {0};
+        char buf[1000] = { 0 };
         const char* err = SDL_GetErrorMsg(buf, 1000);
         printf("%s", err);
         SNZ_ASSERT(s != NULL, "icon load failed.");
@@ -327,7 +327,7 @@ void main_drawSettings() {
     snzuc_scrollArea();
 }
 
-sc_View main_currentView;
+sc_View main_currentView = SC_VIEW_SCENE;
 
 void main_frame(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screenSize) {
     snzu_instanceSelect(&main_uiInstance);

@@ -6,10 +6,12 @@
 #include "ui.h"
 
 typedef enum {
-    SC_VIEW_SCENE,
-    SC_VIEW_DOCS,
-    SC_VIEW_SETTINGS,
-    SC_VIEW_SHORTCUTS,
+    SC_VIEW_NONE = 0,
+    SC_VIEW_SCENE = 1 << 0,
+    SC_VIEW_DOCS = 1 << 1,
+    SC_VIEW_SETTINGS = 1 << 2,
+    SC_VIEW_SHORTCUTS = 1 << 3,
+    SC_VIEW_ALL = SC_VIEW_SCENE | SC_VIEW_DOCS | SC_VIEW_SETTINGS | SC_VIEW_SHORTCUTS,
 } sc_View;
 
 typedef struct {
@@ -30,13 +32,14 @@ typedef struct {
     _sc_CommandFunc func;
     const char* nameLabel;
     const char* keyLabel;
+    int64_t availibleViews;
 } _sc_Command;
 
 _sc_Command* _sc_commands = NULL;
 int64_t _sc_commandCount = 0;
 PoolAlloc* _sc_commandPool = NULL;
 
-static _sc_Command* _sc_commandInit(const char* displayName, const char* keyName, SDL_KeyCode code, SDL_Keymod mod, _sc_CommandFunc func) {
+static _sc_Command* _sc_commandInit(const char* displayName, const char* keyName, SDL_KeyCode code, SDL_Keymod mod, int64_t availibleViewMask, _sc_CommandFunc func) {
     _sc_Command* c = poolAllocPushArray(_sc_commandPool, _sc_commands, _sc_commandCount, _sc_Command);
     *c = (_sc_Command){
         .nameLabel = displayName,
@@ -46,6 +49,7 @@ static _sc_Command* _sc_commandInit(const char* displayName, const char* keyName
             .key = code,
             .mods = mod,
         },
+        .availibleViews = availibleViewMask,
     };
     return c;
 }
@@ -165,23 +169,17 @@ bool _scc_angleConstraint(_sc_CommandArgs args) {
     return true;
 }
 
-bool _scc_line(_sc_CommandArgs args) {
-    assert(args.activeSketch || !args.activeSketch);
-    return true;
-}
-
 void sc_init(PoolAlloc* pool) {
     _sc_commandPool = pool;
 
-    _sc_commandInit("delete", "X", SDLK_x, KMOD_NONE, _scc_delete);
-    _sc_commandInit("distance", "D", SDLK_d, KMOD_NONE, _scc_distanceConstraint);
-    _sc_commandInit("angle", "A", SDLK_a, KMOD_NONE, _scc_angleConstraint);
-    _sc_commandInit("line", "L", SDLK_l, KMOD_NONE, _scc_line);
+    _sc_commandInit("delete", "X", SDLK_x, KMOD_NONE, SC_VIEW_SCENE, _scc_delete);
+    _sc_commandInit("distance", "D", SDLK_d, KMOD_NONE, SC_VIEW_SCENE, _scc_distanceConstraint);
+    _sc_commandInit("angle", "A", SDLK_a, KMOD_NONE, SC_VIEW_SCENE, _scc_angleConstraint);
 
-    _sc_commandInit("goto shortcuts", "C", SDLK_c, KMOD_LSHIFT, _scc_goToShortcuts);
-    _sc_commandInit("goto docs", "D", SDLK_d, KMOD_LSHIFT, _scc_goToDocs);
-    _sc_commandInit("goto main scene", "W", SDLK_w, KMOD_LSHIFT, _scc_goToMainScene);
-    _sc_commandInit("goto settings", "S", SDLK_s, KMOD_LSHIFT, _scc_goToSettings);
+    _sc_commandInit("goto shortcuts", "C", SDLK_c, KMOD_LSHIFT, SC_VIEW_ALL, _scc_goToShortcuts);
+    _sc_commandInit("goto docs", "D", SDLK_d, KMOD_LSHIFT, SC_VIEW_ALL, _scc_goToDocs);
+    _sc_commandInit("goto main scene", "W", SDLK_w, KMOD_LSHIFT, SC_VIEW_ALL, _scc_goToMainScene);
+    _sc_commandInit("goto settings", "S", SDLK_s, KMOD_LSHIFT, SC_VIEW_ALL, _scc_goToSettings);
     // FIXME: shift icon instead of these
 }
 
@@ -210,6 +208,9 @@ void sc_updateAndBuildHintWindow(sk_Sketch* activeSketch, sc_View* outCurrentVie
             if (!*activeCommand && snzu_isNothingFocused()) {
                 for (int i = 0; i < _sc_commandCount; i++) {
                     _sc_Command* c = &_sc_commands[i];
+                    if (!(c->availibleViews & *outCurrentView)) {
+                        continue;
+                    }
                     // FIXME: left shift only is required thats bad
                     if (kp.key == c->key.key && (kp.mods == c->key.mods)) {
                         *activeCommand = c;
@@ -229,20 +230,12 @@ void sc_updateAndBuildHintWindow(sk_Sketch* activeSketch, sc_View* outCurrentVie
 
     snzu_boxScope() {
         if (*activeCommand != NULL) {
-            // snzu_boxNew("commandWindow");
-            // snzu_boxSetSizeFromStart(HMM_V2(300, 400));
-            // snzu_boxAlignInParent(SNZU_AX_Y, SNZU_ALIGN_TOP);
-            // snzu_boxAlignInParent(SNZU_AX_X, SNZU_ALIGN_RIGHT);
-            // snzu_boxSetColor(ui_colorBackground);
-            // snzu_boxSetBorder(ui_borderThickness, ui_colorText);
-            // snzu_boxSetCornerRadius(ui_cornerRadius);
-            // snzu_boxScope() {
+            bool invalidated = !((*activeCommand)->availibleViews & *outCurrentView);
             bool done = (*activeCommand)->func(args);
-            if (done) {
+            if (invalidated || done) {
                 *activeCommand = NULL;
                 sk_sketchDeselectAll(args.activeSketch);
             }
-            // }
         }
 
         snzu_boxNew("shortcutWindow");
@@ -259,6 +252,9 @@ void sc_updateAndBuildHintWindow(sk_Sketch* activeSketch, sc_View* outCurrentVie
             snzu_boxScope() {
                 for (int i = 0; i < _sc_commandCount; i++) {
                     _sc_Command* c = &_sc_commands[i];
+                    if (!(c->availibleViews & *outCurrentView)) {
+                        continue;
+                    }
                     snzu_boxNew(c->nameLabel);
                     snzu_boxFillParent();
                     snzu_boxSetSizeFromStartAx(SNZU_AX_Y, ui_lightLabelFont.renderedSize + 2 * ui_padding);
