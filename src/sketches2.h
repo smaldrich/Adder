@@ -116,9 +116,9 @@ typedef struct {
 sk_Sketch sk_sketchInit(snz_Arena* arena) {
     return (sk_Sketch) {
         .firstPoint = NULL,
-        .firstLine = NULL,
-        .firstConstraint = NULL,
-        .arena = arena,
+            .firstLine = NULL,
+            .firstConstraint = NULL,
+            .arena = arena,
     };
 }
 
@@ -132,15 +132,29 @@ sk_Point* sk_sketchAddPoint(sk_Sketch* sketch, HMM_Vec2 pos) {
     return p;
 }
 
+// only creates a new one if one between p1 & 2 doesn't exist. Order may not end up as intended.
 sk_Line* sk_sketchAddLine(sk_Sketch* sketch, sk_Point* p1, sk_Point* p2) {
-    sk_Line* l = SNZ_ARENA_PUSH(sketch->arena, sk_Line);
-    *l = (sk_Line){
-        .p1 = p1,
-        .p2 = p2,
-        .next = sketch->firstLine,
-    };
-    sketch->firstLine = l;
-    return l;
+    sk_Line* line = false;
+    for (sk_Line* l = sketch->firstLine; l; l = l->next) {
+        if (l->p1 == p1 && l->p2 == p2) {
+            line = l;
+            break;
+        } else if (l->p2 == p1 && l->p1 == p2) {
+            line = l;
+            break;
+        }
+    }
+
+    if (line == NULL) {
+        line = SNZ_ARENA_PUSH(sketch->arena, sk_Line);
+        *line = (sk_Line){
+            .p1 = p1,
+            .p2 = p2,
+            .next = sketch->firstLine,
+        };
+        sketch->firstLine = line;
+    }
+    return line;
 }
 
 sk_Constraint* sk_sketchAddConstraintDistance(sk_Sketch* sketch, sk_Line* l, float length) {
@@ -700,21 +714,35 @@ void sk_sketchClearElementsMarkedForDelete(sk_Sketch* sketch) {
     }
 }
 
+void sk_sketchDeselectAll(sk_Sketch* sketch) {
+    for (sk_Point* p = sketch->firstPoint; p; p = p->next) {
+        p->sel.selected = false;
+    }
+
+    for (sk_Line* l = sketch->firstLine; l; l = l->next) {
+        l->uiInfo.sel.selected = false;
+    }
+
+    for (sk_Constraint* c = sketch->firstConstraint; c; c = c->nextAllocated) {
+        c->uiInfo.sel.selected = false;
+    }
+}
+
 void sk_tests() {
     snz_testPrintSection("sketch");
 
     {  // MANIFOLD JOIN CASES
         sk_Manifold out = _sk_manifoldJoin(
             (sk_Manifold) {
-                .kind = SK_MK_LINE,
+            .kind = SK_MK_LINE,
                 .line.origin = HMM_V2(0, 0),
                 .line.direction = HMM_V2(1, 0),
-            },
+        },
             (sk_Manifold) {
-                .kind = SK_MK_LINE,
+            .kind = SK_MK_LINE,
                 .line.origin = HMM_V2(2, 2),
                 .line.direction = HMM_V2(0, -1),
-            });
+        });
         sk_Manifold comp = (sk_Manifold){
             .kind = SK_MK_POINT,
             .point = HMM_V2(2, 0),
@@ -723,15 +751,15 @@ void sk_tests() {
 
         out = _sk_manifoldJoin(
             (sk_Manifold) {
-                .kind = SK_MK_LINE,
+            .kind = SK_MK_LINE,
                 .line.origin = HMM_V2(10, 10),
                 .line.direction = HMM_V2(0, 1),
-            },
+        },
             (sk_Manifold) {
-                .kind = SK_MK_LINE,
+            .kind = SK_MK_LINE,
                 .line.origin = HMM_V2(11, 1),
                 .line.direction = HMM_V2(0, 1),
-            });
+        });
         snz_testPrint(out.kind == SK_MK_NONE, "parallel line manifold join");
 
         comp = (sk_Manifold){
@@ -746,15 +774,15 @@ void sk_tests() {
 
         out = _sk_manifoldJoin(
             (sk_Manifold) {
-                .kind = SK_MK_CIRCLE,
+            .kind = SK_MK_CIRCLE,
                 .circle.origin = HMM_V2(0, 0),
                 .circle.radius = 3,
-            },
+        },
             (sk_Manifold) {
-                .kind = SK_MK_CIRCLE,
+            .kind = SK_MK_CIRCLE,
                 .circle.origin = HMM_V2(1, 1),
                 .circle.radius = 2,
-            });
+        });
         comp = (sk_Manifold){
             .kind = SK_MK_TWO_POINTS,
             .twoPoints.a = HMM_V2(0.55104, 2.94896),
@@ -764,28 +792,28 @@ void sk_tests() {
 
         out = _sk_manifoldJoin(
             (sk_Manifold) {
-                .kind = SK_MK_CIRCLE,
+            .kind = SK_MK_CIRCLE,
                 .circle.origin = HMM_V2(0, 0),
                 .circle.radius = 1,
-            },
+        },
             (sk_Manifold) {
-                .kind = SK_MK_CIRCLE,
+            .kind = SK_MK_CIRCLE,
                 .circle.origin = HMM_V2(1, 0),
                 .circle.radius = 100,
-            });
+        });
         snz_testPrint(_sk_manifoldEq(out, (sk_Manifold) { .kind = SK_MK_NONE }), "circle/inner circle manifold join");
 
         out = _sk_manifoldJoin(
             (sk_Manifold) {
-                .kind = SK_MK_LINE,
+            .kind = SK_MK_LINE,
                 .line.origin = HMM_V2(1, 0),
                 .line.direction = HMM_V2(-3, 0),
-            },
+        },
             (sk_Manifold) {
-                .kind = SK_MK_CIRCLE,
+            .kind = SK_MK_CIRCLE,
                 .circle.origin = HMM_V2(1, 0),
                 .circle.radius = 2,
-            });
+        });
         comp = (sk_Manifold){
             .kind = SK_MK_POINT,
             .point = HMM_V2(-1, 0),
@@ -794,15 +822,15 @@ void sk_tests() {
 
         out = _sk_manifoldJoin(
             (sk_Manifold) {
-                .kind = SK_MK_LINE,
+            .kind = SK_MK_LINE,
                 .line.origin = HMM_V2(2, 10),
                 .line.direction = HMM_V2(0, -1),
-            },
+        },
             (sk_Manifold) {
-                .kind = SK_MK_CIRCLE,
+            .kind = SK_MK_CIRCLE,
                 .circle.origin = HMM_V2(0, 0),
                 .circle.radius = 2,
-            });
+        });
         comp = (sk_Manifold){
             .kind = SK_MK_POINT,
             .point = HMM_V2(2, 0),

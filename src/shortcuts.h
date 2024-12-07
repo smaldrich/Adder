@@ -166,46 +166,8 @@ bool _scc_angleConstraint(_sc_CommandArgs args) {
 }
 
 bool _scc_line(_sc_CommandArgs args) {
-    int selectedCount = 0;
-    sk_Point* firstSelected;
-    sk_Point* secondSelected;
-    for (sk_Point* p = args.activeSketch->firstPoint; p; p = p->next) {
-        if (p->sel.selected) {
-            selectedCount++;
-            if (selectedCount == 1) {
-                firstSelected = p;
-            } else if (selectedCount == 2) {
-                secondSelected = p;
-            }
-        } // end sel check
-    } // end pt loop
-
-    if (selectedCount == 1) {
-        this next;
-        SNZ_ASSERT(false, "hello future me!");
-    } else if (selectedCount == 2 && args.firstFrame) {
-        bool lineExists = false;
-        for (sk_Line* l = args.activeSketch->firstLine; l; l = l->next) {
-            if (l->p1 == firstSelected && l->p2 == secondSelected) {
-                lineExists = true;
-                break;
-            } else if (l->p2 == firstSelected && l->p1 == secondSelected) {
-                lineExists = true;
-                break;
-            }
-        }
-
-        if (!lineExists) {
-            sk_sketchAddLine(args.activeSketch, firstSelected, secondSelected);
-        }
-        return true;
-    } else if (selectedCount > 2) {
-        for (sk_Point* p = args.activeSketch->firstPoint; p; p = p->next) {
-            p->sel.selected = false;
-        }
-    }
-
-    return false;
+    assert(args.activeSketch || !args.activeSketch);
+    return true;
 }
 
 void sc_init(PoolAlloc* pool) {
@@ -256,9 +218,11 @@ void sc_updateAndBuildHintWindow(sk_Sketch* activeSketch, sc_View* outCurrentVie
                     }
                 }
             }
+            // FIXME: some indication if a cmd failed or not
 
             if (kp.key == SDLK_ESCAPE || !snzu_isNothingFocused()) {
                 *activeCommand = NULL;
+                sk_sketchDeselectAll(args.activeSketch);
             }
         }
     }  // command handling
@@ -276,6 +240,7 @@ void sc_updateAndBuildHintWindow(sk_Sketch* activeSketch, sc_View* outCurrentVie
             bool done = (*activeCommand)->func(args);
             if (done) {
                 *activeCommand = NULL;
+                sk_sketchDeselectAll(args.activeSketch);
             }
             // }
         }
