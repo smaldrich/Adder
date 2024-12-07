@@ -600,18 +600,6 @@ void sku_drawSketch(
         _sku_drawManifold(p, cameraPos, model, sketchMVP, scratch);
     }
 
-    for (sk_Point* p = sketch->firstPoint; p; p = p->next) {
-        HMM_Vec4 color = HMM_LerpV4(ui_colorText, p->sel.selectionAnim, ui_colorAccent);
-        float sizeAnim = SNZ_MAX(p->sel.hoverAnim, p->sel.selectionAnim);
-        float size = HMM_Lerp(0.0f, sizeAnim, .01f * p->scaleFactor);
-        snzr_drawRect(
-            HMM_Sub(p->pos, HMM_V2(size, size)), HMM_Add(p->pos, HMM_V2(size, size)),
-            HMM_V2(-INFINITY, -INFINITY), HMM_V2(INFINITY, INFINITY),
-            color, 0, 0, HMM_V4(0, 0, 0, 0),
-            sketchMVP, _snzr_globs.solidTex);
-        // FIXME: circle instead of square
-    }
-
     for (sk_Constraint* c = sketch->firstConstraint; c; c = c->nextAllocated) {
         _sku_drawAndBuildConstraint(c, model, cameraPos, scratch, sketchMVP, sound);
     }
@@ -624,6 +612,18 @@ void sku_drawSketch(
         float thickness = HMM_Lerp(2.0f, l->uiInfo.sel.hoverAnim, 5.0f);
         HMM_Vec4 color = HMM_LerpV4(ui_colorText, l->uiInfo.sel.selectionAnim, ui_colorAccent);
         snzr_drawLine(points, 2, color, thickness, sketchMVP);
+    }
+
+    for (sk_Point* p = sketch->firstPoint; p; p = p->next) {
+        HMM_Vec4 color = HMM_LerpV4(ui_colorText, p->sel.selectionAnim, ui_colorAccent);
+        float sizeAnim = p->sel.hoverAnim + p->sel.selectionAnim;
+        float size = HMM_Lerp(0.0f, sizeAnim, .007f * p->scaleFactor);
+        snzr_drawRect(
+            HMM_Sub(p->pos, HMM_V2(size, size)), HMM_Add(p->pos, HMM_V2(size, size)),
+            HMM_V2(-INFINITY, -INFINITY), HMM_V2(INFINITY, INFINITY),
+            color, 0, 0, HMM_V4(0, 0, 0, 0),
+            sketchMVP, *ui_sketchPointTexture);
+        // FIXME: circle instead of square
     }
 
     snzu_boxExit();  // exit main parent
