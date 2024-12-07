@@ -20,6 +20,7 @@ typedef struct {
 typedef struct {
     sk_Sketch* activeSketch;
     sc_View* currentView;  // read/write
+    bool firstFrame;
 } _sc_CommandArgs;
 
 typedef bool (*_sc_CommandFunc)(_sc_CommandArgs args);
@@ -112,7 +113,7 @@ bool _scc_distanceConstraint(_sc_CommandArgs args) {
 
 bool _scc_angleConstraint(_sc_CommandArgs args) {
     int selectedCount = 0;
-    sk_Line* lines[2] = {NULL, NULL};
+    sk_Line* lines[2] = { NULL, NULL };
     for (sk_Line* line = args.activeSketch->firstLine; line; line = line->next) {
         if (line->uiInfo.sel.selected) {
             selectedCount++;
@@ -164,12 +165,56 @@ bool _scc_angleConstraint(_sc_CommandArgs args) {
     return true;
 }
 
+bool _scc_line(_sc_CommandArgs args) {
+    int selectedCount = 0;
+    sk_Point* firstSelected;
+    sk_Point* secondSelected;
+    for (sk_Point* p = args.activeSketch->firstPoint; p; p = p->next) {
+        if (p->sel.selected) {
+            selectedCount++;
+            if (selectedCount == 1) {
+                firstSelected = p;
+            } else if (selectedCount == 2) {
+                secondSelected = p;
+            }
+        } // end sel check
+    } // end pt loop
+
+    if (selectedCount == 1) {
+        this next;
+        SNZ_ASSERT(false, "hello future me!");
+    } else if (selectedCount == 2 && args.firstFrame) {
+        bool lineExists = false;
+        for (sk_Line* l = args.activeSketch->firstLine; l; l = l->next) {
+            if (l->p1 == firstSelected && l->p2 == secondSelected) {
+                lineExists = true;
+                break;
+            } else if (l->p2 == firstSelected && l->p1 == secondSelected) {
+                lineExists = true;
+                break;
+            }
+        }
+
+        if (!lineExists) {
+            sk_sketchAddLine(args.activeSketch, firstSelected, secondSelected);
+        }
+        return true;
+    } else if (selectedCount > 2) {
+        for (sk_Point* p = args.activeSketch->firstPoint; p; p = p->next) {
+            p->sel.selected = false;
+        }
+    }
+
+    return false;
+}
+
 void sc_init(PoolAlloc* pool) {
     _sc_commandPool = pool;
 
     _sc_commandInit("delete", "X", SDLK_x, KMOD_NONE, _scc_delete);
     _sc_commandInit("distance", "D", SDLK_d, KMOD_NONE, _scc_distanceConstraint);
     _sc_commandInit("angle", "A", SDLK_a, KMOD_NONE, _scc_angleConstraint);
+    _sc_commandInit("line", "L", SDLK_l, KMOD_NONE, _scc_line);
 
     _sc_commandInit("goto shortcuts", "C", SDLK_c, KMOD_LSHIFT, _scc_goToShortcuts);
     _sc_commandInit("goto docs", "D", SDLK_d, KMOD_LSHIFT, _scc_goToDocs);
@@ -183,6 +228,13 @@ void sc_updateAndBuildHintWindow(sk_Sketch* activeSketch, sc_View* outCurrentVie
     snzu_boxSetSizeMarginFromParent(30);
 
     _sc_Command** const activeCommand = SNZU_USE_MEM(_sc_Command*, "activeCommand");
+
+    _sc_CommandArgs args = (_sc_CommandArgs){
+        .activeSketch = activeSketch,
+        .currentView = outCurrentView,
+        .firstFrame = false,
+    };
+
     {
         snzu_Interaction* inter = SNZU_USE_MEM(snzu_Interaction, "inter");
         snzu_boxSetInteractionOutput(inter, SNZU_IF_NONE);  // FIXME: huh
@@ -199,6 +251,7 @@ void sc_updateAndBuildHintWindow(sk_Sketch* activeSketch, sc_View* outCurrentVie
                     // FIXME: left shift only is required thats bad
                     if (kp.key == c->key.key && (kp.mods == c->key.mods)) {
                         *activeCommand = c;
+                        args.firstFrame = true;
                         break;
                     }
                 }
@@ -209,11 +262,6 @@ void sc_updateAndBuildHintWindow(sk_Sketch* activeSketch, sc_View* outCurrentVie
             }
         }
     }  // command handling
-
-    _sc_CommandArgs args = (_sc_CommandArgs){
-        .activeSketch = activeSketch,
-        .currentView = outCurrentView,
-    };
 
     snzu_boxScope() {
         if (*activeCommand != NULL) {
