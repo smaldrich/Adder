@@ -460,8 +460,8 @@ static void _sku_draw(sk_Sketch* sketch, snzu_Interaction* inter, HMM_Mat4 model
             l->p1->pos,
             l->p2->pos,
         };
-        float thickness = HMM_Lerp(2.0f, l->uiInfo.sel.hoverAnim, 5.0f);
-        HMM_Vec4 color = HMM_LerpV4(ui_colorText, l->uiInfo.sel.selectionAnim, ui_colorAccent);
+        float thickness = HMM_Lerp(2.0f, l->sel.hoverAnim, 5.0f);
+        HMM_Vec4 color = HMM_LerpV4(ui_colorText, l->sel.selectionAnim, ui_colorAccent);
         snzr_drawLine(points, 2, color, thickness, sketchMVP);
     }
 
@@ -583,7 +583,7 @@ void sku_drawAndBuildSketch(
 
                 ui_SelectableStatus* status = SNZ_ARENA_PUSH(scratch, ui_SelectableStatus);
                 *status = (ui_SelectableStatus){
-                    .state = &l->uiInfo.sel,
+                    .state = &l->sel,
                     .hovered = hovered,
                     .withinDragZone = withinDragZone,
                     .next = firstStatus,

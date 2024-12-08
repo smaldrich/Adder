@@ -81,7 +81,7 @@ bool _scc_delete(_sc_CommandArgs args) {
         }
     }
     for (sk_Line* l = args.activeSketch->firstLine; l; l = l->next) {
-        if (l->uiInfo.sel.selected) {
+        if (l->sel.selected) {
             l->markedForDelete = true;
         }
     }
@@ -98,7 +98,7 @@ bool _scc_distanceConstraint(_sc_CommandArgs args) {
     sk_Line* firstLine = NULL;
 
     for (sk_Line* line = args.activeSketch->firstLine; line; line = line->next) {
-        if (line->uiInfo.sel.selected) {
+        if (line->sel.selected) {
             firstLine = line;
             selectedCount++;
         }
@@ -119,7 +119,7 @@ bool _scc_angleConstraint(_sc_CommandArgs args) {
     int selectedCount = 0;
     sk_Line* lines[2] = { NULL, NULL };
     for (sk_Line* line = args.activeSketch->firstLine; line; line = line->next) {
-        if (line->uiInfo.sel.selected) {
+        if (line->sel.selected) {
             selectedCount++;
             if (selectedCount > 2) {
                 return true;

@@ -35,15 +35,6 @@ typedef struct {
     sk_ManifoldKind kind;
 } sk_Manifold;
 
-typedef struct {
-    ui_TextArea textArea;
-    ui_SelectableState sel;
-
-    HMM_Vec4 drawnColor;
-    HMM_Vec2 visualCenter;
-    float scaleFactor;
-} sk_ElementUIInfo; // FIXME: this struct shouldn't exist (at least for lines)
-
 typedef struct sk_Point sk_Point;
 struct sk_Point {
     HMM_Vec2 pos;
@@ -70,8 +61,9 @@ struct sk_Line {
     bool angleApplied;
     bool angleSolved;
     float expectedAngle;  // from p1 to p2, may not be normalized
-    sk_ElementUIInfo uiInfo;
     bool markedForDelete;
+
+    ui_SelectableState sel;
 };
 
 typedef enum {
@@ -94,10 +86,19 @@ struct sk_Constraint {
 
     bool violated;
     bool markedForDelete;
-    sk_ElementUIInfo uiInfo;
 
     sk_Constraint* nextAllocated;
     sk_Constraint* nextUnapplied;
+
+    // ui info things
+    struct {
+        ui_TextArea textArea;
+        ui_SelectableState sel;
+
+        HMM_Vec4 drawnColor;
+        HMM_Vec2 visualCenter;
+        float scaleFactor;
+    } uiInfo;
 };
 // FIXME: opaque types for all of these
 
@@ -724,7 +725,7 @@ void sk_sketchDeselectAll(sk_Sketch* sketch) {
     }
 
     for (sk_Line* l = sketch->firstLine; l; l = l->next) {
-        l->uiInfo.sel.selected = false;
+        l->sel.selected = false;
     }
 
     for (sk_Constraint* c = sketch->firstConstraint; c; c = c->nextAllocated) {
