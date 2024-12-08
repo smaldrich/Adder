@@ -422,7 +422,7 @@ void main_frame(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screen
         snzu_boxSetSizeFromStartAx(SNZU_AX_Y, ui_borderThickness);
         snzu_boxSetColor(ui_colorText);
 
-        sc_updateAndBuildHintWindow(&main_sketch, &main_currentView);
+        sc_updateAndBuildHintWindow(&main_sketch, &main_currentView, scratch);
     }
 
     snzr_callGLFnOrError(glBindFramebuffer(GL_FRAMEBUFFER, 0));

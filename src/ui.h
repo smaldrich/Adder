@@ -317,18 +317,26 @@ static int64_t _ui_textAreaNextWordFromCursor(ui_TextArea* text, bool dir) {
 }
 
 // str may be null
-void ui_textAreaInit(const char* str, ui_TextArea* const text) {
-    memset(text, 0, sizeof(*text));
+void ui_textAreaInit(ui_TextArea* area, const char* str) {
+    memset(area, 0, sizeof(*area));
     if (str != NULL) {
         uint64_t len = strlen(str);
         SNZ_ASSERTF(
             len < UI_TEXTAREA_MAX_CHARS - 1,
             "Initializing text area failed. Too many chars in str. were %llu, expected less than %d.",
             len, UI_TEXTAREA_MAX_CHARS - 1);
-        text->charCount = len;
-        strcpy(text->chars, str);
+        area->charCount = len;
+        strcpy(area->chars, str);
     }
-    text->selectionStart = -1;  // FIXME: sorry it's non zero. worked out easier.
+    area->selectionStart = -1;  // FIXME: sorry it's non zero. worked out easier.
+}
+
+void ui_textAreaSetStr(ui_TextArea* area, const char* str, uint64_t len) {
+    SNZ_ASSERTF(len < UI_TEXTAREA_MAX_CHARS - 1, "set failed. len was > %d - 1, the max number of chars a textbox can fit.", UI_TEXTAREA_MAX_CHARS);
+    strcpy(area->chars, str);
+    area->charCount = strlen(str);
+    area->cursorPos = SNZ_MIN(area->cursorPos, area->charCount);
+    // FIXME: more intensive validation checks?
 }
 
 // FIXME: bettery recovery than just not applying when it changes
@@ -336,7 +344,7 @@ void ui_textAreaInit(const char* str, ui_TextArea* const text) {
 // charCount and chars are read/write vars
 // use ui_textAreaInit before passing in a textArea struct
 // text is expected to be usememd
-void ui_textArea(ui_TextArea* const text, const snzr_Font* font, float textHeight, HMM_Vec4 textColor) {
+void ui_textArea(ui_TextArea* const text, const snzr_Font* font, float textHeight, HMM_Vec4 textColor, bool setFocused) {
     /*
     FEATURES:
     [X] selection zones
@@ -363,7 +371,7 @@ void ui_textArea(ui_TextArea* const text, const snzr_Font* font, float textHeigh
 
     snzu_boxSetInteractionOutput(&text->inter, SNZU_IF_HOVER | SNZU_IF_MOUSE_BUTTONS | SNZU_IF_ALLOW_EVENT_FALLTHROUGH);
 
-    if (text->inter.doubleClicked) {
+    if (text->inter.doubleClicked || setFocused) {
         text->firstClickForFocus = true;
         snzu_boxSetFocused();
 

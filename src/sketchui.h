@@ -1,3 +1,5 @@
+#pragma once
+
 #include "HMM/HandmadeMath.h"
 #include "sketches2.h"
 #include "snooze.h"
@@ -201,6 +203,8 @@ static bool _sku_constraintHovered(sk_Constraint* c, float scaleFactor, HMM_Vec2
     return out;
 }
 
+
+
 // see _sku_buildConstraint, which this is dependent on for state
 static void _sku_drawConstraint(sk_Constraint* c, snz_Arena* scratch, HMM_Mat4 sketchMVP, float soundPct) {
     float drawnThickness = HMM_Lerp(SKU_CONSTRAINT_THICKNESS, c->uiInfo.sel.hoverAnim, SKU_CONSTRAINT_HOVERED_THICKNESS);
@@ -255,6 +259,18 @@ static void _sku_drawConstraint(sk_Constraint* c, snz_Arena* scratch, HMM_Mat4 s
     }
 }
 
+static const char* sku_constraintLabelStr(sk_Constraint* c, snz_Arena* scratch) {
+    // FIXME: cull trailing zeros
+    if (c->kind == SK_CK_ANGLE) {
+        return snz_arenaFormatStr(scratch, "%.1fdeg", HMM_ToDeg(c->value));
+    } else if (c->kind == SK_CK_DISTANCE) {
+        return snz_arenaFormatStr(scratch, "%.2fm", c->value);
+    } else {
+        SNZ_ASSERTF(false, "unreachable. kind: %d", c);
+        return NULL;
+    }
+}
+
 // does UI state processing, calculates scaleFactor, center, color also, & should be called before drawConstraint
 // updates the constraints value (which will be unsolved unless equal to the previous frames value)
 static void _sku_buildConstraint(sk_Constraint* c, float sound, HMM_Mat4 model, HMM_Vec3 cameraPos, snz_Arena* scratch) {
@@ -291,8 +307,8 @@ static void _sku_buildConstraint(sk_Constraint* c, float sound, HMM_Mat4 model, 
     textTopLeft.Y *= -1;  // flip to UI space before drawing
     snzu_boxSetStart(textTopLeft);
 
-    // FIXME: double click on the rest of the constraint should also enter edit mode
-    ui_textArea(&c->uiInfo.textArea, &ui_titleFont, drawnHeight, c->uiInfo.drawnColor);
+    ui_textArea(&c->uiInfo.textArea, &ui_titleFont, drawnHeight, c->uiInfo.drawnColor, c->uiInfo.shouldStartFocus);
+    c->uiInfo.shouldStartFocus = false;
 
     float val = atof(c->uiInfo.textArea.chars);
 
@@ -319,24 +335,9 @@ static void _sku_buildConstraint(sk_Constraint* c, float sound, HMM_Mat4 model, 
     }
 
     if (!c->uiInfo.textArea.wasFocused) {  // FIXME: kinda wasteful to have this running constantly
-        const char* suffix = NULL;
-        if (c->kind == SK_CK_ANGLE) {
-            suffix = "deg";  // FIXME: unicode + the degree symol
-        } else if (c->kind == SK_CK_DISTANCE) {
-            suffix = "m";
-        }
-        float renderedVal = c->value;
-        if (c->kind == SK_CK_ANGLE) {
-            renderedVal = HMM_ToDeg(renderedVal);
-        }
-        // FIXME: cull trailing zeros
-        const char* str = snz_arenaFormatStr(scratch, "%.2f%s", renderedVal, suffix);
-        strcpy(c->uiInfo.textArea.chars, str);
-        c->uiInfo.textArea.charCount = strlen(str);
-        c->uiInfo.textArea.cursorPos = SNZ_MIN(c->uiInfo.textArea.cursorPos, c->uiInfo.textArea.charCount);
-        _ui_textAreaAssertValid(&c->uiInfo.textArea);
-        // FIXME: setter for textArea string;
         // FIXME: this has a one frame delay on scene open before things have text. ig its fine but not ideal.
+        const char* str = sku_constraintLabelStr(c, scratch);
+        ui_textAreaSetStr(&c->uiInfo.textArea, str, strlen(str));
     }
 
     // FIXME: flip labels if camera is on the other side
@@ -541,7 +542,7 @@ void sku_drawAndBuildSketch(
         ui_SelectableStatus* firstStatus = NULL;
         {  // loop over all points, check whether they are within the contained zone and update their selection status
             bool anyPointHovered = false;
-            // FIXME: make selectable and visualizable
+
             // FIXME: make contains check precise, not per vert
             HMM_Vec2 start = HMM_V2(0, 0);
             HMM_Vec2 end = HMM_V2(0, 0);
@@ -606,8 +607,13 @@ void sku_drawAndBuildSketch(
                     hovered = false;
                 }
 
-                if (mouseDown && hovered) {
-                    region->dragging = false;  // cancel a drag before it is processed if it lands on this
+                if (hovered) {
+                    if (inter->doubleClicked) {
+                        c->uiInfo.shouldStartFocus = true; // this is reset in build, so that signals from shortcuts make it
+                        region->dragging = false;  // cancel a drag before it is processed if it lands on this
+                    } else if (mouseDown) {
+                        region->dragging = false;  // cancel a drag before it is processed if it lands on this
+                    }
                 }
 
                 bool withinDragZone = false;

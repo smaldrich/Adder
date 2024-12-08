@@ -4,6 +4,7 @@
 #include "sketches2.h"
 #include "snooze.h"
 #include "ui.h"
+#include "sketchui.h"
 
 typedef enum {
     SC_VIEW_NONE = 0,
@@ -20,6 +21,7 @@ typedef struct {
 } _sc_KeyPress;
 
 typedef struct {
+    snz_Arena* scratch;
     sk_Sketch* activeSketch;
     sc_View* currentView;  // read/write
     bool firstFrame;
@@ -109,9 +111,10 @@ bool _scc_distanceConstraint(_sc_CommandArgs args) {
     }
 
     float currentLength = HMM_Len(HMM_Sub(firstLine->p2->pos, firstLine->p1->pos));
-    sk_sketchAddConstraintDistance(args.activeSketch, firstLine, currentLength);
-    // FIXME: focus the constraint as soon as it gets added
-
+    sk_Constraint* c = sk_sketchAddConstraintDistance(args.activeSketch, firstLine, currentLength);
+    c->uiInfo.shouldStartFocus = true;
+    const char* str = sku_constraintLabelStr(c, args.scratch);
+    ui_textAreaSetStr(&c->uiInfo.textArea, str, strlen(str));
     return true;
 }
 
@@ -159,13 +162,15 @@ bool _scc_angleConstraint(_sc_CommandArgs args) {
         diff += HMM_AngleDeg(360);
     }
 
+    sk_Constraint* c = NULL;
     if (diff < 0) {
-        sk_sketchAddConstraintAngle(args.activeSketch, lines[1], !isP1OnLine2, lines[0], !isP1OnLine1, -diff);
+        c = sk_sketchAddConstraintAngle(args.activeSketch, lines[1], !isP1OnLine2, lines[0], !isP1OnLine1, -diff);
     } else {
-        sk_sketchAddConstraintAngle(args.activeSketch, lines[0], !isP1OnLine1, lines[1], !isP1OnLine2, diff);
+        c = sk_sketchAddConstraintAngle(args.activeSketch, lines[0], !isP1OnLine1, lines[1], !isP1OnLine2, diff);
     }
-
-    // FIXME: focus immediately
+    c->uiInfo.shouldStartFocus = true;
+    const char* str = sku_constraintLabelStr(c, args.scratch);
+    ui_textAreaSetStr(&c->uiInfo.textArea, str, strlen(str));
     return true;
 }
 
@@ -183,13 +188,14 @@ void sc_init(PoolAlloc* pool) {
     // FIXME: shift icon instead of these
 }
 
-void sc_updateAndBuildHintWindow(sk_Sketch* activeSketch, sc_View* outCurrentView) {
+void sc_updateAndBuildHintWindow(sk_Sketch* activeSketch, sc_View* outCurrentView, snz_Arena* scratch) {
     snzu_boxNew("updatesParent");
     snzu_boxSetSizeMarginFromParent(30);
 
     _sc_Command** const activeCommand = SNZU_USE_MEM(_sc_Command*, "activeCommand");
 
     _sc_CommandArgs args = (_sc_CommandArgs){
+        .scratch = scratch,
         .activeSketch = activeSketch,
         .currentView = outCurrentView,
         .firstFrame = false,

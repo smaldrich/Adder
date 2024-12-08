@@ -98,6 +98,7 @@ struct sk_Constraint {
         HMM_Vec4 drawnColor;
         HMM_Vec2 visualCenter;
         float scaleFactor;
+        bool shouldStartFocus; // used by the shortcut system to signal the constraints text box, FIXME: it's bad but works
     } uiInfo;
 };
 // FIXME: opaque types for all of these
