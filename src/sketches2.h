@@ -38,7 +38,11 @@ typedef struct {
 typedef struct {
     ui_TextArea textArea;
     ui_SelectableState sel;
-} sk_ElementUIInfo; // FIXME: this struct shouldn't exist
+
+    HMM_Vec4 drawnColor;
+    HMM_Vec2 visualCenter;
+    float scaleFactor;
+} sk_ElementUIInfo; // FIXME: this struct shouldn't exist (at least for lines)
 
 typedef struct sk_Point sk_Point;
 struct sk_Point {

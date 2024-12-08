@@ -294,7 +294,7 @@ void main_drawDemoScene(HMM_Vec2 panelSize, snz_Arena* scratch, float dt, snzu_I
     }
 
     snzu_instanceSelect(&main_sketchUIInstance);
-    sku_drawSketch(&main_sketch, main_sketchAlign, vp, cameraPos, mouseRayNormal, inputs, soundVal, dt, scratch);
+    sku_drawAndBuildSketch(&main_sketch, main_sketchAlign, vp, cameraPos, mouseRayNormal, inputs, soundVal, dt, scratch);
     snzu_instanceSelect(&main_uiInstance);
 }
 

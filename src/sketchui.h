@@ -36,7 +36,7 @@ typedef struct {
     HMM_Vec3 endPt;
     HMM_Vec3 endNormal;
     HMM_Vec3 endVertical;
-} sku_Align;
+} sku_Align; // FIXME: move to geom
 
 static float _sku_angleBetweenV3(HMM_Vec3 a, HMM_Vec3 b) {
     return acosf(HMM_Dot(a, b) / (HMM_Len(a) * HMM_Len(b)));
@@ -201,33 +201,19 @@ static bool _sku_constraintHovered(sk_Constraint* c, float scaleFactor, HMM_Vec2
     return out;
 }
 
-// modifies constraint value based on user input
-static void _sku_drawAndBuildConstraint(sk_Constraint* c, HMM_Mat4 model, HMM_Vec3 cameraPos, snz_Arena* scratch, HMM_Mat4 sketchMVP, float soundPct) {
-    HMM_Vec4 drawnColor = ui_colorText;
-    if (c->violated) {
-        drawnColor = ui_colorErr;
-    }
-    drawnColor = HMM_LerpV4(drawnColor, c->uiInfo.sel.selectionAnim, ui_colorAccent);
-
-    HMM_Vec2 visualCenter = HMM_V2(0, 0);
-    float scaleFactor = 1;
-    _sku_constraintScaleFactorAndCenter(c, model, cameraPos, &visualCenter, &scaleFactor);
-
+// see _sku_buildConstraint, which this is dependent on for state
+static void _sku_drawConstraint(sk_Constraint* c, snz_Arena* scratch, HMM_Mat4 sketchMVP, float soundPct) {
     float drawnThickness = HMM_Lerp(SKU_CONSTRAINT_THICKNESS, c->uiInfo.sel.hoverAnim, SKU_CONSTRAINT_HOVERED_THICKNESS);
-
-    HMM_Vec2 textTopLeft = HMM_V2(0, 0);  // TL of the label in sketch space
 
     if (c->kind == SK_CK_DISTANCE) {
         HMM_Vec2 p1 = c->line1->p1->pos;
         HMM_Vec2 p2 = c->line1->p2->pos;
         HMM_Vec2 diff = HMM_NormV2(HMM_SubV2(p2, p1));
-        HMM_Vec2 offset = HMM_Mul(HMM_V2(diff.Y, -diff.X), SKU_DISTANCE_CONSTRAINT_OFFSET * (1 + soundPct) * scaleFactor);
+        HMM_Vec2 offset = HMM_Mul(HMM_V2(diff.Y, -diff.X), SKU_DISTANCE_CONSTRAINT_OFFSET * (1 + soundPct) * c->uiInfo.scaleFactor);
         p1 = HMM_Add(p1, offset);
         p2 = HMM_Add(p2, offset);
         HMM_Vec2 points[] = { p1, p2 };
-        snzr_drawLine(points, 2, drawnColor, drawnThickness, sketchMVP);
-
-        textTopLeft = HMM_Add(visualCenter, HMM_Mul(offset, 2.0f));
+        snzr_drawLine(points, 2, c->uiInfo.drawnColor, drawnThickness, sketchMVP);
     } else if (c->kind == SK_CK_ANGLE) {
         sk_Point* joint = NULL;
         // FIXME: this can be incorrect based on flippings, fix to always be accurate
@@ -239,7 +225,7 @@ static void _sku_drawAndBuildConstraint(sk_Constraint* c, HMM_Mat4 model, HMM_Ve
             return;
         }
 
-        float offset = SKU_ANGLE_CONSTRAINT_OFFSET * (1 + soundPct) * scaleFactor;
+        float offset = SKU_ANGLE_CONSTRAINT_OFFSET * (1 + soundPct) * c->uiInfo.scaleFactor;
         if (csg_floatEqual(fabsf(c->value), HMM_AngleDeg(90))) {
             sk_Point* otherOnLine1 = (c->line1->p1 == joint) ? c->line1->p2 : c->line1->p1;
             sk_Point* otherOnLine2 = (c->line2->p1 == joint) ? c->line2->p2 : c->line2->p1;
@@ -250,8 +236,7 @@ static void _sku_drawAndBuildConstraint(sk_Constraint* c, HMM_Mat4 model, HMM_Ve
                 HMM_Add(joint->pos, HMM_Add(offset1, offset2)),
                 HMM_Add(joint->pos, offset2),
             };
-            snzr_drawLine(pts, 3, drawnColor, drawnThickness, sketchMVP);
-            return;
+            snzr_drawLine(pts, 3, c->uiInfo.drawnColor, drawnThickness, sketchMVP);
         } else {
             HMM_Vec2 angles = _sku_angleOfLinesInAngleConstraint(c);
             float startAngle = angles.X;
@@ -263,14 +248,43 @@ static void _sku_drawAndBuildConstraint(sk_Constraint* c, HMM_Mat4 model, HMM_Ve
                 HMM_Vec2 o = HMM_RotateV2(HMM_V2(offset, 0), startAngle + (i * c->value / (ptCount - 1)));
                 linePts[i] = HMM_Add(joint->pos, o);
             }
-            snzr_drawLine(linePts, ptCount, drawnColor, drawnThickness, sketchMVP);
-
-            textTopLeft = HMM_RotateV2(HMM_V2(offset * 1.5, 0), startAngle + angleRange / 2);
-            textTopLeft = HMM_Add(textTopLeft, visualCenter);
+            snzr_drawLine(linePts, ptCount, c->uiInfo.drawnColor, drawnThickness, sketchMVP);
         }
+    } else {
+        SNZ_ASSERTF(false, "unreachable. kind: %d", c->kind);
     }
+}
 
-    float drawnHeight = SKU_LABEL_SIZE * scaleFactor;
+// does UI state processing, calculates scaleFactor, center, color also, & should be called before drawConstraint
+// updates the constraints value (which will be unsolved unless equal to the previous frames value)
+static void _sku_buildConstraint(sk_Constraint* c, float sound, HMM_Mat4 model, HMM_Vec3 cameraPos, snz_Arena* scratch) {
+    c->uiInfo.drawnColor = ui_colorText;
+    if (c->violated) {
+        c->uiInfo.drawnColor = ui_colorErr;
+    }
+    c->uiInfo.drawnColor = HMM_LerpV4(c->uiInfo.drawnColor, c->uiInfo.sel.selectionAnim, ui_colorAccent);
+
+    _sku_constraintScaleFactorAndCenter(c, model, cameraPos, &c->uiInfo.visualCenter, &c->uiInfo.scaleFactor);
+
+    float drawnHeight = SKU_LABEL_SIZE * c->uiInfo.scaleFactor;
+
+    HMM_Vec2 textTopLeft = HMM_V2(0, 0);  // TL of the label in sketch space
+    if (c->kind == SK_CK_DISTANCE) {
+        HMM_Vec2 p1 = c->line1->p1->pos;
+        HMM_Vec2 p2 = c->line1->p2->pos;
+        HMM_Vec2 diff = HMM_NormV2(HMM_SubV2(p2, p1));
+        HMM_Vec2 offset = HMM_Mul(HMM_V2(diff.Y, -diff.X), SKU_DISTANCE_CONSTRAINT_OFFSET * (1 + sound) * c->uiInfo.scaleFactor);
+        textTopLeft = HMM_Add(c->uiInfo.visualCenter, HMM_Mul(offset, 2.0f));
+    } else if (c->kind == SK_CK_ANGLE) {
+        HMM_Vec2 angles = _sku_angleOfLinesInAngleConstraint(c);
+        float startAngle = angles.X;
+        float angleRange = _sku_angleDifferenceForConstraint(c, angles.Left, angles.Right);
+        float offset = SKU_ANGLE_CONSTRAINT_OFFSET * (1 + sound) * c->uiInfo.scaleFactor;
+        textTopLeft = HMM_RotateV2(HMM_V2(offset * 1.5, 0), startAngle + angleRange / 2);
+        textTopLeft = HMM_Add(textTopLeft, c->uiInfo.visualCenter);
+    } else {
+        SNZ_ASSERTF(false, "unreachable. kind: %d", c->kind);
+    }
 
     char* boxName = snz_arenaFormatStr(scratch, "%p", c);
     snzu_boxNew(boxName);
@@ -278,7 +292,7 @@ static void _sku_drawAndBuildConstraint(sk_Constraint* c, HMM_Mat4 model, HMM_Ve
     snzu_boxSetStart(textTopLeft);
 
     // FIXME: double click on the rest of the constraint should also enter edit mode
-    ui_textArea(&c->uiInfo.textArea, &ui_titleFont, drawnHeight, drawnColor);
+    ui_textArea(&c->uiInfo.textArea, &ui_titleFont, drawnHeight, c->uiInfo.drawnColor);
 
     float val = atof(c->uiInfo.textArea.chars);
 
@@ -398,6 +412,72 @@ static bool _sku_AABBContainsPt(HMM_Vec2 boxStart, HMM_Vec2 boxEnd, HMM_Vec2 pt)
     return false;
 }
 
+// FIXME: factor out inter, only pass mouse pos
+static void _sku_draw(sk_Sketch* sketch, snzu_Interaction* inter, HMM_Mat4 model, HMM_Mat4 sketchMVP, HMM_Mat4 uiMVP, HMM_Vec3 cameraPos, snz_Arena* scratch, float sound) {
+    glDisable(GL_DEPTH_TEST);
+
+    {  // grid around the cursor
+        HMM_Vec3 mousePos = HMM_V3(inter->mousePosGlobal.X, inter->mousePosGlobal.Y, 0);
+        float scaleFactor = HMM_LenV3(HMM_Sub(_sku_mulM4V3(model, mousePos), cameraPos));
+
+        // FIXME: jarring switches in gaplen
+        // FIXME: unpleasant clipping into coplanar geometry
+        int lineCount = 13;  // FIXME: batch all of these verts into one line
+        float lineGap = _sku_gridLineGap(scaleFactor * 2, lineCount);
+        HMM_Vec2 origin = inter->mousePosGlobal;  // FIXME: snap to the last origins position instead of 0,0
+        if (sketch->originPt != NULL) {
+            origin = HMM_Sub(inter->mousePosGlobal, sketch->originPt->pos);
+        }
+        for (int ax = 0; ax < 2; ax++) {
+            float axOffset = fmod(origin.Elements[ax], lineGap);
+            for (int i = 0; i < lineCount; i++) {
+                float x = (i - (lineCount / 2)) * lineGap;
+                x -= axOffset;
+                HMM_Vec2 pts[] = { inter->mousePosGlobal, inter->mousePosGlobal };
+                pts[0].Elements[ax] += x;
+                pts[0].Elements[!ax] += 1.5 * scaleFactor;
+                pts[1].Elements[ax] += x;
+                pts[1].Elements[!ax] += -1.5 * scaleFactor;
+
+                HMM_Vec3 fadeOrigin = { 0 };
+                fadeOrigin.XY = inter->mousePosGlobal;
+                // FIXME: have this invert color when behind smth in the scene
+                snzr_drawLineFaded(pts, 2, ui_colorAlmostBackground, 1, uiMVP, fadeOrigin, 0, 0.5 * scaleFactor);
+            }
+        }
+    }  // end grid
+
+    for (sk_Point* p = sketch->firstPoint; p; p = p->next) {
+        _sku_drawManifold(p, cameraPos, model, sketchMVP, scratch);
+    }
+
+    for (sk_Constraint* c = sketch->firstConstraint; c; c = c->nextAllocated) {
+        _sku_drawConstraint(c, scratch, sketchMVP, sound);
+    }
+
+    for (sk_Line* l = sketch->firstLine; l; l = l->next) {
+        HMM_Vec2 points[] = {
+            l->p1->pos,
+            l->p2->pos,
+        };
+        float thickness = HMM_Lerp(2.0f, l->uiInfo.sel.hoverAnim, 5.0f);
+        HMM_Vec4 color = HMM_LerpV4(ui_colorText, l->uiInfo.sel.selectionAnim, ui_colorAccent);
+        snzr_drawLine(points, 2, color, thickness, sketchMVP);
+    }
+
+    for (sk_Point* p = sketch->firstPoint; p; p = p->next) {
+        HMM_Vec4 color = HMM_LerpV4(ui_colorText, p->sel.selectionAnim, ui_colorAccent);
+        float sizeAnim = p->sel.hoverAnim + p->sel.selectionAnim;
+        float size = HMM_Lerp(0.0f, sizeAnim, .007f * p->scaleFactor);
+        snzr_drawRect(
+            HMM_Sub(p->pos, HMM_V2(size, size)), HMM_Add(p->pos, HMM_V2(size, size)),
+            HMM_V2(-INFINITY, -INFINITY), HMM_V2(INFINITY, INFINITY),
+            color, 0, 0, HMM_V4(0, 0, 0, 0),
+            sketchMVP, *ui_sketchPointTexture);
+        // FIXME: sphere
+    }
+}
+
 // FIXME: sketch element selection persists too much
 
 // Expects a UI instance that isn't the main one to be selected, for use exclusively here
@@ -408,7 +488,7 @@ static bool _sku_AABBContainsPt(HMM_Vec2 boxStart, HMM_Vec2 boxEnd, HMM_Vec2 pt)
 // everythin in the sketch has been projected.
 
 // FIXME: passing inputs like this is ignoring clipping interactions that are outside the viewport
-void sku_drawSketch(
+void sku_drawAndBuildSketch(
     sk_Sketch* sketch, sku_Align align,
     HMM_Mat4 vp, HMM_Vec3 cameraPos,
     HMM_Vec3 mouseRayNormal, snzu_Input inputs,
@@ -444,39 +524,6 @@ void sku_drawSketch(
     snzu_boxSetInteractionOutput(inter, SNZU_IF_HOVER | SNZU_IF_MOUSE_BUTTONS | SNZU_IF_MOUSE_SCROLL | SNZU_IF_ALLOW_EVENT_FALLTHROUGH);
     // fallthru required because otherwise this captures the mouse on click // i hate it but it it works
     snzu_boxEnter();
-
-    glDisable(GL_DEPTH_TEST);
-
-    {  // grid around the cursor
-        HMM_Vec3 mousePos = HMM_V3(inter->mousePosGlobal.X, inter->mousePosGlobal.Y, 0);
-        float scaleFactor = HMM_LenV3(HMM_Sub(_sku_mulM4V3(model, mousePos), cameraPos));
-
-        // FIXME: jarring switches in gaplen
-        // FIXME: unpleasant clipping into coplanar geometry
-        int lineCount = 13;  // FIXME: batch all of these verts into one line
-        float lineGap = _sku_gridLineGap(scaleFactor * 2, lineCount);
-        HMM_Vec2 origin = inter->mousePosGlobal;  // FIXME: snap to the last origins position instead of 0,0
-        if (sketch->originPt != NULL) {
-            origin = HMM_Sub(inter->mousePosGlobal, sketch->originPt->pos);
-        }
-        for (int ax = 0; ax < 2; ax++) {
-            float axOffset = fmod(origin.Elements[ax], lineGap);
-            for (int i = 0; i < lineCount; i++) {
-                float x = (i - (lineCount / 2)) * lineGap;
-                x -= axOffset;
-                HMM_Vec2 pts[] = { inter->mousePosGlobal, inter->mousePosGlobal };
-                pts[0].Elements[ax] += x;
-                pts[0].Elements[!ax] += 1.5 * scaleFactor;
-                pts[1].Elements[ax] += x;
-                pts[1].Elements[!ax] += -1.5 * scaleFactor;
-
-                HMM_Vec3 fadeOrigin = { 0 };
-                fadeOrigin.XY = inter->mousePosGlobal;
-                // FIXME: have this invert color when behind smth in the scene
-                snzr_drawLineFaded(pts, 2, ui_colorAlmostBackground, 1, uiMVP, fadeOrigin, 0, 0.5 * scaleFactor);
-            }
-        }
-    }  // end grid
 
     {  // selection // UI state updates
         HMM_Vec2 mouse = inter->mousePosGlobal;
@@ -521,9 +568,7 @@ void sku_drawSketch(
                 };
                 firstStatus = status;
             }  // end point loop
-        }
 
-        {
             for (sk_Line* l = sketch->firstLine; l; l = l->next) {
                 bool withinDragZone = l->p1->inDragZone && l->p2->inDragZone;
 
@@ -596,35 +641,17 @@ void sku_drawSketch(
         }
     }  // end selection management scope
 
-    for (sk_Point* p = sketch->firstPoint; p; p = p->next) {
-        _sku_drawManifold(p, cameraPos, model, sketchMVP, scratch);
-    }
-
     for (sk_Constraint* c = sketch->firstConstraint; c; c = c->nextAllocated) {
-        _sku_drawAndBuildConstraint(c, model, cameraPos, scratch, sketchMVP, sound);
+        _sku_buildConstraint(c, sound, model, cameraPos, scratch);
     }
 
-    for (sk_Line* l = sketch->firstLine; l; l = l->next) {
-        HMM_Vec2 points[] = {
-            l->p1->pos,
-            l->p2->pos,
-        };
-        float thickness = HMM_Lerp(2.0f, l->uiInfo.sel.hoverAnim, 5.0f);
-        HMM_Vec4 color = HMM_LerpV4(ui_colorText, l->uiInfo.sel.selectionAnim, ui_colorAccent);
-        snzr_drawLine(points, 2, color, thickness, sketchMVP);
-    }
-
-    for (sk_Point* p = sketch->firstPoint; p; p = p->next) {
-        HMM_Vec4 color = HMM_LerpV4(ui_colorText, p->sel.selectionAnim, ui_colorAccent);
-        float sizeAnim = p->sel.hoverAnim + p->sel.selectionAnim;
-        float size = HMM_Lerp(0.0f, sizeAnim, .007f * p->scaleFactor);
-        snzr_drawRect(
-            HMM_Sub(p->pos, HMM_V2(size, size)), HMM_Add(p->pos, HMM_V2(size, size)),
-            HMM_V2(-INFINITY, -INFINITY), HMM_V2(INFINITY, INFINITY),
-            color, 0, 0, HMM_V4(0, 0, 0, 0),
-            sketchMVP, *ui_sketchPointTexture);
-        // FIXME: circle instead of square
-    }
+    _sku_draw(
+        sketch,
+        inter,
+        model, sketchMVP, uiMVP,
+        cameraPos,
+        scratch,
+        sound);
 
     snzu_boxExit();  // exit main parent
     snzu_frameDrawAndGenInteractions(inputs, uiMVP);
