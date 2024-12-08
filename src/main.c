@@ -18,18 +18,18 @@ snz_Arena main_fontArena;
 snz_Arena main_meshArena;
 PoolAlloc main_pool;
 
-snzr_FrameBuffer main_sceneFB;
 sk_Sketch main_sketch;
 snzu_Instance main_sketchUIInstance;
 snz_Arena main_sketchArena;
+sku_Align main_sketchAlign;
 
+snzr_FrameBuffer main_sceneFB;
 geo_Mesh main_mesh;
 
 bool main_inDarkMode = true;
 bool main_inMusicMode = true;
 bool main_skybox = true;
 
-sku_Align main_sketchAlign;
 
 void main_init(snz_Arena* scratch, SDL_Window* window) {
     _poolAllocTests();

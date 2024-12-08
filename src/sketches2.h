@@ -103,6 +103,19 @@ struct sk_Constraint {
 };
 // FIXME: opaque types for all of these
 
+// FIXME: this should not be here, but has to bc. import problems
+const char* sk_constraintLabelStr(sk_Constraint* c, snz_Arena* scratch) {
+    // FIXME: cull trailing zeros
+    if (c->kind == SK_CK_ANGLE) {
+        return snz_arenaFormatStr(scratch, "%.1fdeg", HMM_ToDeg(c->value));
+    } else if (c->kind == SK_CK_DISTANCE) {
+        return snz_arenaFormatStr(scratch, "%.2fm", c->value);
+    } else {
+        SNZ_ASSERTF(false, "unreachable. kind: %d", c);
+        return NULL;
+    }
+}
+
 typedef struct {
     sk_Point* firstPoint;
     sk_Line* firstLine;
@@ -140,6 +153,9 @@ sk_Point* sk_sketchAddPoint(sk_Sketch* sketch, HMM_Vec2 pos) {
 
 // only creates a new one if one between p1 & 2 doesn't exist. Order may not end up as intended.
 sk_Line* sk_sketchAddLine(sk_Sketch* sketch, sk_Point* p1, sk_Point* p2) {
+    SNZ_ASSERT(p1 != NULL, "attemped to create a line with a null pt");
+    SNZ_ASSERT(p2 != NULL, "attemped to create a line with a null pt");
+
     sk_Line* line = false;
     for (sk_Line* l = sketch->firstLine; l; l = l->next) {
         if (l->p1 == p1 && l->p2 == p2) {
@@ -164,6 +180,8 @@ sk_Line* sk_sketchAddLine(sk_Sketch* sketch, sk_Point* p1, sk_Point* p2) {
 }
 
 sk_Constraint* sk_sketchAddConstraintDistance(sk_Sketch* sketch, sk_Line* l, float length) {
+    SNZ_ASSERT(l != NULL, "attemped to create a distance constraint with null line");
+
     sk_Constraint* c = SNZ_ARENA_PUSH(sketch->arena, sk_Constraint);
     *c = (sk_Constraint){
         .kind = SK_CK_DISTANCE,
@@ -176,6 +194,9 @@ sk_Constraint* sk_sketchAddConstraintDistance(sk_Sketch* sketch, sk_Line* l, flo
 }
 
 sk_Constraint* sk_sketchAddConstraintAngle(sk_Sketch* sketch, sk_Line* line1, bool flipLine1, sk_Line* line2, bool flipLine2, float angle) {
+    SNZ_ASSERT(line1 != NULL, "attemped to create a angle constraint with null line");
+    SNZ_ASSERT(line2 != NULL, "attemped to create a angle constraint with null line");
+
     sk_Constraint* c = SNZ_ARENA_PUSH(sketch->arena, sk_Constraint);
     *c = (sk_Constraint){
         .kind = SK_CK_ANGLE,

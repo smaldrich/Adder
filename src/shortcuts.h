@@ -4,7 +4,6 @@
 #include "sketches2.h"
 #include "snooze.h"
 #include "ui.h"
-#include "sketchui.h"
 
 typedef enum {
     SC_VIEW_NONE = 0,
@@ -27,11 +26,11 @@ typedef struct {
     bool firstFrame;
 } _sc_CommandArgs;
 
-typedef bool (*_sc_CommandFunc)(_sc_CommandArgs args);
+typedef bool (*sc_CommandFunc)(_sc_CommandArgs args);
 
 typedef struct {
     _sc_KeyPress key;
-    _sc_CommandFunc func;
+    sc_CommandFunc func;
     const char* nameLabel;
     const char* keyLabel;
     int64_t availibleViews;
@@ -40,8 +39,16 @@ typedef struct {
 _sc_Command* _sc_commands = NULL;
 int64_t _sc_commandCount = 0;
 PoolAlloc* _sc_commandPool = NULL;
+_sc_Command* _sc_activeCommand = NULL;
 
-static _sc_Command* _sc_commandInit(const char* displayName, const char* keyName, SDL_KeyCode code, SDL_Keymod mod, int64_t availibleViewMask, _sc_CommandFunc func) {
+sc_CommandFunc sc_getActiveCommand() {
+    if (_sc_activeCommand) {
+        return _sc_activeCommand->func;
+    }
+    return NULL;
+}
+
+static _sc_Command* _sc_commandInit(const char* displayName, const char* keyName, SDL_KeyCode code, SDL_Keymod mod, int64_t availibleViewMask, sc_CommandFunc func) {
     _sc_Command* c = poolAllocPushArray(_sc_commandPool, _sc_commands, _sc_commandCount, _sc_Command);
     *c = (_sc_Command){
         .nameLabel = displayName,
@@ -113,7 +120,7 @@ bool _scc_distanceConstraint(_sc_CommandArgs args) {
     float currentLength = HMM_Len(HMM_Sub(firstLine->p2->pos, firstLine->p1->pos));
     sk_Constraint* c = sk_sketchAddConstraintDistance(args.activeSketch, firstLine, currentLength);
     c->uiInfo.shouldStartFocus = true;
-    const char* str = sku_constraintLabelStr(c, args.scratch);
+    const char* str = sk_constraintLabelStr(c, args.scratch);
     ui_textAreaSetStr(&c->uiInfo.textArea, str, strlen(str));
     return true;
 }
@@ -169,15 +176,38 @@ bool _scc_angleConstraint(_sc_CommandArgs args) {
         c = sk_sketchAddConstraintAngle(args.activeSketch, lines[0], !isP1OnLine1, lines[1], !isP1OnLine2, diff);
     }
     c->uiInfo.shouldStartFocus = true;
-    const char* str = sku_constraintLabelStr(c, args.scratch);
+    const char* str = sk_constraintLabelStr(c, args.scratch);
     ui_textAreaSetStr(&c->uiInfo.textArea, str, strlen(str));
     return true;
+}
+
+bool scc_line(_sc_CommandArgs args) {
+    if (args.firstFrame) { // creating a line between two selected pts
+        int ptCount = 0;
+        sk_Point* pts[2] = { 0 };
+        for (sk_Point* p = args.activeSketch->firstPoint; p; p = p->next) {
+            if (p->sel.selected) {
+                ptCount++;
+                if (ptCount > 2) {
+                    break;
+                }
+                pts[ptCount - 1] = p;
+            }
+        }
+        if (ptCount == 2) {
+            sk_sketchAddLine(args.activeSketch, pts[0], pts[1]);
+            return true;
+        }
+    }
+
+    return false;
 }
 
 void sc_init(PoolAlloc* pool) {
     _sc_commandPool = pool;
 
     _sc_commandInit("delete", "X", SDLK_x, KMOD_NONE, SC_VIEW_SCENE, _scc_delete);
+    _sc_commandInit("line", "B", SDLK_b, KMOD_NONE, SC_VIEW_SCENE, scc_line);
     _sc_commandInit("distance", "D", SDLK_d, KMOD_NONE, SC_VIEW_SCENE, _scc_distanceConstraint);
     _sc_commandInit("angle", "A", SDLK_a, KMOD_NONE, SC_VIEW_SCENE, _scc_angleConstraint);
 
@@ -191,8 +221,6 @@ void sc_init(PoolAlloc* pool) {
 void sc_updateAndBuildHintWindow(sk_Sketch* activeSketch, sc_View* outCurrentView, snz_Arena* scratch) {
     snzu_boxNew("updatesParent");
     snzu_boxSetSizeMarginFromParent(30);
-
-    _sc_Command** const activeCommand = SNZU_USE_MEM(_sc_Command*, "activeCommand");
 
     _sc_CommandArgs args = (_sc_CommandArgs){
         .scratch = scratch,
@@ -211,7 +239,7 @@ void sc_updateAndBuildHintWindow(sk_Sketch* activeSketch, sc_View* outCurrentVie
             };
 
             // FIXME: this activates even when typing in a scene textbox bc it's a different instance
-            if (!*activeCommand && snzu_isNothingFocused()) {
+            if (snzu_isNothingFocused()) {
                 for (int i = 0; i < _sc_commandCount; i++) {
                     _sc_Command* c = &_sc_commands[i];
                     if (!(c->availibleViews & *outCurrentView)) {
@@ -219,7 +247,7 @@ void sc_updateAndBuildHintWindow(sk_Sketch* activeSketch, sc_View* outCurrentVie
                     }
                     // FIXME: left shift only is required thats bad
                     if (kp.key == c->key.key && (kp.mods == c->key.mods)) {
-                        *activeCommand = c;
+                        _sc_activeCommand = c;
                         args.firstFrame = true;
                         break;
                     }
@@ -228,18 +256,18 @@ void sc_updateAndBuildHintWindow(sk_Sketch* activeSketch, sc_View* outCurrentVie
             // FIXME: some indication if a cmd failed or not
 
             if (kp.key == SDLK_ESCAPE || !snzu_isNothingFocused()) {
-                *activeCommand = NULL;
+                _sc_activeCommand = NULL;
                 sk_sketchDeselectAll(args.activeSketch);
             }
         }
     }  // command handling
 
     snzu_boxScope() {
-        if (*activeCommand != NULL) {
-            bool invalidated = !((*activeCommand)->availibleViews & *outCurrentView);
-            bool done = (*activeCommand)->func(args);
+        if (_sc_activeCommand != NULL) {
+            bool invalidated = !(_sc_activeCommand->availibleViews & *outCurrentView);
+            bool done = _sc_activeCommand->func(args);
             if (invalidated || done) {
-                *activeCommand = NULL;
+                _sc_activeCommand = NULL;
                 sk_sketchDeselectAll(args.activeSketch);
             }
         }

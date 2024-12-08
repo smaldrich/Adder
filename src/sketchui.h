@@ -4,6 +4,7 @@
 #include "sketches2.h"
 #include "snooze.h"
 #include "ui.h"
+#include "shortcuts.h"
 
 static float _sku_gridLineGap(float area, float visibleCount) {
     float lineGap = area / visibleCount;
@@ -259,18 +260,6 @@ static void _sku_drawConstraint(sk_Constraint* c, snz_Arena* scratch, HMM_Mat4 s
     }
 }
 
-static const char* sku_constraintLabelStr(sk_Constraint* c, snz_Arena* scratch) {
-    // FIXME: cull trailing zeros
-    if (c->kind == SK_CK_ANGLE) {
-        return snz_arenaFormatStr(scratch, "%.1fdeg", HMM_ToDeg(c->value));
-    } else if (c->kind == SK_CK_DISTANCE) {
-        return snz_arenaFormatStr(scratch, "%.2fm", c->value);
-    } else {
-        SNZ_ASSERTF(false, "unreachable. kind: %d", c);
-        return NULL;
-    }
-}
-
 // does UI state processing, calculates scaleFactor, center, color also, & should be called before drawConstraint
 // updates the constraints value (which will be unsolved unless equal to the previous frames value)
 static void _sku_buildConstraint(sk_Constraint* c, float sound, HMM_Mat4 model, HMM_Vec3 cameraPos, snz_Arena* scratch) {
@@ -336,7 +325,7 @@ static void _sku_buildConstraint(sk_Constraint* c, float sound, HMM_Mat4 model, 
 
     if (!c->uiInfo.textArea.wasFocused) {  // FIXME: kinda wasteful to have this running constantly
         // FIXME: this has a one frame delay on scene open before things have text. ig its fine but not ideal.
-        const char* str = sku_constraintLabelStr(c, scratch);
+        const char* str = sk_constraintLabelStr(c, scratch);
         ui_textAreaSetStr(&c->uiInfo.textArea, str, strlen(str));
     }
 
@@ -415,8 +404,6 @@ static bool _sku_AABBContainsPt(HMM_Vec2 boxStart, HMM_Vec2 boxEnd, HMM_Vec2 pt)
 
 // FIXME: factor out inter, only pass mouse pos
 static void _sku_draw(sk_Sketch* sketch, snzu_Interaction* inter, HMM_Mat4 model, HMM_Mat4 sketchMVP, HMM_Mat4 uiMVP, HMM_Vec3 cameraPos, snz_Arena* scratch, float sound) {
-    glDisable(GL_DEPTH_TEST);
-
     {  // grid around the cursor
         HMM_Vec3 mousePos = HMM_V3(inter->mousePosGlobal.X, inter->mousePosGlobal.Y, 0);
         float scaleFactor = HMM_LenV3(HMM_Sub(_sku_mulM4V3(model, mousePos), cameraPos));
@@ -479,6 +466,11 @@ static void _sku_draw(sk_Sketch* sketch, snzu_Interaction* inter, HMM_Mat4 model
     }
 }
 
+typedef enum {
+    SKU_EM_NORMAL,
+    SKU_EM_LINE,
+} sku_EditMode;
+
 // FIXME: sketch element selection persists too much
 
 // Expects a UI instance that isn't the main one to be selected, for use exclusively here
@@ -525,6 +517,10 @@ void sku_drawAndBuildSketch(
     snzu_boxSetInteractionOutput(inter, SNZU_IF_HOVER | SNZU_IF_MOUSE_BUTTONS | SNZU_IF_MOUSE_SCROLL | SNZU_IF_ALLOW_EVENT_FALLTHROUGH);
     // fallthru required because otherwise this captures the mouse on click // i hate it but it it works
     snzu_boxEnter();
+    glDisable(GL_DEPTH_TEST);
+
+    bool inLineMode = sc_getActiveCommand() == scc_line;
+    sk_Point* lineSrcPoint = NULL; // set below. FIXME: gross
 
     {  // selection // UI state updates
         HMM_Vec2 mouse = inter->mousePosGlobal;
@@ -533,7 +529,7 @@ void sku_drawAndBuildSketch(
 
         ui_SelectableRegion* const region = SNZU_USE_MEM(ui_SelectableRegion, "region");
 
-        if (mouseDown) {
+        if (mouseDown && !inLineMode) {
             region->dragOrigin = mouse;
             region->dragging = true;
             // FIXME: what happens on the border of mouse not being projectable??
@@ -579,7 +575,7 @@ void sku_drawAndBuildSketch(
                 HMM_Vec3 transformedCenter = HMM_MulM4V4(model, HMM_V4(midpt.X, midpt.Y, 0, 1)).XYZ;
                 float distToCamera = HMM_Len(HMM_Sub(transformedCenter, cameraPos));
                 bool hovered = _sku_lineContainsPt(l->p1->pos, l->p2->pos, 0.01 * distToCamera, mouse);
-                if (anyPointHovered) {
+                if (anyPointHovered || inLineMode) {
                     hovered = false;
                 }
 
@@ -603,7 +599,7 @@ void sku_drawAndBuildSketch(
                 _sku_constraintScaleFactorAndCenter(c, model, cameraPos, &visualCenter, &scaleFactor);
 
                 bool hovered = _sku_constraintHovered(c, scaleFactor, visualCenter, mouse);
-                if (anyPointHovered) {
+                if (anyPointHovered || inLineMode) {
                     hovered = false;
                 }
 
@@ -642,14 +638,65 @@ void sku_drawAndBuildSketch(
         } else {
             shiftPressed = inter->keyMods & KMOD_SHIFT;
         }
+
+        if (inLineMode) {
+            shiftPressed = false;
+        }
+
         ui_selectableRegionUpdate(region, firstStatus, inter->mouseActions[SNZU_MB_LEFT], shiftPressed);
 
+        // FIXME: gross, this has to be here so selection state is correct before the selRegionUpdate hits
+        if (inLineMode) {
+            shiftPressed = false;
+
+            sk_Point** const lastPt = SNZU_USE_MEM(sk_Point*, "line point");
+            sk_Point* newSel = NULL;
+            int selectedCount = 0;
+            for (sk_Point* p = sketch->firstPoint; p; p = p->next) {
+                if (p->sel.selected) {
+                    if (p != *lastPt) {
+                        newSel = p;
+                    }
+                    selectedCount++;
+                }
+            }
+            if (selectedCount > 2) {
+                *lastPt = NULL;
+                newSel = NULL;
+            }
+            sk_sketchDeselectAll(sketch);
+
+            if (mouseDown) {
+                if (!*lastPt && !newSel) {
+                    HMM_Vec2 mousePos = inter->mousePosGlobal;
+                    mousePos.Y *= -1;
+                    sk_Point* p = sk_sketchAddPoint(sketch, mousePos);
+                    *lastPt = p;
+                } else if (!newSel && *lastPt) {
+                    HMM_Vec2 mousePos = inter->mousePosGlobal;
+                    mousePos.Y *= -1;
+                    sk_Point* p = sk_sketchAddPoint(sketch, mousePos);
+                    sk_sketchAddLine(sketch, p, *lastPt);
+                    *lastPt = p;
+                } else if (newSel && *lastPt) {
+                    sk_sketchAddLine(sketch, *lastPt, newSel);
+                    *lastPt = newSel;
+                } else {
+                    *lastPt = newSel;
+                }
+            }
+
+            if (*lastPt) {
+                (*lastPt)->sel.selected = true;
+            }
+
+            lineSrcPoint = *lastPt;
+        } // end line mode logic
+
         if (region->dragging) {
-            HMM_Vec4 color = ui_colorAccent;
-            color.A = 0.2;
             snzr_drawRect(region->dragOrigin, mouse,
                           HMM_V2(-100000, -100000), HMM_V2(100000, 100000),
-                          color,
+                          ui_colorTransparentAccent,
                           0, 0, HMM_V4(0, 0, 0, 0),
                           sketchMVP, _snzr_globs.solidTex);  // FIXME: internals should not be hacked at like this
         }
@@ -657,6 +704,17 @@ void sku_drawAndBuildSketch(
 
     for (sk_Constraint* c = sketch->firstConstraint; c; c = c->nextAllocated) {
         _sku_buildConstraint(c, sound, model, cameraPos, scratch);
+    }
+
+
+    if (inLineMode && lineSrcPoint) {
+        HMM_Vec2 mousePos = inter->mousePosGlobal;
+        mousePos.Y *= -1;
+        HMM_Vec2 pts[2] = {
+            lineSrcPoint->pos,
+            mousePos,
+        };
+        snzr_drawLine(pts, 2, ui_colorTransparentAccent, SKU_LINE_HOVERED_THICKNESS, sketchMVP);
     }
 
     _sku_draw(
