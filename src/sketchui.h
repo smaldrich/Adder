@@ -540,6 +540,7 @@ void sku_drawAndBuildSketch(
 
         ui_SelectableStatus* firstStatus = NULL;
         {  // loop over all points, check whether they are within the contained zone and update their selection status
+            bool anyPointHovered = false;
             // FIXME: make selectable and visualizable
             // FIXME: make contains check precise, not per vert
             HMM_Vec2 start = HMM_V2(0, 0);
@@ -558,6 +559,7 @@ void sku_drawAndBuildSketch(
                 float scaleFactor = HMM_Len(HMM_Sub(cameraPos, transformed));
                 p->scaleFactor = scaleFactor;
                 bool hovered = HMM_Len(HMM_Sub(mouse, p->pos)) < (0.02 * scaleFactor);
+                anyPointHovered |= hovered;
 
                 ui_SelectableStatus* status = SNZ_ARENA_PUSH(scratch, ui_SelectableStatus);
                 *status = (ui_SelectableStatus){
@@ -576,6 +578,9 @@ void sku_drawAndBuildSketch(
                 HMM_Vec3 transformedCenter = HMM_MulM4V4(model, HMM_V4(midpt.X, midpt.Y, 0, 1)).XYZ;
                 float distToCamera = HMM_Len(HMM_Sub(transformedCenter, cameraPos));
                 bool hovered = _sku_lineContainsPt(l->p1->pos, l->p2->pos, 0.01 * distToCamera, mouse);
+                if (anyPointHovered) {
+                    hovered = false;
+                }
 
                 if (mouseDown && hovered) {
                     region->dragging = false;  // cancel a drag before it is processed if it lands on this
@@ -597,6 +602,9 @@ void sku_drawAndBuildSketch(
                 _sku_constraintScaleFactorAndCenter(c, model, cameraPos, &visualCenter, &scaleFactor);
 
                 bool hovered = _sku_constraintHovered(c, scaleFactor, visualCenter, mouse);
+                if (anyPointHovered) {
+                    hovered = false;
+                }
 
                 if (mouseDown && hovered) {
                     region->dragging = false;  // cancel a drag before it is processed if it lands on this
