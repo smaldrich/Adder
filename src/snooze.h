@@ -244,7 +244,7 @@ uint32_t snzr_shaderInit(const char* vertChars, const char* fragChars, snz_Arena
 // data does not need to be kept alive after this call
 // may be null to indicate undefined contents
 snzr_Texture snzr_textureInitRBGA(int32_t width, int32_t height, uint8_t* data) {
-    snzr_Texture out = { .width = width, .height = height };
+    snzr_Texture out = {.width = width, .height = height};
     snzr_callGLFnOrError(glGenTextures(1, &out.glId));
     snzr_callGLFnOrError(glBindTexture(GL_TEXTURE_2D, out.glId));
     snzr_callGLFnOrError(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR));
@@ -257,7 +257,7 @@ snzr_Texture snzr_textureInitRBGA(int32_t width, int32_t height, uint8_t* data) 
 
 // data does not need to be kept alive after this call
 snzr_Texture snzr_textureInitGrayscale(int32_t width, int32_t height, uint8_t* data) {
-    snzr_Texture out = { .width = width, .height = height };
+    snzr_Texture out = {.width = width, .height = height};
     snzr_callGLFnOrError(glGenTextures(1, &out.glId));
     snzr_callGLFnOrError(glBindTexture(GL_TEXTURE_2D, out.glId));
     snzr_callGLFnOrError(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR));
@@ -312,7 +312,7 @@ void snzr_frameBufferDeinit(snzr_FrameBuffer* fb) {
 #define _SNZR_FONT_UNKNOWN_CHAR 9633  // white box, see: https://www.fileformat.info/info/unicode/char/25a1/index.htm
 
 snzr_Font snzr_fontInit(snz_Arena* dataArena, snz_Arena* scratch, const char* path, float size) {
-    snzr_Font out = { .renderedSize = size };
+    snzr_Font out = {.renderedSize = size};
 
     uint8_t* fileData;
     {
@@ -338,11 +338,11 @@ snzr_Font snzr_fontInit(snz_Arena* dataArena, snz_Arena* scratch, const char* pa
     stbtt_pack_context ctx;
     uint8_t* atlasData = SNZ_ARENA_PUSH_ARR(scratch, _SNZR_FONT_ATLAS_W * _SNZR_FONT_ATLAS_H, uint8_t);
     assert(stbtt_PackBegin(&ctx, atlasData,
-        _SNZR_FONT_ATLAS_W,
-        _SNZR_FONT_ATLAS_H,
-        _SNZR_FONT_ATLAS_W,
-        1,
-        NULL));
+                           _SNZR_FONT_ATLAS_W,
+                           _SNZR_FONT_ATLAS_H,
+                           _SNZR_FONT_ATLAS_W,
+                           1,
+                           NULL));
     stbtt_PackSetOversampling(&ctx, 1, 1);
 
     const int glyphCount = _SNZR_FONT_ASCII_CHAR_COUNT + 1;
@@ -553,7 +553,7 @@ static void _snzr_init(snz_Arena* scratchArena) {
     snzr_callGLFnOrError(glBindBuffer(GL_SHADER_STORAGE_BUFFER, _snzr_globs.lineShaderSSBOId));
     snzr_callGLFnOrError(glBufferData(GL_SHADER_STORAGE_BUFFER, 0, NULL, GL_DYNAMIC_DRAW));
 
-    uint8_t solidTexData[] = { 255, 255, 255, 255 };
+    uint8_t solidTexData[] = {255, 255, 255, 255};
     _snzr_globs.solidTex = snzr_textureInitRBGA(1, 1, solidTexData);
 }
 
@@ -851,7 +851,7 @@ typedef enum {
     SNZU_IF_HOVER = (1 << 0),
     SNZU_IF_MOUSE_BUTTONS = (1 << 1),
     SNZU_IF_MOUSE_SCROLL = (1 << 2),
-    SNZU_IF_ALLOW_EVENT_FALLTHROUGH = (1 << 3), // also prevents the box from capturing mouse inputs
+    SNZU_IF_ALLOW_EVENT_FALLTHROUGH = (1 << 3),  // also prevents the box from capturing mouse inputs
 } snzu_InteractionFlags;
 
 typedef enum {
@@ -883,11 +883,11 @@ struct snzu_Interaction {
     uint64_t keyMods;
     snzu_Action keyAction;
 
-    bool dragged; // only uses LMB to detect
+    bool dragged;  // only uses LMB to detect
     HMM_Vec2 dragBeginningLocal;
     HMM_Vec2 dragBeginningGlobal;
 
-    bool doubleClicked; // only uses LMB
+    bool doubleClicked;  // only uses LMB
 };
 
 // FIXME: opaque ptr type
@@ -943,7 +943,7 @@ typedef struct {
     uint64_t keyCode;
     uint64_t keyMods;
     snzu_Action keyAction;
-    bool doubleClick; // only lmb
+    bool doubleClick;  // only lmb
 } snzu_Input;
 
 typedef struct {
@@ -1045,7 +1045,7 @@ static void _snzu_useMemClearOld() {
 #define SNZU_USE_ARRAY(T, count, tag) ((T*)snzu_useMem(sizeof(T) * (count), (tag)))
 
 snzu_Instance snzu_instanceInit() {
-    return (snzu_Instance) { 0 };
+    return (snzu_Instance){0};
 }
 
 void snzu_instanceSelect(snzu_Instance* instance) {
@@ -1369,8 +1369,8 @@ bool snzu_isNothingFocused() {
     return _snzu_instance->focusedPathHash == 0;
 }
 
-void snzu_boxClipChildren() {
-    _snzu_instance->selectedBox->clipChildren = true;
+void snzu_boxClipChildren(bool shouldClip) {
+    _snzu_instance->selectedBox->clipChildren = shouldClip;
 }
 
 void snzu_boxSetColor(HMM_Vec4 color) {
@@ -1726,7 +1726,7 @@ void snz_main(const char* windowTitle, snz_InitFunc initFunc, snz_FrameFunc fram
         SDL_GL_GetDrawableSize(window, &screenW, &screenH);
         _snzr_globs.screenSize = HMM_V2(screenW, screenH);
 
-        snzu_Input uiInputs = (snzu_Input){ 0 };
+        snzu_Input uiInputs = (snzu_Input){0};
 
         SDL_Event e;
         while (SDL_PollEvent(&e)) {
@@ -1801,7 +1801,7 @@ bool snzuc_button(const snzr_Font* font, const char* title, float padding) {
 
 // FIXME: margin prop for inners
 void snzuc_scrollArea() {
-    snzu_boxClipChildren();
+    snzu_boxClipChildren(true);
 
     snzu_Interaction* const inter = SNZU_USE_MEM(snzu_Interaction, "inter");
     snzu_boxSetInteractionOutput(inter, SNZU_IF_MOUSE_SCROLL | SNZU_IF_HOVER | SNZU_IF_MOUSE_BUTTONS);

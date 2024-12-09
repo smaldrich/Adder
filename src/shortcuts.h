@@ -127,7 +127,7 @@ bool _scc_distanceConstraint(_sc_CommandArgs args) {
 
 bool _scc_angleConstraint(_sc_CommandArgs args) {
     int selectedCount = 0;
-    sk_Line* lines[2] = { NULL, NULL };
+    sk_Line* lines[2] = {NULL, NULL};
     for (sk_Line* line = args.activeSketch->firstLine; line; line = line->next) {
         if (line->sel.selected) {
             selectedCount++;
@@ -182,9 +182,9 @@ bool _scc_angleConstraint(_sc_CommandArgs args) {
 }
 
 bool scc_line(_sc_CommandArgs args) {
-    if (args.firstFrame) { // creating a line between two selected pts
+    if (args.firstFrame) {  // creating a line between two selected pts
         int ptCount = 0;
-        sk_Point* pts[2] = { 0 };
+        sk_Point* pts[2] = {0};
         for (sk_Point* p = args.activeSketch->firstPoint; p; p = p->next) {
             if (p->sel.selected) {
                 ptCount++;
@@ -215,7 +215,36 @@ void sc_init(PoolAlloc* pool) {
     _sc_commandInit("goto docs", "D", SDLK_d, KMOD_LSHIFT, SC_VIEW_ALL, _scc_goToDocs);
     _sc_commandInit("goto main scene", "W", SDLK_w, KMOD_LSHIFT, SC_VIEW_ALL, _scc_goToMainScene);
     _sc_commandInit("goto settings", "S", SDLK_s, KMOD_LSHIFT, SC_VIEW_ALL, _scc_goToSettings);
-    // FIXME: shift icon instead of these
+}
+
+// aligns to the TL of parent, no padding, tagged with cmd label
+static void _sc_buildCommandShortcutBox(_sc_Command* cmd) {
+    snzu_boxNew(cmd->nameLabel);
+    snzu_boxFillParent();
+    snzu_boxScope() {
+        snzu_boxNew("icons container");
+        snzu_boxFillParent();
+        snzu_boxScope() {
+            // FIXME: both :)
+            if (cmd->key.mods & KMOD_LSHIFT) {
+                snzu_boxNew("icon");
+                float aspect = (float)ui_shiftTexture->width / (float)ui_shiftTexture->height;
+                float height = ui_shortcutFont.ascent;
+                snzu_boxSetStartFromParentKeepSizeRecurse(HMM_V2(0, height * 0.1));  // FIXME: this
+                snzu_boxSetSizeFromStart(HMM_V2(aspect * height, height));
+                snzu_boxSetTexture(*ui_shiftTexture);
+                snzu_boxSetColor(ui_colorText);
+            }
+        }
+        snzu_boxSetSizeFitChildren();
+
+        snzu_boxNew("char");
+        snzu_boxFillParent();
+        snzu_boxSetDisplayStr(&ui_shortcutFont, ui_colorText, cmd->keyLabel);
+        snzu_boxSetSizeFitText(0);
+    }
+    snzu_boxOrderChildrenInRowRecurse(1, SNZU_AX_X);
+    snzu_boxSetSizeFitChildren();
 }
 
 void sc_updateAndBuildHintWindow(sk_Sketch* activeSketch, sc_View* outCurrentView, snz_Arena* scratch) {
@@ -284,7 +313,6 @@ void sc_updateAndBuildHintWindow(sk_Sketch* activeSketch, sc_View* outCurrentVie
             snzu_boxSetSizeMarginFromParent(20);
             snzu_boxSetSizeMarginFromParentAx(23, SNZU_AX_X);
             snzu_boxScope() {
-
                 if (_sc_activeCommand != NULL) {
                     snzu_boxNew("active cmd area");
                     snzu_boxFillParent();
@@ -333,17 +361,15 @@ void sc_updateAndBuildHintWindow(sk_Sketch* activeSketch, sc_View* outCurrentVie
                         snzu_boxAlignInParent(SNZU_AX_X, SNZU_ALIGN_RIGHT);
                         snzu_boxAlignInParent(SNZU_AX_Y, SNZU_ALIGN_CENTER);
 
-                        snzu_boxNew("key");
-                        snzu_boxSetDisplayStr(&ui_shortcutFont, ui_colorText, c->keyLabel);
-                        snzu_boxSetSizeFitText(1);
-                        snzu_boxAlignInParent(SNZU_AX_X, SNZU_ALIGN_LEFT);
-                        snzu_boxAlignInParent(SNZU_AX_Y, SNZU_ALIGN_CENTER);
+                        _sc_buildCommandShortcutBox(c);
                     }
-                }
-            }
+                }  // end cmd loop
+            }  // end margin box
             snzu_boxOrderChildrenInRowRecurse(4, SNZU_AX_Y);
             snzuc_scrollArea();
+            snzu_boxClipChildren(false);
         }  // end hints window
+        snzu_boxClipChildren(true);
     }  // end entire window parent
 }
 

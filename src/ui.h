@@ -27,6 +27,7 @@ snzr_Texture* ui_lightSky = NULL;
 snzr_Texture* ui_darkSky = NULL;
 
 snzr_Texture* ui_sketchPointTexture = NULL;
+snzr_Texture* ui_shiftTexture = NULL;
 
 void ui_setThemeLight() {
     ui_colorText = HMM_V4(60 / 255.0, 60 / 255.0, 60 / 255.0, 1);
@@ -52,28 +53,25 @@ void ui_setThemeDark() {
     ui_skyBox = ui_darkSky;
 }
 
-void ui_init(snz_Arena* fontArena, snz_Arena* scratch) {
+// loads in RGBA, asserts on failue.
+static snzr_Texture* _ui_texFromFile(const char* path, snz_Arena* outForTexture) {
     int w, h, channels = 0;
-    uint8_t* pixels = NULL;
-
-    pixels = stbi_load("res/textures/Deep Dusk Equirect.png", &w, &h, &channels, 4);
-    SNZ_ASSERT(pixels, "Skybox load failed.");
-    snzr_Texture* tex = SNZ_ARENA_PUSH(fontArena, snzr_Texture);
+    uint8_t* pixels = stbi_load(path, &w, &h, &channels, 4);
+    SNZ_ASSERT(pixels, "Texture load failed.");
+    snzr_Texture* tex = SNZ_ARENA_PUSH(outForTexture, snzr_Texture);
     *tex = snzr_textureInitRBGA(w, h, pixels);
-    ui_darkSky = tex;
+    stbi_image_free(pixels);
+    return tex;
+}
 
-    // ui_lightSky = _snzr_globs.solidTex; // FIXME: make this public plz
-    pixels = stbi_load("res/textures/Untitled.png", &w, &h, &channels, 4);
-    SNZ_ASSERT(pixels, "Skybox load failed.");
-    tex = SNZ_ARENA_PUSH(fontArena, snzr_Texture);
-    *tex = snzr_textureInitRBGA(w, h, pixels);
-    ui_lightSky = tex;
+void ui_init(snz_Arena* fontArena, snz_Arena* scratch) {
+    stbi_set_flip_vertically_on_load(true);
+    // ui_darkSky = _Vi_texFromFile("res/textures/Deep Dusk Equirect.png", fontArena);
+    ui_darkSky = NULL;
+    ui_lightSky = _ui_texFromFile("res/textures/Untitled.png", fontArena);
 
-    pixels = stbi_load("res/textures/circle.png", &w, &h, &channels, 4);
-    SNZ_ASSERT(pixels, "Skybox load failed.");
-    tex = SNZ_ARENA_PUSH(fontArena, snzr_Texture);
-    *tex = snzr_textureInitRBGA(w, h, pixels);
-    ui_sketchPointTexture = tex;
+    ui_sketchPointTexture = _ui_texFromFile("res/textures/circle.png", fontArena);
+    ui_shiftTexture = _ui_texFromFile("res/textures/shiftIcon.png", fontArena);
 
     ui_setThemeDark();
 

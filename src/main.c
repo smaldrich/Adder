@@ -30,7 +30,6 @@ bool main_inDarkMode = true;
 bool main_inMusicMode = true;
 bool main_skybox = true;
 
-
 void main_init(snz_Arena* scratch, SDL_Window* window) {
     _poolAllocTests();
     sk_tests();
@@ -47,7 +46,7 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
 
     {  // FIXME: move to snz
         SDL_Surface* s = SDL_LoadBMP("res/textures/icon.bmp");
-        char buf[1000] = { 0 };
+        char buf[1000] = {0};
         const char* err = SDL_GetErrorMsg(buf, 1000);
         printf("%s", err);
         SNZ_ASSERT(s != NULL, "icon load failed.");
@@ -390,7 +389,7 @@ void main_frame(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screen
                 snzu_boxOrderChildrenInRowRecurseAlignEnd(5, SNZU_AX_Y);
             }  // end padding
         }  // end leftpanel
-        snzu_boxClipChildren();
+        snzu_boxClipChildren(true);
         // FIXME: some hint in the lower left corner that this menu exists
 
         snzu_boxNew("rightPanel");
