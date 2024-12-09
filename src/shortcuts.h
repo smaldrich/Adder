@@ -218,7 +218,7 @@ void sc_init(PoolAlloc* pool) {
 }
 
 // aligns to the TL of parent, no padding, tagged with cmd label
-static void _sc_buildCommandShortcutBox(_sc_Command* cmd) {
+static void _sc_buildCommandShortcutBox(_sc_Command* cmd, HMM_Vec4 textColor) {
     snzu_boxNew(cmd->nameLabel);
     snzu_boxFillParent();
     snzu_boxScope() {
@@ -233,14 +233,14 @@ static void _sc_buildCommandShortcutBox(_sc_Command* cmd) {
                 snzu_boxSetStartFromParentKeepSizeRecurse(HMM_V2(0, height * 0.1));  // FIXME: this
                 snzu_boxSetSizeFromStart(HMM_V2(aspect * height, height));
                 snzu_boxSetTexture(*ui_shiftTexture);
-                snzu_boxSetColor(ui_colorText);
+                snzu_boxSetColor(textColor);
             }
         }
         snzu_boxSetSizeFitChildren();
 
         snzu_boxNew("char");
         snzu_boxFillParent();
-        snzu_boxSetDisplayStr(&ui_shortcutFont, ui_colorText, cmd->keyLabel);
+        snzu_boxSetDisplayStr(&ui_shortcutFont, textColor, cmd->keyLabel);
         snzu_boxSetSizeFitText(0);
     }
     snzu_boxOrderChildrenInRowRecurse(1, SNZU_AX_X);
@@ -249,7 +249,7 @@ static void _sc_buildCommandShortcutBox(_sc_Command* cmd) {
 
 void sc_updateAndBuildHintWindow(sk_Sketch* activeSketch, sc_View* outCurrentView, snz_Arena* scratch) {
     snzu_boxNew("updatesParent");
-    snzu_boxSetSizeMarginFromParent(30);
+    snzu_boxFillParent();
 
     _sc_CommandArgs args = (_sc_CommandArgs){
         .scratch = scratch,
@@ -291,6 +291,17 @@ void sc_updateAndBuildHintWindow(sk_Sketch* activeSketch, sc_View* outCurrentVie
         }
     }  // command handling
 
+    // to animate cmds on use in the hint window
+    // here to still work before a command is used if it's instant
+    _sc_Command* commandJustUsed = NULL;
+    {
+        _sc_Command** const prevCmd = SNZU_USE_MEM(_sc_Command*, "prevcmd");
+        if (_sc_activeCommand != *prevCmd) {
+            commandJustUsed = _sc_activeCommand;
+        }
+        *prevCmd = _sc_activeCommand;
+    }
+
     snzu_boxScope() {
         if (_sc_activeCommand != NULL) {
             bool invalidated = !(_sc_activeCommand->availibleViews & *outCurrentView);
@@ -303,12 +314,19 @@ void sc_updateAndBuildHintWindow(sk_Sketch* activeSketch, sc_View* outCurrentVie
 
         snzu_boxNew("shortcutWindow");
         snzu_boxFillParent();
-        snzu_boxSetSizeFromEnd(HMM_V2(400, 200));
-        snzu_boxSetCornerRadius(ui_cornerRadius);
-        snzu_boxSetBorder(ui_borderThickness, ui_colorText);
-        snzu_boxSetColor(ui_colorBackground);
+        snzu_boxSetSizeFromEndAx(SNZU_AX_X, 400);
+        {
+            HMM_Vec4 col = ui_colorBackground;
+            col.A = 0.8;
+            snzu_boxSetColor(col);
+        }
 
         snzu_boxScope() {
+            snzu_boxNew("left border");
+            snzu_boxFillParent();
+            snzu_boxSetSizeFromStartAx(SNZU_AX_X, ui_borderThickness);
+            snzu_boxSetColor(ui_colorText);
+
             snzu_boxNew("margin");
             snzu_boxSetSizeMarginFromParent(20);
             snzu_boxSetSizeMarginFromParentAx(23, SNZU_AX_X);
@@ -348,20 +366,30 @@ void sc_updateAndBuildHintWindow(sk_Sketch* activeSketch, sc_View* outCurrentVie
                     _sc_Command* c = &_sc_commands[i];
                     if (!(c->availibleViews & *outCurrentView)) {
                         continue;
-                    } else if (c == _sc_activeCommand) {
+                    }
+
+                    snzu_boxNew(c->nameLabel);
+                    float* const useAnim = SNZU_USE_MEM(float, "useanim");
+                    snzu_easeExp(useAnim, 0, 5);
+                    if (commandJustUsed == c) {
+                        *useAnim = 1;
+                    }
+
+                    if (c == _sc_activeCommand) {
                         continue;
                     }
-                    snzu_boxNew(c->nameLabel);
                     snzu_boxFillParent();
                     snzu_boxSetSizeFromStartAx(SNZU_AX_Y, ui_lightLabelFont.renderedSize);
                     snzu_boxScope() {
+                        HMM_Vec4 color = HMM_Lerp(ui_colorText, *useAnim, ui_colorAccent);
+
                         snzu_boxNew("desc");
-                        snzu_boxSetDisplayStr(&ui_lightLabelFont, ui_colorText, c->nameLabel);
+                        snzu_boxSetDisplayStr(&ui_lightLabelFont, color, c->nameLabel);
                         snzu_boxSetSizeFitText(1);
                         snzu_boxAlignInParent(SNZU_AX_X, SNZU_ALIGN_RIGHT);
                         snzu_boxAlignInParent(SNZU_AX_Y, SNZU_ALIGN_CENTER);
 
-                        _sc_buildCommandShortcutBox(c);
+                        _sc_buildCommandShortcutBox(c, color);
                     }
                 }  // end cmd loop
             }  // end margin box
