@@ -350,7 +350,7 @@ void main_frame(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screen
         // ^ Just using hover don't work because of inner elts. masking hover events
         snzu_easeExp(leftPanelAnim, target, 10);
 
-        rightPanelSize = snzu_boxGetSize(snzu_boxGetParent());
+        rightPanelSize = snzu_boxGetSizePtr(snzu_boxGetParent());
         rightPanelSize.X -= leftPanelSize;
 
         snzu_boxNew("leftPanel");

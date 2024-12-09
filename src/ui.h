@@ -119,7 +119,7 @@ bool ui_buttonWithHighlight(bool selected, const char* name) {
 
 _snzu_Box* ui_menuMargin() {
     _snzu_Box* box = snzu_boxNew("menu margin");
-    HMM_Vec2 parentSize = snzu_boxGetSize(snzu_boxGetParent());
+    HMM_Vec2 parentSize = snzu_boxGetSizePtr(snzu_boxGetParent());
     snzu_boxSetStartFromParentStart(HMM_V2(parentSize.X * 0.1, parentSize.Y * 0.1));
     snzu_boxSetEndFromParentEnd(HMM_V2(parentSize.X * -0.1, parentSize.Y * -0.1));
     return box;

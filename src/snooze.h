@@ -1460,8 +1460,12 @@ void snzu_boxSetSizeFromEndAx(snzu_Axis ax, float newSize) {
     _snzu_instance->selectedBox->start.Elements[ax] = _snzu_instance->selectedBox->end.Elements[ax] - newSize;
 }
 
-HMM_Vec2 snzu_boxGetSize(_snzu_Box* box) {
+HMM_Vec2 snzu_boxGetSizePtr(_snzu_Box* box) {
     return HMM_Sub(box->end, box->start);
+}
+
+HMM_Vec2 snzu_boxGetSize() {
+    return snzu_boxGetSizePtr(_snzu_instance->selectedBox);
 }
 
 static void _snzu_boxSetStartKeepSizeRecurse(_snzu_Box* box, HMM_Vec2 diff) {
@@ -1506,12 +1510,12 @@ void snzu_boxFillParent() {
 
 // FIXME: setSize
 void snzu_boxSizePctParent(float pct, snzu_Axis ax) {
-    HMM_Vec2 newSize = snzu_boxGetSize(_snzu_instance->selectedBox->parent);
+    HMM_Vec2 newSize = snzu_boxGetSizePtr(_snzu_instance->selectedBox->parent);
     snzu_boxSetSizeFromStartAx(ax, newSize.Elements[ax] * pct);
 }
 
 void snzu_boxSizeFromEndPctParent(float pct, snzu_Axis ax) {
-    HMM_Vec2 newSize = snzu_boxGetSize(_snzu_instance->selectedBox->parent);
+    HMM_Vec2 newSize = snzu_boxGetSizePtr(_snzu_instance->selectedBox->parent);
     snzu_boxSetSizeFromEndAx(ax, newSize.Elements[ax] * pct);
 }
 
@@ -1528,7 +1532,7 @@ void snzu_boxCenter(_snzu_Box* other, snzu_Axis ax) {
 // TODO: unit test this
 // aligns box to be immediately next to and outside of other along ax, (align left is to the left of other)
 void snzu_boxAlignOuter(_snzu_Box* other, snzu_Axis ax, snzu_Align align) {
-    HMM_Vec2 boxSize = snzu_boxGetSize(_snzu_instance->selectedBox);
+    HMM_Vec2 boxSize = snzu_boxGetSizePtr(_snzu_instance->selectedBox);
 
     float sidePos = 0;
     if (align == SNZU_ALIGN_MIN) {
@@ -1546,7 +1550,7 @@ void snzu_boxAlignOuter(_snzu_Box* other, snzu_Axis ax, snzu_Align align) {
 
 // maintains size, only affects coords on the targeted axis
 void snzu_boxAlignInParent(snzu_Axis ax, snzu_Align align) {
-    float initialSize = snzu_boxGetSize(_snzu_instance->selectedBox).Elements[ax];
+    float initialSize = snzu_boxGetSizePtr(_snzu_instance->selectedBox).Elements[ax];
     if (align == SNZU_ALIGN_MIN) {
         _snzu_instance->selectedBox->start.Elements[ax] = _snzu_instance->selectedBox->parent->start.Elements[ax];
     } else if (align == SNZU_ALIGN_MAX) {
@@ -1806,7 +1810,7 @@ void snzuc_scrollArea() {
     *scrollPosPx -= inter->mouseScrollY * 20;
 
     _snzu_Box* container = snzu_getSelectedBox();
-    float containerHeight = snzu_boxGetSize(container).Y;
+    float containerHeight = snzu_boxGetSizePtr(container).Y;
     float innerHeight = snzu_boxGetSizeToFitChildrenAx(SNZU_AX_Y);
 
     snzu_boxScope() {  // enter container
