@@ -415,7 +415,9 @@ static void _sku_draw(sk_Sketch* sketch, snzu_Interaction* inter, HMM_Mat4 model
         float lineGap = _sku_gridLineGap(scaleFactor * 2, lineCount);
         HMM_Vec2 origin = inter->mousePosGlobal;  // FIXME: snap to the last origins position instead of 0,0
         if (sketch->originPt != NULL) {
-            origin = HMM_Sub(inter->mousePosGlobal, sketch->originPt->pos);
+            HMM_Vec2 skOrigin = sketch->originPt->pos;
+            skOrigin.Y *= -1;
+            origin = HMM_Sub(inter->mousePosGlobal, skOrigin);
         }
         for (int ax = 0; ax < 2; ax++) {
             float axOffset = fmod(origin.Elements[ax], lineGap);
@@ -711,7 +713,7 @@ void sku_drawAndBuildSketch(
             HMM_Vec2 diff = HMM_Sub(mouse, *prevMouse);
             *prevMouse = mouse;
 
-            // FIXME: selecting a line should select the base pts also
+            // FIXME: selecting a line should select the base pts also?? but then deletion is weird???
             for (sk_Point* p = sketch->firstPoint; p; p = p->next) {
                 if (p->sel.selected) {
                     p->pos = HMM_Add(p->pos, diff);

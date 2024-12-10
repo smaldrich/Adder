@@ -221,7 +221,7 @@ void main_drawDemoScene(HMM_Vec2 panelSize, snz_Arena* scratch, float dt, snzu_I
             orbitOrigin->endPt = HMM_Add(orbitOrigin->endPt, diffInSpace.XYZ);
         } else {
             diff = HMM_V2(diff.Y, diff.X);  // switch so that rotations are repective to their axis
-            diff = HMM_Mul(diff, -0.01f);   // sens
+            diff = HMM_Mul(diff, -0.006f);   // sens
             *orbitAngle = HMM_AddV2(*orbitAngle, diff);
 
             if (orbitAngle->X < HMM_AngleDeg(-90)) {
