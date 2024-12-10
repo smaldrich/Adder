@@ -532,13 +532,19 @@ struct ui_SelectableStatus {
 };
 
 typedef struct {
+    bool wasDragging;
     bool dragging;
     HMM_Vec2 dragOrigin;
 } ui_SelectableRegion;
 
+// FIXME: document/ make less bad
 void ui_selectableRegionUpdate(ui_SelectableRegion* region, ui_SelectableStatus* firstStatus, snzu_Action mouseAct, bool shiftPressed) {
     bool mouseDown = mouseAct == SNZU_ACT_DOWN;
     bool dragEnded = (region->dragging) && (mouseAct == SNZU_ACT_UP);
+    if (region->wasDragging && !region->dragging) {
+        dragEnded = true;
+    }
+    region->wasDragging = region->dragging;
 
     if (dragEnded) {
         region->dragging = false;

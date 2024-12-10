@@ -296,6 +296,7 @@ static void _sku_buildConstraint(sk_Constraint* c, float sound, HMM_Mat4 model, 
     textTopLeft.Y *= -1;  // flip to UI space before drawing
     snzu_boxSetStart(textTopLeft);
 
+    // FIXME: this can be clicked while in line mode and it is not correct
     ui_textArea(&c->uiInfo.textArea, &ui_titleFont, drawnHeight, c->uiInfo.drawnColor, c->uiInfo.shouldStartFocus);
     c->uiInfo.shouldStartFocus = false;
 
@@ -520,6 +521,7 @@ void sku_drawAndBuildSketch(
     glDisable(GL_DEPTH_TEST);
 
     bool inLineMode = sc_getActiveCommand() == scc_line;
+    bool inMoveMode = sc_getActiveCommand() == scc_move;
     sk_Point* lineSrcPoint = NULL; // set below. FIXME: gross
 
     {  // selection // UI state updates
@@ -529,10 +531,14 @@ void sku_drawAndBuildSketch(
 
         ui_SelectableRegion* const region = SNZU_USE_MEM(ui_SelectableRegion, "region");
 
-        if (mouseDown && !inLineMode) {
+        if (mouseDown) {
             region->dragOrigin = mouse;
             region->dragging = true;
             // FIXME: what happens on the border of mouse not being projectable??
+        }
+
+        if (inLineMode || inMoveMode) {
+            region->dragging = false;
         }
 
         ui_SelectableStatus* firstStatus = NULL;
@@ -556,6 +562,9 @@ void sku_drawAndBuildSketch(
                 float scaleFactor = HMM_Len(HMM_Sub(cameraPos, transformed));
                 p->scaleFactor = scaleFactor;
                 bool hovered = HMM_Len(HMM_Sub(mouse, p->pos)) < (0.02 * scaleFactor);
+                if (inMoveMode) {
+                    hovered = false;
+                }
                 anyPointHovered |= hovered;
 
                 ui_SelectableStatus* status = SNZ_ARENA_PUSH(scratch, ui_SelectableStatus);
@@ -575,7 +584,7 @@ void sku_drawAndBuildSketch(
                 HMM_Vec3 transformedCenter = HMM_MulM4V4(model, HMM_V4(midpt.X, midpt.Y, 0, 1)).XYZ;
                 float distToCamera = HMM_Len(HMM_Sub(transformedCenter, cameraPos));
                 bool hovered = _sku_lineContainsPt(l->p1->pos, l->p2->pos, 0.01 * distToCamera, mouse);
-                if (anyPointHovered || inLineMode) {
+                if (anyPointHovered || inLineMode || inMoveMode) {
                     hovered = false;
                 }
 
@@ -599,7 +608,7 @@ void sku_drawAndBuildSketch(
                 _sku_constraintScaleFactorAndCenter(c, model, cameraPos, &visualCenter, &scaleFactor);
 
                 bool hovered = _sku_constraintHovered(c, scaleFactor, visualCenter, mouse);
-                if (anyPointHovered || inLineMode) {
+                if (anyPointHovered || inLineMode || inMoveMode) {
                     hovered = false;
                 }
 
@@ -639,13 +648,15 @@ void sku_drawAndBuildSketch(
             shiftPressed = inter->keyMods & KMOD_SHIFT;
         }
 
+        snzu_Action mouseAct = inter->mouseActions[SNZU_MB_LEFT];
         if (inLineMode) {
             shiftPressed = false;
+        } else if (inMoveMode) {
+            mouseAct = SNZU_ACT_NONE;
         }
 
-        ui_selectableRegionUpdate(region, firstStatus, inter->mouseActions[SNZU_MB_LEFT], shiftPressed);
+        ui_selectableRegionUpdate(region, firstStatus, mouseAct, shiftPressed);
 
-        // FIXME: gross, this has to be here so selection state is correct before the selRegionUpdate hits
         if (inLineMode) {
             shiftPressed = false;
 
@@ -692,6 +703,23 @@ void sku_drawAndBuildSketch(
 
             lineSrcPoint = *lastPt;
         } // end line mode logic
+        else if (inMoveMode) {
+            HMM_Vec2* const prevMouse = SNZU_USE_MEM(HMM_Vec2, "prev mouse");
+            if (snzu_useMemIsPrevNew()) {
+                *prevMouse = mouse;
+            }
+            HMM_Vec2 diff = HMM_Sub(mouse, *prevMouse);
+            *prevMouse = mouse;
+
+            // FIXME: selecting a line should select the base pts also
+            for (sk_Point* p = sketch->firstPoint; p; p = p->next) {
+                if (p->sel.selected) {
+                    p->pos = HMM_Add(p->pos, diff);
+                }
+            }
+
+            // FIXME: clicking should end the move
+        }
 
         if (region->dragging) {
             snzr_drawRect(region->dragOrigin, mouse,
