@@ -348,7 +348,7 @@ void main_frame(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screen
         // FIXME: on startup this flashes out
         float leftPanelSize = *leftPanelAnim * 200;
         bool target = (leftPanelInter->mousePosGlobal.X < 20) || (leftPanelInter->mousePosGlobal.X < leftPanelSize);
-        // ^ Just using hover don't work because of inner elts. masking hover events
+        // ^ FIXME: fixable without doing this: using hover doesn't work because of inner elts. masking hover events
         snzu_easeExp(leftPanelAnim, target, ui_menuAnimationSpeed);
 
         rightPanelSize = snzu_boxGetSizePtr(snzu_boxGetParent());
