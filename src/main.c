@@ -29,6 +29,7 @@ geo_Mesh main_mesh;
 bool main_inDarkMode = true;
 bool main_inMusicMode = true;
 bool main_skybox = true;
+bool main_hintWindowAlwaysOpen = true;
 
 void main_init(snz_Arena* scratch, SDL_Window* window) {
     _poolAllocTests();
@@ -46,7 +47,7 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
 
     {  // FIXME: move to snz
         SDL_Surface* s = SDL_LoadBMP("res/textures/icon.bmp");
-        char buf[1000] = {0};
+        char buf[1000] = { 0 };
         const char* err = SDL_GetErrorMsg(buf, 1000);
         printf("%s", err);
         SNZ_ASSERT(s != NULL, "icon load failed.");
@@ -320,6 +321,7 @@ void main_drawSettings() {
         }
         ui_switch("musicmode", "music mode", &main_inMusicMode);
         ui_switch("skybox", "sky box", &main_skybox);
+        ui_switch("hint window", "hint window always", &main_hintWindowAlwaysOpen);
     }
     // FIXME: UI variable for gap here
     snzu_boxOrderChildrenInRowRecurse(10, SNZU_AX_Y);
@@ -347,7 +349,7 @@ void main_frame(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screen
         float leftPanelSize = *leftPanelAnim * 200;
         bool target = (leftPanelInter->mousePosGlobal.X < 20) || (leftPanelInter->mousePosGlobal.X < leftPanelSize);
         // ^ Just using hover don't work because of inner elts. masking hover events
-        snzu_easeExp(leftPanelAnim, target, 10);
+        snzu_easeExp(leftPanelAnim, target, ui_menuAnimationSpeed);
 
         rightPanelSize = snzu_boxGetSizePtr(snzu_boxGetParent());
         rightPanelSize.X -= leftPanelSize;
@@ -410,6 +412,12 @@ void main_frame(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screen
             }
         }
 
+        bool openHintWindow = inputs.mousePos.X > (screenSize.X - 20);
+        if (main_hintWindowAlwaysOpen) {
+            openHintWindow = true;
+        }
+        sc_updateAndBuildHintWindow(&main_sketch, &main_currentView, scratch, openHintWindow);
+
         snzu_boxNew("leftPanelBorder");
         snzu_boxFillParent();
         snzu_boxSetStartFromParentAx(leftPanelSize - ui_borderThickness, SNZU_AX_X);
@@ -421,7 +429,6 @@ void main_frame(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screen
         snzu_boxSetSizeFromStartAx(SNZU_AX_Y, ui_borderThickness);
         snzu_boxSetColor(ui_colorText);
 
-        sc_updateAndBuildHintWindow(&main_sketch, &main_currentView, scratch);
     }
 
     snzr_callGLFnOrError(glBindFramebuffer(GL_FRAMEBUFFER, 0));

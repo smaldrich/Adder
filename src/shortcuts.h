@@ -127,7 +127,7 @@ bool _scc_distanceConstraint(_sc_CommandArgs args) {
 
 bool _scc_angleConstraint(_sc_CommandArgs args) {
     int selectedCount = 0;
-    sk_Line* lines[2] = {NULL, NULL};
+    sk_Line* lines[2] = { NULL, NULL };
     for (sk_Line* line = args.activeSketch->firstLine; line; line = line->next) {
         if (line->sel.selected) {
             selectedCount++;
@@ -184,7 +184,7 @@ bool _scc_angleConstraint(_sc_CommandArgs args) {
 bool scc_line(_sc_CommandArgs args) {
     if (args.firstFrame) {  // creating a line between two selected pts
         int ptCount = 0;
-        sk_Point* pts[2] = {0};
+        sk_Point* pts[2] = { 0 };
         for (sk_Point* p = args.activeSketch->firstPoint; p; p = p->next) {
             if (p->sel.selected) {
                 ptCount++;
@@ -247,7 +247,7 @@ static void _sc_buildCommandShortcutBox(_sc_Command* cmd, HMM_Vec4 textColor) {
     snzu_boxSetSizeFitChildren();
 }
 
-void sc_updateAndBuildHintWindow(sk_Sketch* activeSketch, sc_View* outCurrentView, snz_Arena* scratch) {
+void sc_updateAndBuildHintWindow(sk_Sketch* activeSketch, sc_View* outCurrentView, snz_Arena* scratch, bool targetOpen) {
     snzu_boxNew("updatesParent");
     snzu_boxFillParent();
 
@@ -313,92 +313,114 @@ void sc_updateAndBuildHintWindow(sk_Sketch* activeSketch, sc_View* outCurrentVie
         }
 
         snzu_boxNew("shortcutWindow");
-        snzu_boxFillParent();
-        snzu_boxSetSizeFromEndAx(SNZU_AX_X, 400);
         {
             HMM_Vec4 col = ui_colorBackground;
-            col.A = 0.8;
+            col.A = 0.5;
             snzu_boxSetColor(col);
         }
 
-        snzu_boxScope() {
-            snzu_boxNew("left border");
+        bool buildInners = true;
+        snzu_Interaction* hoverInter = SNZU_USE_MEM(snzu_Interaction, "hintwindowinter");
+        {
+            float* const openAnim = SNZU_USE_MEM(float, "openanim");;
+            if (hoverInter->hovered) {
+                targetOpen = true;
+            }
+            snzu_easeExp(openAnim, targetOpen, ui_menuAnimationSpeed);
+
+            if (*openAnim < CSG_EPSILON) {
+                buildInners = false;
+            }
+
             snzu_boxFillParent();
-            snzu_boxSetSizeFromStartAx(SNZU_AX_X, ui_borderThickness);
-            snzu_boxSetColor(ui_colorText);
+            snzu_boxSetSizeFromEndAx(SNZU_AX_X, *openAnim * 400);
+        }
 
-            snzu_boxNew("margin");
-            snzu_boxSetSizeMarginFromParent(20);
-            snzu_boxSetSizeMarginFromParentAx(23, SNZU_AX_X);
+        if (buildInners) {
             snzu_boxScope() {
-                if (_sc_activeCommand != NULL) {
-                    snzu_boxNew("active cmd area");
-                    snzu_boxFillParent();
-                    snzu_boxScope() {
-                        snzu_boxNew("active cmd");
+                snzu_boxNew("margin");
+                snzu_boxSetSizeMarginFromParent(20);
+                snzu_boxSetSizeMarginFromParentAx(23, SNZU_AX_X);
+                snzu_boxScope() {
+                    if (_sc_activeCommand != NULL) {
+                        snzu_boxNew("active cmd area");
                         snzu_boxFillParent();
-                        snzu_boxSetDisplayStr(&ui_lightLabelFont, ui_colorAccent, snz_arenaFormatStr(scratch, "// %s", _sc_activeCommand->nameLabel));
-                        snzu_boxSetSizeFitText(1);
+                        snzu_boxScope() {
+                            snzu_boxNew("active cmd");
+                            snzu_boxFillParent();
+                            snzu_boxSetDisplayStr(&ui_lightLabelFont, ui_colorAccent, snz_arenaFormatStr(scratch, "// %s", _sc_activeCommand->nameLabel));
+                            snzu_boxSetSizeFitText(1);
 
-                        snzu_boxNew("esc");
+                            snzu_boxNew("esc");
+                            snzu_boxFillParent();
+                            snzu_boxSetSizeFromStartAx(SNZU_AX_Y, ui_lightLabelFont.renderedSize);
+                            snzu_boxScope() {
+                                snzu_boxNew("desc");
+                                snzu_boxFillParent();
+                                snzu_boxSetDisplayStr(&ui_lightLabelFont, ui_colorText, "cancel");
+                                snzu_boxSetSizeFitText(1);
+                                snzu_boxAlignInParent(SNZU_AX_X, SNZU_ALIGN_RIGHT);
+
+                                snzu_boxNew("key");
+                                snzu_boxFillParent();
+                                snzu_boxSetDisplayStr(&ui_shortcutFont, ui_colorText, "ESC");
+                                snzu_boxSetSizeFitText(1);
+                                snzu_boxAlignInParent(SNZU_AX_X, SNZU_ALIGN_LEFT);
+                            }
+                        }
+                        snzu_boxOrderChildrenInRowRecurse(4, SNZU_AX_Y);
+                        snzu_boxSetSizeFitChildren();
+                        snzu_boxSetSizeFromStartAx(SNZU_AX_Y, snzu_boxGetSize().Y + 10);
+                    }
+
+                    for (int i = 0; i < _sc_commandCount; i++) {
+                        _sc_Command* c = &_sc_commands[i];
+                        if (!(c->availibleViews & *outCurrentView)) {
+                            continue;
+                        }
+
+                        snzu_boxNew(c->nameLabel);
+                        float* const useAnim = SNZU_USE_MEM(float, "useanim");
+                        snzu_easeExp(useAnim, 0, 5);
+                        if (commandJustUsed == c) {
+                            *useAnim = 1;
+                        }
+
+                        if (c == _sc_activeCommand) {
+                            continue;
+                        }
                         snzu_boxFillParent();
                         snzu_boxSetSizeFromStartAx(SNZU_AX_Y, ui_lightLabelFont.renderedSize);
                         snzu_boxScope() {
+                            HMM_Vec4 color = HMM_Lerp(ui_colorText, *useAnim, ui_colorAccent);
+
                             snzu_boxNew("desc");
-                            snzu_boxFillParent();
-                            snzu_boxSetDisplayStr(&ui_lightLabelFont, ui_colorText, "cancel");
+                            snzu_boxSetDisplayStr(&ui_lightLabelFont, color, c->nameLabel);
                             snzu_boxSetSizeFitText(1);
                             snzu_boxAlignInParent(SNZU_AX_X, SNZU_ALIGN_RIGHT);
+                            snzu_boxAlignInParent(SNZU_AX_Y, SNZU_ALIGN_CENTER);
 
-                            snzu_boxNew("key");
-                            snzu_boxFillParent();
-                            snzu_boxSetDisplayStr(&ui_shortcutFont, ui_colorText, "ESC");
-                            snzu_boxSetSizeFitText(1);
-                            snzu_boxAlignInParent(SNZU_AX_X, SNZU_ALIGN_LEFT);
+                            _sc_buildCommandShortcutBox(c, color);
                         }
-                    }
-                    snzu_boxOrderChildrenInRowRecurse(4, SNZU_AX_Y);
-                    snzu_boxSetSizeFitChildren();
-                    snzu_boxSetSizeFromStartAx(SNZU_AX_Y, snzu_boxGetSize().Y + 10);
-                }
+                    }  // end cmd loop
+                }  // end margin box
+                snzu_boxOrderChildrenInRowRecurse(4, SNZU_AX_Y);
+                snzuc_scrollArea();
+                snzu_boxClipChildren(false);
 
-                for (int i = 0; i < _sc_commandCount; i++) {
-                    _sc_Command* c = &_sc_commands[i];
-                    if (!(c->availibleViews & *outCurrentView)) {
-                        continue;
-                    }
+                snzu_boxNew("left border");
+                snzu_boxFillParent();
+                snzu_boxSetSizeFromStartAx(SNZU_AX_X, ui_borderThickness);
+                snzu_boxSetColor(ui_colorText);
 
-                    snzu_boxNew(c->nameLabel);
-                    float* const useAnim = SNZU_USE_MEM(float, "useanim");
-                    snzu_easeExp(useAnim, 0, 5);
-                    if (commandJustUsed == c) {
-                        *useAnim = 1;
-                    }
-
-                    if (c == _sc_activeCommand) {
-                        continue;
-                    }
-                    snzu_boxFillParent();
-                    snzu_boxSetSizeFromStartAx(SNZU_AX_Y, ui_lightLabelFont.renderedSize);
-                    snzu_boxScope() {
-                        HMM_Vec4 color = HMM_Lerp(ui_colorText, *useAnim, ui_colorAccent);
-
-                        snzu_boxNew("desc");
-                        snzu_boxSetDisplayStr(&ui_lightLabelFont, color, c->nameLabel);
-                        snzu_boxSetSizeFitText(1);
-                        snzu_boxAlignInParent(SNZU_AX_X, SNZU_ALIGN_RIGHT);
-                        snzu_boxAlignInParent(SNZU_AX_Y, SNZU_ALIGN_CENTER);
-
-                        _sc_buildCommandShortcutBox(c, color);
-                    }
-                }  // end cmd loop
-            }  // end margin box
-            snzu_boxOrderChildrenInRowRecurse(4, SNZU_AX_Y);
-            snzuc_scrollArea();
-            snzu_boxClipChildren(false);
-        }  // end hints window
-        snzu_boxClipChildren(true);
+                snzu_boxNew("hover detector gross"); // FIXME: ew
+                snzu_boxFillParent();
+                snzu_boxSetInteractionOutput(hoverInter, SNZU_IF_HOVER | SNZU_IF_ALLOW_EVENT_FALLTHROUGH);
+            }  // end hints window
+            snzu_boxClipChildren(true);
+        }
     }  // end entire window parent
+
 }
 
 void sc_buildSettings() {

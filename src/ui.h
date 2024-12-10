@@ -21,6 +21,7 @@ float ui_lightAmbient;
 float ui_cornerRadius = 15;
 float ui_borderThickness = 4;
 float ui_padding = 5;
+float ui_menuAnimationSpeed = 15;
 
 snzr_Texture* ui_skyBox = NULL;  // may be null, indicates drawing background color
 snzr_Texture* ui_lightSky = NULL;
@@ -66,8 +67,8 @@ static snzr_Texture* _ui_texFromFile(const char* path, snz_Arena* outForTexture)
 
 void ui_init(snz_Arena* fontArena, snz_Arena* scratch) {
     stbi_set_flip_vertically_on_load(true);
-    // ui_darkSky = _Vi_texFromFile("res/textures/Deep Dusk Equirect.png", fontArena);
-    ui_darkSky = NULL;
+    ui_darkSky = _ui_texFromFile("res/textures/Deep Dusk Equirect.png", fontArena);
+    // ui_darkSky = NULL;
     ui_lightSky = _ui_texFromFile("res/textures/Untitled.png", fontArena);
 
     ui_sketchPointTexture = _ui_texFromFile("res/textures/circle.png", fontArena);
