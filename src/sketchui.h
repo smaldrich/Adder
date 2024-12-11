@@ -719,7 +719,10 @@ void sku_drawAndBuildSketch(
                     p->pos = HMM_Add(p->pos, diff);
                 }
             }
-            // FIXME: clicking should end the move
+            if (mouseDown) {
+                sc_cancelActiveCommand();
+                sk_sketchDeselectAll(sketch);
+            }
             // FIXME: doing this by diff instead of abs feels sluggish
         } else if (inRotateMode) {
             HMM_Vec2* const mouseSrc = SNZU_USE_MEM(HMM_Vec2, "mouse src");
@@ -749,6 +752,12 @@ void sku_drawAndBuildSketch(
                     HMM_Vec2 nPos = HMM_RotateV2(HMM_Sub(p->pos, center), angleDiff);
                     p->pos = HMM_Add(nPos, center);
                 }
+            }
+
+            if (mouseDown) {
+                sc_cancelActiveCommand();
+                sk_sketchDeselectAll(sketch);
+                // FIXME: this smells of bugs
             }
             // FIXME: everything for the move tool
         }  // end rotate mode logic

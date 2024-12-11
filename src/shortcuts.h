@@ -259,6 +259,12 @@ void sc_init(PoolAlloc* pool) {
     _sc_commandInit("goto settings", "S", SDLK_s, KMOD_LSHIFT, SC_VIEW_ALL, _scc_goToSettings);
 }
 
+// immediately sets the active cmd to null, so make sure you don't trample shit
+// FIXME: this is bad but so is making a buffer system
+void sc_cancelActiveCommand() {
+    _sc_activeCommand = NULL;
+}
+
 // aligns to the TL of parent, no padding, tagged with cmd label
 static void _sc_buildCommandShortcutBox(_sc_Command* cmd, HMM_Vec4 textColor) {
     snzu_boxNew(cmd->nameLabel);
