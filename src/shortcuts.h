@@ -127,7 +127,7 @@ bool _scc_distanceConstraint(_sc_CommandArgs args) {
 
 bool _scc_angleConstraint(_sc_CommandArgs args) {
     int selectedCount = 0;
-    sk_Line* lines[2] = { NULL, NULL };
+    sk_Line* lines[2] = {NULL, NULL};
     for (sk_Line* line = args.activeSketch->firstLine; line; line = line->next) {
         if (line->sel.selected) {
             selectedCount++;
@@ -184,7 +184,7 @@ bool _scc_angleConstraint(_sc_CommandArgs args) {
 bool scc_line(_sc_CommandArgs args) {
     if (args.firstFrame) {  // creating a line between two selected pts
         int ptCount = 0;
-        sk_Point* pts[2] = { 0 };
+        sk_Point* pts[2] = {0};
         for (sk_Point* p = args.activeSketch->firstPoint; p; p = p->next) {
             if (p->sel.selected) {
                 ptCount++;
@@ -204,26 +204,39 @@ bool scc_line(_sc_CommandArgs args) {
     return false;
 }
 
+bool _sc_anySelectedInSketch(sk_Sketch* sketch) {
+    for (sk_Point* p = sketch->firstPoint; p; p = p->next) {
+        if (p->sel.selected) {
+            return true;
+        }
+    }
+
+    for (sk_Line* l = sketch->firstLine; l; l = l->next) {
+        if (l->sel.selected) {
+            return true;
+        }
+    }
+
+    for (sk_Constraint* c = sketch->firstConstraint; c; c = c->nextAllocated) {
+        if (c->uiInfo.sel.selected) {
+            return true;
+        }
+    }
+    return false;
+}
+
 bool scc_move(_sc_CommandArgs args) {
     if (args.firstFrame) {
-        for (sk_Point* p = args.activeSketch->firstPoint; p; p = p->next) {
-            if (p->sel.selected) {
-                return false;
-            }
-        }
+        return !_sc_anySelectedInSketch(args.activeSketch);  // cancels if nothing selected
+    }
 
-        for (sk_Line* l = args.activeSketch->firstLine; l; l = l->next) {
-            if (l->sel.selected) {
-                return false;
-            }
-        }
+    // bulk of logic in sketchui.h
+    return false;
+}
 
-        for (sk_Constraint* c = args.activeSketch->firstConstraint; c; c = c->nextAllocated) {
-            if (c->uiInfo.sel.selected) {
-                return false;
-            }
-        }
-        return true; // cancel the cmd if nothing is selected, bc there is nothing to move
+bool scc_rotate(_sc_CommandArgs args) {
+    if (args.firstFrame) {
+        return !_sc_anySelectedInSketch(args.activeSketch);  // cancels if nothing selected
     }
 
     // bulk of logic in sketchui.h
@@ -236,6 +249,7 @@ void sc_init(PoolAlloc* pool) {
     _sc_commandInit("delete", "X", SDLK_x, KMOD_NONE, SC_VIEW_SCENE, _scc_delete);
     _sc_commandInit("line", "B", SDLK_b, KMOD_NONE, SC_VIEW_SCENE, scc_line);
     _sc_commandInit("move", "G", SDLK_g, KMOD_NONE, SC_VIEW_SCENE, scc_move);
+    _sc_commandInit("rotate", "R", SDLK_r, KMOD_NONE, SC_VIEW_SCENE, scc_rotate);
     _sc_commandInit("distance", "D", SDLK_d, KMOD_NONE, SC_VIEW_SCENE, _scc_distanceConstraint);
     _sc_commandInit("angle", "A", SDLK_a, KMOD_NONE, SC_VIEW_SCENE, _scc_angleConstraint);
 
@@ -350,7 +364,8 @@ void sc_updateAndBuildHintWindow(sk_Sketch* activeSketch, sc_View* outCurrentVie
         bool buildInners = true;
         snzu_Interaction* hoverInter = SNZU_USE_MEM(snzu_Interaction, "hintwindowinter");
         {
-            float* const openAnim = SNZU_USE_MEM(float, "openanim");;
+            float* const openAnim = SNZU_USE_MEM(float, "openanim");
+            ;
             if (hoverInter->hovered) {
                 targetOpen = true;
             }
@@ -441,14 +456,13 @@ void sc_updateAndBuildHintWindow(sk_Sketch* activeSketch, sc_View* outCurrentVie
                 snzu_boxSetSizeFromStartAx(SNZU_AX_X, ui_borderThickness);
                 snzu_boxSetColor(ui_colorText);
 
-                snzu_boxNew("hover detector gross"); // FIXME: ew
+                snzu_boxNew("hover detector gross");  // FIXME: ew
                 snzu_boxFillParent();
                 snzu_boxSetInteractionOutput(hoverInter, SNZU_IF_HOVER | SNZU_IF_ALLOW_EVENT_FALLTHROUGH);
             }  // end hints window
             snzu_boxClipChildren(true);
         }
     }  // end entire window parent
-
 }
 
 void sc_buildSettings() {

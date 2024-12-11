@@ -47,7 +47,7 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
 
     {  // FIXME: move to snz
         SDL_Surface* s = SDL_LoadBMP("res/textures/icon.bmp");
-        char buf[1000] = { 0 };
+        char buf[1000] = {0};
         const char* err = SDL_GetErrorMsg(buf, 1000);
         printf("%s", err);
         SNZ_ASSERT(s != NULL, "icon load failed.");
@@ -150,7 +150,6 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
 
         main_sketch.originLine = vertical;
         main_sketch.originPt = main_sketch.originLine->p1;
-        main_sketch.originAngle = HMM_AngleDeg(90);
         sk_sketchSolve(&main_sketch);
     }
 }
@@ -221,7 +220,7 @@ void main_drawDemoScene(HMM_Vec2 panelSize, snz_Arena* scratch, float dt, snzu_I
             orbitOrigin->endPt = HMM_Add(orbitOrigin->endPt, diffInSpace.XYZ);
         } else {
             diff = HMM_V2(diff.Y, diff.X);  // switch so that rotations are repective to their axis
-            diff = HMM_Mul(diff, -0.006f);   // sens
+            diff = HMM_Mul(diff, -0.006f);  // sens
             *orbitAngle = HMM_AddV2(*orbitAngle, diff);
 
             if (orbitAngle->X < HMM_AngleDeg(-90)) {
@@ -428,7 +427,6 @@ void main_frame(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screen
         snzu_boxFillParent();
         snzu_boxSetSizeFromStartAx(SNZU_AX_Y, ui_borderThickness);
         snzu_boxSetColor(ui_colorText);
-
     }
 
     snzr_callGLFnOrError(glBindFramebuffer(GL_FRAMEBUFFER, 0));

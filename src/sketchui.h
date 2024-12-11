@@ -1,10 +1,10 @@
 #pragma once
 
 #include "HMM/HandmadeMath.h"
+#include "shortcuts.h"
 #include "sketches2.h"
 #include "snooze.h"
 #include "ui.h"
-#include "shortcuts.h"
 
 static float _sku_gridLineGap(float area, float visibleCount) {
     float lineGap = area / visibleCount;
@@ -20,7 +20,7 @@ static float _sku_gridLineGap(float area, float visibleCount) {
         exp++;
     }
 
-    int roundingTargets[] = { 5, 2, 1 };
+    int roundingTargets[] = {5, 2, 1};
     for (int i = 0; i < 3; i++) {
         if (dec > roundingTargets[i]) {
             dec = (float)roundingTargets[i];
@@ -39,7 +39,7 @@ typedef struct {
     HMM_Vec3 endPt;
     HMM_Vec3 endNormal;
     HMM_Vec3 endVertical;
-} sku_Align; // FIXME: move to geom
+} sku_Align;  // FIXME: move to geom
 
 static float _sku_angleBetweenV3(HMM_Vec3 a, HMM_Vec3 b) {
     return acosf(HMM_Dot(a, b) / (HMM_Len(a) * HMM_Len(b)));
@@ -204,8 +204,6 @@ static bool _sku_constraintHovered(sk_Constraint* c, float scaleFactor, HMM_Vec2
     return out;
 }
 
-
-
 // see _sku_buildConstraint, which this is dependent on for state
 static void _sku_drawConstraint(sk_Constraint* c, snz_Arena* scratch, HMM_Mat4 sketchMVP, float soundPct) {
     float drawnThickness = HMM_Lerp(SKU_CONSTRAINT_THICKNESS, c->uiInfo.sel.hoverAnim, SKU_CONSTRAINT_HOVERED_THICKNESS);
@@ -217,7 +215,7 @@ static void _sku_drawConstraint(sk_Constraint* c, snz_Arena* scratch, HMM_Mat4 s
         HMM_Vec2 offset = HMM_Mul(HMM_V2(diff.Y, -diff.X), SKU_DISTANCE_CONSTRAINT_OFFSET * (1 + soundPct) * c->uiInfo.scaleFactor);
         p1 = HMM_Add(p1, offset);
         p2 = HMM_Add(p2, offset);
-        HMM_Vec2 points[] = { p1, p2 };
+        HMM_Vec2 points[] = {p1, p2};
         snzr_drawLine(points, 2, c->uiInfo.drawnColor, drawnThickness, sketchMVP);
     } else if (c->kind == SK_CK_ANGLE) {
         sk_Point* joint = NULL;
@@ -424,13 +422,13 @@ static void _sku_draw(sk_Sketch* sketch, snzu_Interaction* inter, HMM_Mat4 model
             for (int i = 0; i < lineCount; i++) {
                 float x = (i - (lineCount / 2)) * lineGap;
                 x -= axOffset;
-                HMM_Vec2 pts[] = { inter->mousePosGlobal, inter->mousePosGlobal };
+                HMM_Vec2 pts[] = {inter->mousePosGlobal, inter->mousePosGlobal};
                 pts[0].Elements[ax] += x;
                 pts[0].Elements[!ax] += 1.5 * scaleFactor;
                 pts[1].Elements[ax] += x;
                 pts[1].Elements[!ax] += -1.5 * scaleFactor;
 
-                HMM_Vec3 fadeOrigin = { 0 };
+                HMM_Vec3 fadeOrigin = {0};
                 fadeOrigin.XY = inter->mousePosGlobal;
                 // FIXME: have this invert color when behind smth in the scene
                 snzr_drawLineFaded(pts, 2, ui_colorAlmostBackground, 1, uiMVP, fadeOrigin, 0, 0.5 * scaleFactor);
@@ -524,7 +522,9 @@ void sku_drawAndBuildSketch(
 
     bool inLineMode = sc_getActiveCommand() == scc_line;
     bool inMoveMode = sc_getActiveCommand() == scc_move;
-    sk_Point* lineSrcPoint = NULL; // set below. FIXME: gross
+    bool inRotateMode = sc_getActiveCommand() == scc_rotate;
+    bool inNonLineTool = inMoveMode || inRotateMode;
+    sk_Point* lineSrcPoint = NULL;  // set below. FIXME: gross
 
     {  // selection // UI state updates
         HMM_Vec2 mouse = inter->mousePosGlobal;
@@ -539,7 +539,7 @@ void sku_drawAndBuildSketch(
             // FIXME: what happens on the border of mouse not being projectable??
         }
 
-        if (inLineMode || inMoveMode) {
+        if (inLineMode || inNonLineTool) {
             region->dragging = false;
         }
 
@@ -564,7 +564,7 @@ void sku_drawAndBuildSketch(
                 float scaleFactor = HMM_Len(HMM_Sub(cameraPos, transformed));
                 p->scaleFactor = scaleFactor;
                 bool hovered = HMM_Len(HMM_Sub(mouse, p->pos)) < (0.02 * scaleFactor);
-                if (inMoveMode) {
+                if (inNonLineTool) {
                     hovered = false;
                 }
                 anyPointHovered |= hovered;
@@ -586,7 +586,7 @@ void sku_drawAndBuildSketch(
                 HMM_Vec3 transformedCenter = HMM_MulM4V4(model, HMM_V4(midpt.X, midpt.Y, 0, 1)).XYZ;
                 float distToCamera = HMM_Len(HMM_Sub(transformedCenter, cameraPos));
                 bool hovered = _sku_lineContainsPt(l->p1->pos, l->p2->pos, 0.01 * distToCamera, mouse);
-                if (anyPointHovered || inLineMode || inMoveMode) {
+                if (anyPointHovered || inLineMode || inNonLineTool) {
                     hovered = false;
                 }
 
@@ -610,14 +610,14 @@ void sku_drawAndBuildSketch(
                 _sku_constraintScaleFactorAndCenter(c, model, cameraPos, &visualCenter, &scaleFactor);
 
                 bool hovered = _sku_constraintHovered(c, scaleFactor, visualCenter, mouse);
-                if (anyPointHovered || inLineMode || inMoveMode) {
+                if (anyPointHovered || inLineMode || inNonLineTool) {
                     hovered = false;
                 }
 
                 if (hovered) {
                     if (inter->doubleClicked) {
-                        c->uiInfo.shouldStartFocus = true; // this is reset in build, so that signals from shortcuts make it
-                        region->dragging = false;  // cancel a drag before it is processed if it lands on this
+                        c->uiInfo.shouldStartFocus = true;  // this is reset in build, so that signals from shortcuts make it
+                        region->dragging = false;           // cancel a drag before it is processed if it lands on this
                     } else if (mouseDown) {
                         region->dragging = false;  // cancel a drag before it is processed if it lands on this
                     }
@@ -653,7 +653,7 @@ void sku_drawAndBuildSketch(
         snzu_Action mouseAct = inter->mouseActions[SNZU_MB_LEFT];
         if (inLineMode) {
             shiftPressed = false;
-        } else if (inMoveMode) {
+        } else if (inNonLineTool) {
             mouseAct = SNZU_ACT_NONE;
         }
 
@@ -704,7 +704,7 @@ void sku_drawAndBuildSketch(
             }
 
             lineSrcPoint = *lastPt;
-        } // end line mode logic
+        }  // end line mode logic
         else if (inMoveMode) {
             HMM_Vec2* const prevMouse = SNZU_USE_MEM(HMM_Vec2, "prev mouse");
             if (snzu_useMemIsPrevNew()) {
@@ -719,9 +719,39 @@ void sku_drawAndBuildSketch(
                     p->pos = HMM_Add(p->pos, diff);
                 }
             }
-
             // FIXME: clicking should end the move
-        }
+            // FIXME: doing this by diff instead of abs feels sluggish
+        } else if (inRotateMode) {
+            HMM_Vec2* const mouseSrc = SNZU_USE_MEM(HMM_Vec2, "mouse src");
+            if (snzu_useMemIsPrevNew()) {
+                *mouseSrc = mouse;
+            }
+            float* const prevAngle = SNZU_USE_MEM(float, "prevAngle");
+            HMM_Vec2 diff = HMM_Sub(mouse, *mouseSrc);
+            float angle = atan2f(diff.Y, diff.X);
+            if (snzu_useMemIsPrevNew()) {
+                *prevAngle = angle;
+            }
+
+            float angleDiff = _sku_normalizeAngle(angle - *prevAngle);
+            *prevAngle = angle;
+
+            HMM_Vec2 center = HMM_V2(0, 0);
+            int count = 0;
+            for (sk_Point* p = sketch->firstPoint; p; p = p->next) {
+                center = HMM_Add(center, p->pos);
+                count++;
+            }
+            center = HMM_DivV2F(center, (float)count);
+
+            for (sk_Point* p = sketch->firstPoint; p; p = p->next) {
+                if (p->sel.selected) {
+                    HMM_Vec2 nPos = HMM_RotateV2(HMM_Sub(p->pos, center), angleDiff);
+                    p->pos = HMM_Add(nPos, center);
+                }
+            }
+            // FIXME: everything for the move tool
+        }  // end rotate mode logic
 
         if (region->dragging) {
             snzr_drawRect(region->dragOrigin, mouse,
@@ -735,7 +765,6 @@ void sku_drawAndBuildSketch(
     for (sk_Constraint* c = sketch->firstConstraint; c; c = c->nextAllocated) {
         _sku_buildConstraint(c, sound, model, cameraPos, scratch);
     }
-
 
     if (inLineMode && lineSrcPoint) {
         HMM_Vec2 mousePos = inter->mousePosGlobal;
