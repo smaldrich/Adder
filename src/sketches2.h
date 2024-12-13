@@ -437,22 +437,20 @@ void sk_sketchSolve(sk_Sketch* sketch) {
             sketch->firstUnappliedConstraint = c;
         }
 
-        if (sketchPointCount != 0) {
-            SNZ_ASSERT(sketch->originPt != NULL, "non-empty sketch w/ no origin pt.");
-            SNZ_ASSERT(sketch->originLine != NULL, "non-empty sketch w/ no origin line.");
-            SNZ_ASSERT(sketch->originPt == sketch->originLine->p1 || sketch->originPt == sketch->originLine->p2, "origin pt wasn't a part of origin line.");
+        SNZ_ASSERT(sketch->originPt != NULL, "non-empty sketch w/ no origin pt.");
+        SNZ_ASSERT(sketch->originLine != NULL, "non-empty sketch w/ no origin line.");
+        SNZ_ASSERT(sketch->originPt == sketch->originLine->p1 || sketch->originPt == sketch->originLine->p2, "origin pt wasn't a part of origin line.");
 
-            sketch->originLine->angleSolved = true;
-            // FIXME: this is wrong + leads to yucky behaviour, go back to originangle
-            float ang = sk_angleOfLine(sketch->originLine->p1->pos, sketch->originLine->p2->pos, false);
-            sketch->originLine->expectedAngle = ang;
+        sketch->originLine->angleSolved = true;
+        // FIXME: this is wrong + leads to yucky behaviour, go back to originangle
+        float ang = sk_angleOfLine(sketch->originLine->p1->pos, sketch->originLine->p2->pos, false);
+        sketch->originLine->expectedAngle = ang;
 
-            sketch->originPt->solved = true;
-            sketch->originPt->manifold = (sk_Manifold){
-                .kind = SK_MK_POINT,
-                .point = sketch->originPt->pos,
-            };
-        }
+        sketch->originPt->solved = true;
+        sketch->originPt->manifold = (sk_Manifold){
+            .kind = SK_MK_POINT,
+            .point = sketch->originPt->pos,
+        };
     }
 
     while (true) {  // FIXME: cutoff
@@ -678,13 +676,6 @@ void sk_sketchClearElementsMarkedForDelete(sk_Sketch* sketch) {
         }
     }
 
-    bool pickNewOrigin = false;
-    if (sketch->originLine || sketch->originPt) {
-        if (sketch->originPt->markedForDelete || sketch->originLine->markedForDelete) {
-            pickNewOrigin = true;
-        }
-    }
-
     // FIXME: pool deleted elts so they can be reused
 
     {  // remake point list
@@ -692,7 +683,9 @@ void sk_sketchClearElementsMarkedForDelete(sk_Sketch* sketch) {
         sk_Point* next = NULL;
         for (sk_Point* p = sketch->firstPoint; p; p = next) {
             next = p->next;
-            if (!p->markedForDelete) {
+            bool isOrigin = p == sketch->originLine->p1 || p == sketch->originLine->p2;
+            if (!p->markedForDelete || isOrigin) {
+                p->markedForDelete = false;
                 p->next = newList;
                 newList = p;
             } else {
@@ -707,7 +700,8 @@ void sk_sketchClearElementsMarkedForDelete(sk_Sketch* sketch) {
         sk_Line* next = NULL;
         for (sk_Line* l = sketch->firstLine; l; l = next) {
             next = l->next;
-            if (!l->markedForDelete) {
+            if (!l->markedForDelete || l == sketch->originLine) {
+                l->markedForDelete = false;
                 l->next = newList;
                 newList = l;
             } else {
@@ -730,14 +724,6 @@ void sk_sketchClearElementsMarkedForDelete(sk_Sketch* sketch) {
             }
         }
         sketch->firstConstraint = newList;
-    }
-
-    if (pickNewOrigin) {
-        sketch->originLine = sketch->firstLine;
-        sketch->originPt = NULL;
-        if (sketch->originLine) {
-            sketch->originPt = sketch->firstLine->p1;
-        }
     }
 }
 
