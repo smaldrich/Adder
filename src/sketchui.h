@@ -464,8 +464,30 @@ static void _sku_draw(sk_Sketch* sketch, snzu_Interaction* inter, HMM_Mat4 model
             color, 0, 0, HMM_V4(0, 0, 0, 0),
             sketchMVP, *ui_sketchPointTexture);
         // FIXME: sphere
-    }
-}
+        if (p == sketch->originPt) {
+            // FIXME: bad when we move back to origin angle
+            bool flip = sketch->originPt == sketch->originLine->p2;
+            float ang = sk_angleOfLine(sketch->originLine->p1->pos, sketch->originLine->p2->pos, flip);
+            HMM_Mat4 vp = HMM_Rotate_RH(ang, HMM_V3(0, 0, 1));
+            vp = HMM_Mul(HMM_Translate(HMM_V3(p->pos.X, p->pos.Y, 0)), vp);
+            vp = HMM_Mul(sketchMVP, vp);
+
+            float rad = SKU_DISTANCE_CONSTRAINT_OFFSET * p->scaleFactor;
+            HMM_Vec2 pts[] = {
+                HMM_RotateV2(HMM_V2(rad, 0), HMM_AngleDeg(60)),
+                HMM_RotateV2(HMM_V2(rad, 0), HMM_AngleDeg(180)),
+                HMM_RotateV2(HMM_V2(rad, 0), HMM_AngleDeg(-60)),
+            };
+
+            snzr_drawLine(
+                pts,
+                sizeof(pts) / sizeof(HMM_Vec2),
+                color,
+                SKU_CONSTRAINT_THICKNESS,
+                vp);
+        }  // end origin pt check
+    }  // end pt loop
+}  // end draw sketch
 
 typedef enum {
     SKU_EM_NORMAL,

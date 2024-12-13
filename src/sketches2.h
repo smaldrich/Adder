@@ -443,6 +443,7 @@ void sk_sketchSolve(sk_Sketch* sketch) {
             SNZ_ASSERT(sketch->originPt == sketch->originLine->p1 || sketch->originPt == sketch->originLine->p2, "origin pt wasn't a part of origin line.");
 
             sketch->originLine->angleSolved = true;
+            // FIXME: this is wrong + leads to yucky behaviour, go back to originangle
             float ang = sk_angleOfLine(sketch->originLine->p1->pos, sketch->originLine->p2->pos, false);
             sketch->originLine->expectedAngle = ang;
 
