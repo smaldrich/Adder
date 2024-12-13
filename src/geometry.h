@@ -51,8 +51,6 @@ bool geo_intersectRayAndTri(HMM_Vec3 rayOrigin, HMM_Vec3 rayDir,
 typedef struct geo_MeshFace geo_MeshFace;
 struct geo_MeshFace {
     csg_TriListNode* tri;  // FIXME: this should be >1 but thats a project.
-    bool selected;
-    float selectedAnim;
     geo_MeshFace* next;
 };
 

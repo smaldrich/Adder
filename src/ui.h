@@ -569,9 +569,9 @@ void ui_selectableRegionUpdate(ui_SelectableRegion* region, ui_SelectableStatus*
         }
 
         float hoverTarget = status->hovered && !region->dragging;
-        snzu_easeExpUnbounded(&status->state->hoverAnim, hoverTarget, 15);
+        snzu_easeExp(&status->state->hoverAnim, hoverTarget, 15);
 
         float selectionTarget = (status->withinDragZone && region->dragging) || status->state->selected;
-        snzu_easeExpUnbounded(&status->state->selectionAnim, selectionTarget, 15);
+        snzu_easeExp(&status->state->selectionAnim, selectionTarget, 15);
     }
 }
