@@ -1,5 +1,4 @@
 #include "PoolAlloc.h"
-#include "csg.h"
 #include "docs.h"
 #include "geometry.h"
 #include "render3d.h"
@@ -35,7 +34,7 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
     _poolAllocTests();
     sk_tests();
     ser_tests();
-    csg_tests();
+    geo_tests();
 
     main_fontArena = snz_arenaInit(10000000, "main font arena");
     main_sketchArena = snz_arenaInit(10000000, "main sketch arena");
@@ -65,18 +64,18 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
     main_sceneFB = snzr_frameBufferInit(snzr_textureInitRBGA(500, 500, NULL));
 
     {
-        csg_TriList cubeA = csg_cube(&main_meshArena);
-        csg_TriList cubeB = csg_cube(&main_meshArena);
-        csg_triListTransform(&cubeB, HMM_Rotate_RH(HMM_AngleDeg(30), HMM_V3(1, 1, 1)));
-        csg_triListTransform(&cubeB, HMM_Translate(HMM_V3(1, 1, 1)));
+        geo_TriList cubeA = geo_cube(&main_meshArena);
+        geo_TriList cubeB = geo_cube(&main_meshArena);
+        geo_triListTransform(&cubeB, HMM_Rotate_RH(HMM_AngleDeg(30), HMM_V3(1, 1, 1)));
+        geo_triListTransform(&cubeB, HMM_Translate(HMM_V3(1, 1, 1)));
 
-        csg_BSPNode* treeA = csg_triListToBSP(&cubeA, &main_meshArena);
-        csg_BSPNode* treeB = csg_triListToBSP(&cubeB, &main_meshArena);
+        geo_BSPNode* treeA = geo_triListToBSP(&cubeA, &main_meshArena);
+        geo_BSPNode* treeB = geo_triListToBSP(&cubeB, &main_meshArena);
 
-        csg_TriList* aClipped = csg_bspClipTris(true, &cubeA, treeB, &main_meshArena);
-        csg_TriList* bClipped = csg_bspClipTris(true, &cubeB, treeA, &main_meshArena);
-        csg_TriList* final = csg_triListJoin(aClipped, bClipped);
-        csg_triListRecoverNonBroken(&final, &main_meshArena);
+        geo_TriList* aClipped = geo_bspClipTris(true, &cubeA, treeB, &main_meshArena);
+        geo_TriList* bClipped = geo_bspClipTris(true, &cubeB, treeA, &main_meshArena);
+        geo_TriList* final = geo_triListJoin(aClipped, bClipped);
+        geo_triListRecoverNonBroken(&final, &main_meshArena);
 
         PoolAlloc pool = poolAllocInit();
         ren3d_Vert* verts = poolAllocAlloc(&pool, 0);
@@ -85,8 +84,8 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
         geo_MeshFace* faceList = NULL;
 
         int triIdx = 0;
-        for (csg_TriListNode* tri = final->first; tri; tri = tri->next) {
-            HMM_Vec3 triNormal = csg_triNormal(tri->a, tri->b, tri->c);
+        for (geo_TriListNode* tri = final->first; tri; tri = tri->next) {
+            HMM_Vec3 triNormal = geo_triNormal(tri->a, tri->b, tri->c);
             for (int i = 0; i < 3; i++) {
                 *poolAllocPushArray(&pool, verts, vertCount, ren3d_Vert) = (ren3d_Vert){
                     .pos = tri->elems[i],

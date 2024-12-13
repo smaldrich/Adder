@@ -49,7 +49,7 @@ HMM_Quat sku_alignToQuat(sku_Align a) {
     HMM_Vec3 normalCross = HMM_Cross(a.startNormal, a.endNormal);
     float normalAngle = _sku_angleBetweenV3(a.startNormal, a.endNormal);
     HMM_Quat planeRotate = HMM_QFromAxisAngle_RH(normalCross, normalAngle);
-    if (csg_floatEqual(normalAngle, 0)) {
+    if (geo_floatEqual(normalAngle, 0)) {
         planeRotate = HMM_QFromAxisAngle_RH(HMM_V3(0, 0, 1), 0);
     }
 
@@ -229,7 +229,7 @@ static void _sku_drawConstraint(sk_Constraint* c, snz_Arena* scratch, HMM_Mat4 s
         }
 
         float offset = SKU_ANGLE_CONSTRAINT_OFFSET * (1 + soundPct) * c->uiInfo.scaleFactor;
-        if (csg_floatEqual(fabsf(c->value), HMM_AngleDeg(90))) {
+        if (geo_floatEqual(fabsf(c->value), HMM_AngleDeg(90))) {
             sk_Point* otherOnLine1 = (c->line1->p1 == joint) ? c->line1->p2 : c->line1->p1;
             sk_Point* otherOnLine2 = (c->line2->p1 == joint) ? c->line2->p2 : c->line2->p1;
             HMM_Vec2 offset1 = HMM_Mul(HMM_Norm(HMM_Sub(otherOnLine1->pos, joint->pos)), offset);
@@ -318,7 +318,7 @@ static void _sku_buildConstraint(sk_Constraint* c, float sound, HMM_Mat4 model, 
         }
     }
 
-    if (!csg_floatZero(val)) {
+    if (!geo_floatZero(val)) {
         c->value = val;  // FIXME: when this turns into a 90deg angle, the text box immediately disappears
     }
 
@@ -517,9 +517,9 @@ void sku_drawAndBuildSketch(
 
     {
         float t = 0;
-        bool hit = csg_planeLineIntersection(align.endPt, align.endNormal, cameraPos, mouseRayNormal, &t);
+        bool hit = geo_planeLineIntersection(align.endPt, align.endNormal, cameraPos, mouseRayNormal, &t);
         HMM_Vec3 point = HMM_Add(cameraPos, HMM_Mul(mouseRayNormal, t));
-        if (!hit || csg_floatLessEqual(t, 0)) {
+        if (!hit || geo_floatLessEqual(t, 0)) {
             point = HMM_V3(100000, 100000, 100000);
         }
         point = HMM_Sub(point, align.endPt);

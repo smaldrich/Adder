@@ -3,7 +3,7 @@
 #include <stdbool.h>
 
 #include "HMM/HandmadeMath.h"
-#include "csg.h"
+#include "geometry.h"
 #include "snooze.h"
 #include "ui.h"
 
@@ -239,7 +239,7 @@ static sk_Manifold _sk_manifoldJoin(sk_Manifold a, sk_Manifold b) {
         float c = (x3 * x3) + (y3 * y3) + (x1 * x1) + (y1 * y1) - 2 * (x3 * x1 + y3 * y1) - HMM_SQUARE(circle.circle.radius);
 
         float disriminant = (b * b) - (4 * a * c);
-        if (csg_floatZero(disriminant)) {
+        if (geo_floatZero(disriminant)) {
             float u = -b / 2 * a;
             sk_Manifold out = (sk_Manifold){
                 .kind = SK_MK_POINT,
@@ -255,14 +255,14 @@ static sk_Manifold _sk_manifoldJoin(sk_Manifold a, sk_Manifold b) {
         float u2 = (-b - disriminant) / (2 * a);
         HMM_Vec2 p1 = HMM_Lerp(line.line.origin, u1, lineOther);
         HMM_Vec2 p2 = HMM_Lerp(line.line.origin, u2, lineOther);
-        int positiveCount = csg_floatGreaterEqual(u1, 0) + csg_floatGreaterEqual(u2, 0);
+        int positiveCount = geo_floatGreaterEqual(u1, 0) + geo_floatGreaterEqual(u2, 0);
 
         if (positiveCount == 0) {
             return (sk_Manifold){.kind = SK_MK_NONE};
         } else if (positiveCount == 1) {
             sk_Manifold out = (sk_Manifold){
                 .kind = SK_MK_POINT,
-                .point = csg_floatGreaterEqual(u1, 0) ? p1 : p2,
+                .point = geo_floatGreaterEqual(u1, 0) ? p1 : p2,
             };
             return out;
         } else if (positiveCount == 2) {
@@ -276,7 +276,7 @@ static sk_Manifold _sk_manifoldJoin(sk_Manifold a, sk_Manifold b) {
         SNZ_ASSERTF(false, "unreachable case: %d", positiveCount);
         return (sk_Manifold){.kind = SK_MK_NONE};
     } else if (lineCount == 2) {
-        if (csg_v2Equal(a.line.origin, b.line.origin) && csg_v2Equal(a.line.direction, b.line.direction)) {
+        if (geo_v2Equal(a.line.origin, b.line.origin) && geo_v2Equal(a.line.direction, b.line.direction)) {
             return a;  // coincident, return the starting manifold
         }
 
@@ -294,7 +294,7 @@ static sk_Manifold _sk_manifoldJoin(sk_Manifold a, sk_Manifold b) {
 
         float num = (x1 - x3) * (y3 - y4) - (y1 - y3) * (x3 - x4);
         float denom = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4);
-        if (csg_floatZero(denom)) {
+        if (geo_floatZero(denom)) {
             return (sk_Manifold){.kind = SK_MK_NONE};
         }
 
@@ -312,9 +312,9 @@ static sk_Manifold _sk_manifoldJoin(sk_Manifold a, sk_Manifold b) {
         // Circle circle intersection alg, stolen from here: https://stackoverflow.com/questions/3349125/circle-circle-intersection-points
         HMM_Vec2 diff = HMM_Sub(b.circle.origin, a.circle.origin);
         float d = HMM_Len(diff);
-        if (csg_floatZero(d) && csg_floatEqual(a.circle.radius, b.circle.radius)) {
+        if (geo_floatZero(d) && geo_floatEqual(a.circle.radius, b.circle.radius)) {
             return a;  // circles are coincedent, it's ok to return either
-        } else if (csg_floatEqual(d, a.circle.radius + b.circle.radius)) {
+        } else if (geo_floatEqual(d, a.circle.radius + b.circle.radius)) {
             // Circles are just touching, return the single point
             HMM_Vec2 pt = HMM_Mul(HMM_Norm(diff), a.circle.radius);
             return (sk_Manifold){.kind = SK_MK_POINT, .point = pt};
@@ -355,20 +355,20 @@ static bool _sk_manifoldEq(sk_Manifold a, sk_Manifold b) {
     } else if (a.kind == SK_MK_ANY) {
         return true;
     } else if (a.kind == SK_MK_POINT) {
-        out &= csg_v2Equal(a.point, b.point);
+        out &= geo_v2Equal(a.point, b.point);
     } else if (a.kind == SK_MK_TWO_POINTS) {
-        bool eq1 = csg_v2Equal(a.twoPoints.a, b.twoPoints.a);
-        eq1 &= csg_v2Equal(a.twoPoints.b, b.twoPoints.b);
-        bool eq2 = csg_v2Equal(a.twoPoints.a, b.twoPoints.b);
-        eq2 &= csg_v2Equal(a.twoPoints.b, b.twoPoints.a);
+        bool eq1 = geo_v2Equal(a.twoPoints.a, b.twoPoints.a);
+        eq1 &= geo_v2Equal(a.twoPoints.b, b.twoPoints.b);
+        bool eq2 = geo_v2Equal(a.twoPoints.a, b.twoPoints.b);
+        eq2 &= geo_v2Equal(a.twoPoints.b, b.twoPoints.a);
 
         out &= (eq1 || eq2);
     } else if (a.kind == SK_MK_LINE) {
-        out &= csg_v2Equal(a.line.origin, b.line.origin);
-        out &= csg_v2Equal(a.line.direction, b.line.direction);
+        out &= geo_v2Equal(a.line.origin, b.line.origin);
+        out &= geo_v2Equal(a.line.direction, b.line.direction);
     } else if (a.kind == SK_MK_CIRCLE) {
-        out &= csg_v2Equal(a.circle.origin, b.circle.origin);
-        out &= csg_floatEqual(a.circle.radius, b.circle.radius);
+        out &= geo_v2Equal(a.circle.origin, b.circle.origin);
+        out &= geo_floatEqual(a.circle.radius, b.circle.radius);
     } else {
         SNZ_ASSERTF(false, "Unreachable case, kind was: %d", a.kind);
     }
@@ -617,7 +617,7 @@ void sk_sketchSolve(sk_Sketch* sketch) {
             }
         }  // end inplicit solve loop
 
-        if (fabsf(maxError) < CSG_EPSILON) {
+        if (fabsf(maxError) < geo_EPSILON) {
             return;
         }
     }  // end iteration loop
@@ -626,7 +626,7 @@ void sk_sketchSolve(sk_Sketch* sketch) {
     for (sk_Constraint* c = sketch->firstConstraint; c; c = c->nextAllocated) {
         if (c->kind == SK_CK_DISTANCE) {
             float error = HMM_Len(HMM_Sub(c->line1->p2->pos, c->line1->p1->pos)) - c->value;
-            if (!csg_floatZero(error)) {
+            if (!geo_floatZero(error)) {
                 c->violated = true;
             }
         } else if (c->kind == SK_CK_ANGLE) {
@@ -634,7 +634,7 @@ void sk_sketchSolve(sk_Sketch* sketch) {
             float l2Angle = sk_angleOfLine(c->line2->p2->pos, c->line2->p2->pos, c->flipLine2);
 
             float error = c->value - (l2Angle - l1Angle);
-            if (!csg_floatZero(error)) {
+            if (!geo_floatZero(error)) {
                 c->violated = true;
             }
         }

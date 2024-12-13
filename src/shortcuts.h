@@ -1,6 +1,7 @@
 #pragma once
 
 #include "PoolAlloc.h"
+#include "geometry.h"
 #include "sketches2.h"
 #include "snooze.h"
 #include "ui.h"
@@ -377,7 +378,7 @@ void sc_updateAndBuildHintWindow(sk_Sketch* activeSketch, sc_View* outCurrentVie
             }
             snzu_easeExp(openAnim, targetOpen, ui_menuAnimationSpeed);
 
-            if (*openAnim < CSG_EPSILON) {
+            if (*openAnim < geo_EPSILON) {
                 buildInners = false;
             }
 
