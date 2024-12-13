@@ -20,7 +20,7 @@ static float _sku_gridLineGap(float area, float visibleCount) {
         exp++;
     }
 
-    int roundingTargets[] = {5, 2, 1};
+    int roundingTargets[] = { 5, 2, 1 };
     for (int i = 0; i < 3; i++) {
         if (dec > roundingTargets[i]) {
             dec = (float)roundingTargets[i];
@@ -215,7 +215,7 @@ static void _sku_drawConstraint(sk_Constraint* c, snz_Arena* scratch, HMM_Mat4 s
         HMM_Vec2 offset = HMM_Mul(HMM_V2(diff.Y, -diff.X), SKU_DISTANCE_CONSTRAINT_OFFSET * (1 + soundPct) * c->uiInfo.scaleFactor);
         p1 = HMM_Add(p1, offset);
         p2 = HMM_Add(p2, offset);
-        HMM_Vec2 points[] = {p1, p2};
+        HMM_Vec2 points[] = { p1, p2 };
         snzr_drawLine(points, 2, c->uiInfo.drawnColor, drawnThickness, sketchMVP);
     } else if (c->kind == SK_CK_ANGLE) {
         sk_Point* joint = NULL;
@@ -422,13 +422,13 @@ static void _sku_draw(sk_Sketch* sketch, snzu_Interaction* inter, HMM_Mat4 model
             for (int i = 0; i < lineCount; i++) {
                 float x = (i - (lineCount / 2)) * lineGap;
                 x -= axOffset;
-                HMM_Vec2 pts[] = {inter->mousePosGlobal, inter->mousePosGlobal};
+                HMM_Vec2 pts[] = { inter->mousePosGlobal, inter->mousePosGlobal };
                 pts[0].Elements[ax] += x;
                 pts[0].Elements[!ax] += 1.5 * scaleFactor;
                 pts[1].Elements[ax] += x;
                 pts[1].Elements[!ax] += -1.5 * scaleFactor;
 
-                HMM_Vec3 fadeOrigin = {0};
+                HMM_Vec3 fadeOrigin = { 0 };
                 fadeOrigin.XY = inter->mousePosGlobal;
                 // FIXME: have this invert color when behind smth in the scene
                 snzr_drawLineFaded(pts, 2, ui_colorAlmostBackground, 1, uiMVP, fadeOrigin, 0, 0.5 * scaleFactor);
@@ -472,7 +472,7 @@ static void _sku_draw(sk_Sketch* sketch, snzu_Interaction* inter, HMM_Mat4 model
             vp = HMM_Mul(HMM_Translate(HMM_V3(p->pos.X, p->pos.Y, 0)), vp);
             vp = HMM_Mul(sketchMVP, vp);
 
-            float rad = SKU_DISTANCE_CONSTRAINT_OFFSET * p->scaleFactor;
+            float rad = 0.04 * (p->scaleFactor + sizeAnim);
             HMM_Vec2 pts[] = {
                 HMM_RotateV2(HMM_V2(rad, 0), HMM_AngleDeg(60)),
                 HMM_RotateV2(HMM_V2(rad, 0), HMM_AngleDeg(180)),
@@ -764,8 +764,10 @@ void sku_drawAndBuildSketch(
             HMM_Vec2 center = HMM_V2(0, 0);
             int count = 0;
             for (sk_Point* p = sketch->firstPoint; p; p = p->next) {
-                center = HMM_Add(center, p->pos);
-                count++;
+                if (p->sel.selected) {
+                    center = HMM_Add(center, p->pos);
+                    count++;
+                }
             }
             center = HMM_DivV2F(center, (float)count);
 
