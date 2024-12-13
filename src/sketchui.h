@@ -332,7 +332,7 @@ static void _sku_buildConstraint(sk_Constraint* c, float sound, HMM_Mat4 model, 
     // FIXME: less self intersection on angled lines
 }
 
-static void _sku_drawManifold(sk_Point* p, HMM_Vec3 cameraPos, HMM_Mat4 model, HMM_Mat4 mvp, snz_Arena* scratch) {
+static void _sku_drawManifold(sk_Point* p, HMM_Vec3 cameraPos, HMM_Mat4 model, HMM_Mat4 mvp, float sound, snz_Arena* scratch) {
     HMM_Vec2* pts = NULL;
     int ptCount = 0;
 
@@ -389,7 +389,9 @@ static void _sku_drawManifold(sk_Point* p, HMM_Vec3 cameraPos, HMM_Mat4 model, H
     snzr_drawLineFaded(
         pts, ptCount,
         ui_colorAccent, 4,
-        mvp, HMM_V3(p->pos.X, p->pos.Y, 0), scaleFactor, scaleFactor);
+        mvp, HMM_V3(p->pos.X, p->pos.Y, 0),
+        scaleFactor * (1 + sound),
+        scaleFactor * (1 + sound));
 }
 
 static bool _sku_AABBContainsPt(HMM_Vec2 boxStart, HMM_Vec2 boxEnd, HMM_Vec2 pt) {
@@ -437,7 +439,7 @@ static void _sku_draw(sk_Sketch* sketch, snzu_Interaction* inter, HMM_Mat4 model
     }  // end grid
 
     for (sk_Point* p = sketch->firstPoint; p; p = p->next) {
-        _sku_drawManifold(p, cameraPos, model, sketchMVP, scratch);
+        _sku_drawManifold(p, cameraPos, model, sketchMVP, sound, scratch);
     }
 
     for (sk_Constraint* c = sketch->firstConstraint; c; c = c->nextAllocated) {
