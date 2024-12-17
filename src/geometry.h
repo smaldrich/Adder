@@ -376,7 +376,7 @@ static void _geo_BSPTriSplit(geo_BSPTri* tri, snz_Arena* arena, geo_BSPTriList* 
                     .c = rotatedVerts[2],
                 },
                 .ancestor = tri,
-                .sourceFace = tri->sourceFace,
+                .sourceFace = tri->sourceFace,  // FIXME: sometimes, if a face gets split to become non-contiguous, this is just wrong and we need another face
             };
 
             geo_BSPTri* t2 = SNZ_ARENA_PUSH(arena, geo_BSPTri);
@@ -529,6 +529,7 @@ void geo_BSPTriListRecoverNonBroken(geo_BSPTriList** tris, snz_Arena* arena) {
     *tris = geo_BSPTriListJoin(trisRemaining, recovered);
 }
 
+// FIXME: remove pool here
 ren3d_Mesh geo_BSPTriListToRenderMesh(geo_BSPTriList list, PoolAlloc* pool) {
     ren3d_Vert* verts = poolAllocAlloc(pool, 0);
     int64_t vertCount = 0;
@@ -819,62 +820,41 @@ void geo_buildHoverAndSelectionMesh(geo_Mesh* mesh, HMM_Mat4 vp, HMM_Vec3 camera
     }  // end hovered drawing
 }
 
-/*
-so we are making a way of identifying geometry for shit
-
-doing it LL of opp style is miserable in so many ways
-    each operation needs a method of location a piece of geometry
-    i.e. it's own struct/enum tag/values/handling code etc.
-    each op also needs a way of storing what made it
-
-a backup would be lovely -> 'closest fuckin position + normal?'
-
-
-so sketches are 'primatives' (stored ptr style to identify components, edge+dir to ident faces)
-the planned operations we have are:
-
-union
-difference
-intersection
-extrusion
-revolve
-pattern
-shell
-loft
-fillet
-chamfer
-*/
-
 // SOA formatting in terms of the data for this comp would be great, but a giant pain in the ass to write out
 // or maybe thats the OO poison in my blood
 // FIXME: also this solution is very bad asymptotically
-// bool geo_trisAdjacent(geo_Tri a, geo_Tri b, int* outEdgeA) {
-//     *outEdgeA = -1;  // default return
+bool geo_trisAdjacent(geo_Tri a, geo_Tri b, int* outEdgeA) {
+    *outEdgeA = -1;  // default return
 
-//     for (int i = 0; i < 3; i++) {
-//         HMM_Vec3 aNext = a.elems[(i + 1) % 3];
-//         HMM_Vec3 aCurrent = a.elems[i];
-//         HMM_Vec3 aNormal = HMM_Norm(HMM_Sub(aNext, aCurrent));
-//         // flipping like this so that if the normals were to be opposite they still match below
-//         if (aNormal.X < 0) {
-//             aNormal = HMM_Mul(aNormal, -1.0f);
-//         }
+    for (int i = 0; i < 3; i++) {
+        HMM_Vec3 aNext = a.elems[(i + 1) % 3];
+        HMM_Vec3 aCurrent = a.elems[i];
+        HMM_Vec3 aNormal = HMM_Norm(HMM_Sub(aNext, aCurrent));
+        // flipping like this so that if the normals were to be opposite they still match below
+        if (aNormal.X < 0) {
+            aNormal = HMM_Mul(aNormal, -1.0f);
+        }
 
-//         for (int j = 0; j < 3; j++) {
-//             HMM_Vec3 bNext = b.elems[(i + 1) % 3];
-//             HMM_Vec3 bCurrent = b.elems[i];
-//             HMM_Vec3 bNormal = HMM_Norm(HMM_Sub(bNext, bCurrent));
-//             if (bNormal.X < 0) {
-//                 aNormal = HMM_Mul(bNormal, -1.0f);
-//             }
+        for (int j = 0; j < 3; j++) {
+            HMM_Vec3 bNext = b.elems[(i + 1) % 3];
+            HMM_Vec3 bCurrent = b.elems[i];
+            HMM_Vec3 bNormal = HMM_Norm(HMM_Sub(bNext, bCurrent));
+            if (bNormal.X < 0) {
+                aNormal = HMM_Mul(bNormal, -1.0f);
+            }
 
-//             if (geo_v3Equal(bNormal, aNormal)) {
-//                 // FIXME: colinearity check
-//                 *outEdgeA = i;
-//                 return true;
-//             }
-//         }  // end tri b loop
-//     }  // end tri a loop
+            if (!geo_v3Equal(bNormal, aNormal)) {
+                continue;
+            }
 
-//     return false;
-// }
+            float dot = HMM_Dot(HMM_Sub(bCurrent, aCurrent), aNormal);
+            if (!(geo_floatEqual(dot, 1) || geo_floatEqual(dot, -1))) {
+                continue;
+            }
+            *outEdgeA = i;
+            return true;
+        }  // end tri b loop
+    }  // end tri a loop
+
+    return false;
+}
