@@ -64,18 +64,18 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
     main_sceneFB = snzr_frameBufferInit(snzr_textureInitRBGA(500, 500, NULL));
 
     {
-        geo_TriList cubeA = geo_cube(&main_meshArena);
-        geo_TriList cubeB = geo_cube(&main_meshArena);
-        geo_triListTransform(&cubeB, HMM_Rotate_RH(HMM_AngleDeg(30), HMM_V3(1, 1, 1)));
-        geo_triListTransform(&cubeB, HMM_Translate(HMM_V3(1, 1, 1)));
+        geo_BSPTriList cubeA = geo_cube(&main_meshArena);
+        geo_BSPTriList cubeB = geo_cube(&main_meshArena);
+        geo_BSPTriListTransform(&cubeB, HMM_Rotate_RH(HMM_AngleDeg(30), HMM_V3(1, 1, 1)));
+        geo_BSPTriListTransform(&cubeB, HMM_Translate(HMM_V3(1, 1, 1)));
 
-        geo_BSPNode* treeA = geo_triListToBSP(&cubeA, &main_meshArena);
-        geo_BSPNode* treeB = geo_triListToBSP(&cubeB, &main_meshArena);
+        geo_BSPNode* treeA = geo_BSPTriListToBSP(&cubeA, &main_meshArena);
+        geo_BSPNode* treeB = geo_BSPTriListToBSP(&cubeB, &main_meshArena);
 
-        geo_TriList* aClipped = geo_bspClipTris(true, &cubeA, treeB, &main_meshArena);
-        geo_TriList* bClipped = geo_bspClipTris(true, &cubeB, treeA, &main_meshArena);
-        geo_TriList* final = geo_triListJoin(aClipped, bClipped);
-        geo_triListRecoverNonBroken(&final, &main_meshArena);
+        geo_BSPTriList* aClipped = geo_bspClipTris(true, &cubeA, treeB, &main_meshArena);
+        geo_BSPTriList* bClipped = geo_bspClipTris(true, &cubeB, treeA, &main_meshArena);
+        geo_BSPTriList* final = geo_BSPTriListJoin(aClipped, bClipped);
+        geo_BSPTriListRecoverNonBroken(&final, &main_meshArena);
 
         PoolAlloc pool = poolAllocInit();
         ren3d_Vert* verts = poolAllocAlloc(&pool, 0);
@@ -84,7 +84,7 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
         geo_MeshFace* faceList = NULL;
 
         int triIdx = 0;
-        for (geo_TriListNode* tri = final->first; tri; tri = tri->next) {
+        for (geo_BSPTri* tri = final->first; tri; tri = tri->next) {
             HMM_Vec3 triNormal = geo_triNormal(tri->a, tri->b, tri->c);
             for (int i = 0; i < 3; i++) {
                 *poolAllocPushArray(&pool, verts, vertCount, ren3d_Vert) = (ren3d_Vert){
