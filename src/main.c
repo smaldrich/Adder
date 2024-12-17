@@ -64,62 +64,53 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
     main_sceneFB = snzr_frameBufferInit(snzr_textureInitRBGA(500, 500, NULL));
 
     {
-        geo_BSPTriList cubeA = geo_cube(&main_meshArena);
-        geo_BSPTriList cubeB = geo_cube(&main_meshArena);
-        geo_BSPTriListTransform(&cubeB, HMM_Rotate_RH(HMM_AngleDeg(30), HMM_V3(1, 1, 1)));
-        geo_BSPTriListTransform(&cubeB, HMM_Translate(HMM_V3(1, 1, 1)));
+        geo_BSPTriList* bspTris = NULL;
+        geo_MeshFace* faces = NULL;
+        {
+            geo_Mesh cubeA = geo_cube(&main_meshArena);
+            geo_Mesh cubeB = geo_cube(&main_meshArena);
+            geo_BSPTriListTransform(&cubeB.bspTris, HMM_Rotate_RH(HMM_AngleDeg(30), HMM_V3(1, 1, 1)));
+            geo_BSPTriListTransform(&cubeB.bspTris, HMM_Translate(HMM_V3(1, 1, 1)));
 
-        geo_BSPNode* treeA = geo_BSPTriListToBSP(&cubeA, &main_meshArena);
-        geo_BSPNode* treeB = geo_BSPTriListToBSP(&cubeB, &main_meshArena);
+            geo_BSPNode* treeA = geo_BSPTriListToBSP(&cubeA.bspTris, &main_meshArena);
+            geo_BSPNode* treeB = geo_BSPTriListToBSP(&cubeB.bspTris, &main_meshArena);
 
-        geo_BSPTriList* aClipped = geo_bspClipTris(true, &cubeA, treeB, &main_meshArena);
-        geo_BSPTriList* bClipped = geo_bspClipTris(true, &cubeB, treeA, &main_meshArena);
-        geo_BSPTriList* final = geo_BSPTriListJoin(aClipped, bClipped);
-        geo_BSPTriListRecoverNonBroken(&final, &main_meshArena);
+            geo_BSPTriList* aClipped = geo_BSPTriListClip(true, &cubeA.bspTris, treeB, &main_meshArena);
+            geo_BSPTriList* bClipped = geo_BSPTriListClip(true, &cubeB.bspTris, treeA, &main_meshArena);
+            bspTris = geo_BSPTriListJoin(aClipped, bClipped);
+            geo_BSPTriListRecoverNonBroken(&bspTris, &main_meshArena);
 
-        PoolAlloc pool = poolAllocInit();
-        ren3d_Vert* verts = poolAllocAlloc(&pool, 0);
-        int64_t vertCount = 0;
+            geo_MeshFace* bCubeLastFace = cubeB.firstFace;
+            for (; bCubeLastFace->next; bCubeLastFace = bCubeLastFace->next) {
+            }  // FIXME: gross
+            bCubeLastFace->next = cubeA.firstFace;
+            // this join destroys the OG cubes bc. the face list has been changed up
 
-        geo_MeshFace* faceList = NULL;
-
-        int triIdx = 0;
-        for (geo_BSPTri* tri = final->first; tri; tri = tri->next) {
-            HMM_Vec3 triNormal = geo_triNormal(tri->a, tri->b, tri->c);
-            for (int i = 0; i < 3; i++) {
-                *poolAllocPushArray(&pool, verts, vertCount, ren3d_Vert) = (ren3d_Vert){
-                    .pos = tri->elems[i],
-                    .normal = triNormal,
-                };
-            }
-            if (triIdx == 9) {
-                main_sketchAlign = (sku_Align){
-                    .startPt = HMM_V3(0, 0, 0),
-                    .startNormal = HMM_V3(0, 0, 1),
-                    .startVertical = HMM_V3(0, 1, 0),
-
-                    .endPt = tri->a,
-                    .endNormal = triNormal,
-                    .endVertical = HMM_Norm(HMM_Sub(tri->b, tri->a)),
-                };
-            }
-            triIdx++;
-
-            geo_MeshFace* face = SNZ_ARENA_PUSH(&main_meshArena, geo_MeshFace);
-            *face = (geo_MeshFace){
-                .next = faceList,
-                .tri = tri,
-            };
-            faceList = face;
+            faces = cubeB.firstFace;
         }
-        ren3d_Mesh renMesh = ren3d_meshInit(verts, vertCount);
+
+        PoolAlloc pool = poolAllocInit();  // FIXME: it's just the verts getting put in this pool, bad structure
+        main_mesh = (geo_Mesh){
+            .bspTris = *bspTris,
+            .renderMesh = geo_BSPTriListToRenderMesh(*bspTris, &pool),
+            .firstFace = faces,
+        };
+        geo_BSPTriListToFaceTris(&main_pool, &main_mesh);
         poolAllocDeinit(&pool);
 
-        main_mesh = (geo_Mesh){
-            .bspTree = NULL,
-            .renderMesh = renMesh,
-            .triList = *final,
-            .firstFace = faceList,
+        geo_BSPTri* tri = main_mesh.bspTris.first;
+        for (int i = 0; i < 9; i++) {
+            tri = tri->next;
+        }
+
+        main_sketchAlign = (sku_Align){
+            .startPt = HMM_V3(0, 0, 0),
+            .startNormal = HMM_V3(0, 0, 1),
+            .startVertical = HMM_V3(0, 1, 0),
+
+            .endPt = tri->tri.a,
+            .endNormal = geo_triNormal(tri->tri),
+            .endVertical = HMM_Norm(HMM_Sub(tri->tri.b, tri->tri.a)),
         };
     }  // end mesh for testing
 
@@ -264,7 +255,7 @@ void main_drawDemoScene(HMM_Vec2 panelSize, snz_Arena* scratch, float dt, snzu_I
 
     // FIXME: debug wireframe
     ren3d_drawMesh(&main_mesh.renderMesh, vp, model, HMM_V4(1, 1, 1, 1), HMM_V3(-1, -1, -1), ui_lightAmbient);
-    geo_buildHoverAndSelectionMesh(&main_mesh, vp, cameraPos, mouseRayNormal);
+    geo_buildHoverAndSelectionMesh(&main_mesh, vp, cameraPos, mouseRayNormal, scratch);
     if (main_skybox && ui_skyBox != NULL) {
         ren3d_drawSkybox(vp, *ui_skyBox);
     }

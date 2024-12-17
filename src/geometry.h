@@ -42,13 +42,6 @@ typedef struct {
     geo_BSPTri* last;
 } geo_BSPTriList;
 
-typedef struct {
-    ren3d_Mesh renderMesh;
-    geo_BSPTriList bspTris;
-    geo_BSPNode* bspTree;
-    geo_MeshFace* firstFace;
-} geo_Mesh;
-
 typedef struct geo_BSPNode geo_BSPNode;
 struct geo_BSPNode {
     geo_BSPNode* outerTree;
@@ -59,6 +52,13 @@ struct geo_BSPNode {
     // FIXME: redundant? // Space inefficent??
     geo_Tri tri;
 };
+
+typedef struct {
+    ren3d_Mesh renderMesh;
+    geo_BSPTriList bspTris;
+    geo_BSPNode* bspTree;
+    geo_MeshFace* firstFace;
+} geo_Mesh;
 
 typedef enum {
     geo_PR_COPLANAR,
@@ -129,7 +129,7 @@ geo_BSPTriList* geo_BSPTriListJoin(geo_BSPTriList* listA, geo_BSPTriList* listB)
 }
 
 // destructive to node->next in list
-void geo_BSPTriListPushNew(snz_Arena* arena, geo_BSPTriList* list, HMM_Vec3 a, HMM_Vec3 b, HMM_Vec3 c) {
+void geo_BSPTriListPushNew(snz_Arena* arena, geo_BSPTriList* list, HMM_Vec3 a, HMM_Vec3 b, HMM_Vec3 c, geo_MeshFace* source) {
     geo_BSPTri* new = SNZ_ARENA_PUSH(arena, geo_BSPTri);
     *new = (geo_BSPTri){
         .tri = (geo_Tri){
@@ -137,6 +137,7 @@ void geo_BSPTriListPushNew(snz_Arena* arena, geo_BSPTriList* list, HMM_Vec3 a, H
             .b = b,
             .c = c,
         },
+        .sourceFace = source,
     };
     geo_BSPTriListPush(list, new);
 }
@@ -291,7 +292,7 @@ bool geo_planeLineIntersection(HMM_Vec3 planeOrigin, HMM_Vec3 planeNormal, HMM_V
 
 // FIXME: point deduplication of some kind?
 // destructive to tri->next, and both outlists next
-void _geo_triSplit(geo_BSPTri* tri, snz_Arena* arena, geo_BSPTriList* outOutsideList, geo_BSPTriList* outInsideList, geo_BSPNode* cutter) {
+static void _geo_BSPTriSplit(geo_BSPTri* tri, snz_Arena* arena, geo_BSPTriList* outOutsideList, geo_BSPTriList* outInsideList, geo_BSPNode* cutter) {
     HMM_Vec3 cutNormal = geo_triNormal(cutter->tri);
 
     geo_PlaneRelation rel = _geo_triClassify(tri->tri, cutNormal, cutter->tri.a);
@@ -375,6 +376,7 @@ void _geo_triSplit(geo_BSPTri* tri, snz_Arena* arena, geo_BSPTriList* outOutside
                     .c = rotatedVerts[2],
                 },
                 .ancestor = tri,
+                .sourceFace = tri->sourceFace,
             };
 
             geo_BSPTri* t2 = SNZ_ARENA_PUSH(arena, geo_BSPTri);
@@ -385,6 +387,7 @@ void _geo_triSplit(geo_BSPTri* tri, snz_Arena* arena, geo_BSPTriList* outOutside
                     .c = rotatedVerts[4],
                 },
                 .ancestor = tri,
+                .sourceFace = tri->sourceFace,
             };
 
             geo_BSPTri* t3 = SNZ_ARENA_PUSH(arena, geo_BSPTri);
@@ -395,6 +398,7 @@ void _geo_triSplit(geo_BSPTri* tri, snz_Arena* arena, geo_BSPTriList* outOutside
                     .c = rotatedVerts[2],
                 },
                 .ancestor = tri,
+                .sourceFace = tri->sourceFace,
             };
 
             geo_BSPTriList* t1List = t1Outside ? outOutsideList : outInsideList;
@@ -413,6 +417,7 @@ void _geo_triSplit(geo_BSPTri* tri, snz_Arena* arena, geo_BSPTriList* outOutside
                     .c = rotatedVerts[2],
                 },
                 .ancestor = tri,
+                .sourceFace = tri->sourceFace,
             };
 
             geo_BSPTri* t2 = SNZ_ARENA_PUSH(arena, geo_BSPTri);
@@ -423,6 +428,7 @@ void _geo_triSplit(geo_BSPTri* tri, snz_Arena* arena, geo_BSPTriList* outOutside
                     .c = rotatedVerts[0],
                 },
                 .ancestor = tri,
+                .sourceFace = tri->sourceFace,
             };
 
             // t1B should never be colinear with the cut plane so long as rotation has been done correctly
@@ -440,19 +446,19 @@ void _geo_triSplit(geo_BSPTri* tri, snz_Arena* arena, geo_BSPTriList* outOutside
 // clips all tris in meshTris from tree, returns a LL of the new tris, destructive to the original
 // if within is set, tris within are clipped, otherwise tris outside
 // everything allocated to arena
-geo_BSPTriList* geo_bspClipTris(bool within, geo_BSPTriList* meshTris, geo_BSPNode* tree, snz_Arena* arena) {
+geo_BSPTriList* geo_BSPTriListClip(bool within, geo_BSPTriList* meshTris, geo_BSPNode* tree, snz_Arena* arena) {
     geo_BSPTriList inside = geo_BSPTriListInit();
     geo_BSPTriList outside = geo_BSPTriListInit();
 
     geo_BSPTri* next = NULL;  // memod because placing in the other list would overwrite
     for (geo_BSPTri* tri = meshTris->first; tri; tri = next) {
         next = tri->next;
-        _geo_triSplit(tri, arena, &outside, &inside, tree);
+        _geo_BSPTriSplit(tri, arena, &outside, &inside, tree);
     }
 
     geo_BSPTriList* listToClear = NULL;
     if (tree->innerTree != NULL) {
-        inside = *geo_bspClipTris(within, &inside, tree->innerTree, arena);
+        inside = *geo_BSPTriListClip(within, &inside, tree->innerTree, arena);
     } else {
         if (within) {
             listToClear = &inside;
@@ -460,7 +466,7 @@ geo_BSPTriList* geo_bspClipTris(bool within, geo_BSPTriList* meshTris, geo_BSPNo
     }
 
     if (tree->outerTree != NULL) {
-        outside = *geo_bspClipTris(within, &outside, tree->outerTree, arena);
+        outside = *geo_BSPTriListClip(within, &outside, tree->outerTree, arena);
     } else {
         if (!within) {
             listToClear = &outside;
@@ -523,10 +529,40 @@ void geo_BSPTriListRecoverNonBroken(geo_BSPTriList** tris, snz_Arena* arena) {
     *tris = geo_BSPTriListJoin(trisRemaining, recovered);
 }
 
-// FIXME: this is horrible
+ren3d_Mesh geo_BSPTriListToRenderMesh(geo_BSPTriList list, PoolAlloc* pool) {
+    ren3d_Vert* verts = poolAllocAlloc(pool, 0);
+    int64_t vertCount = 0;
+
+    for (geo_BSPTri* tri = list.first; tri; tri = tri->next) {
+        HMM_Vec3 triNormal = geo_triNormal(tri->tri);
+        for (int i = 0; i < 3; i++) {
+            *poolAllocPushArray(pool, verts, vertCount, ren3d_Vert) = (ren3d_Vert){
+                .pos = tri->tri.elems[i],
+                .normal = triNormal,
+            };
+        }
+    }
+    return ren3d_meshInit(verts, vertCount);
+}
+
+// uses a meshes BSPTriList to regenerate the face tri arrays
+// assumes valid mesh->bspTris and and old but non-null mesh->faces data.
+void geo_BSPTriListToFaceTris(PoolAlloc* pool, geo_Mesh* mesh) {
+    for (geo_MeshFace* f = mesh->firstFace; f; f = f->next) {
+        f->triCount = 0;
+    }
+    for (geo_BSPTri* tri = mesh->bspTris.first; tri; tri = tri->next) {
+        geo_Tri* t = poolAllocPushArray(pool, tri->sourceFace->tris, tri->sourceFace->triCount, geo_Tri);
+        *t = tri->tri;
+    }
+}
+
 // 2 width cube, centered on the origin
-geo_BSPTriList geo_cube(snz_Arena* arena) {
-    geo_BSPTriList list = geo_BSPTriListInit();
+// FIXME: ew
+// out mesh has valid bsp tris a face list that the tris are linked to (which does not have its copy of the triangle data)
+geo_Mesh geo_cube(snz_Arena* arena) {
+    geo_Mesh out = (geo_Mesh){0};
+    out.bspTris = geo_BSPTriListInit();
 
     HMM_Vec3 v[] = {
         HMM_V3(-1, -1, 1),
@@ -538,19 +574,43 @@ geo_BSPTriList geo_cube(snz_Arena* arena) {
         HMM_V3(1, 1, -1),
         HMM_V3(-1, 1, -1),
     };
-    geo_BSPTriListPushNew(arena, &list, v[0], v[2], v[1]);
-    geo_BSPTriListPushNew(arena, &list, v[0], v[3], v[2]);
-    geo_BSPTriListPushNew(arena, &list, v[7], v[6], v[2]);
-    geo_BSPTriListPushNew(arena, &list, v[7], v[2], v[3]);
-    geo_BSPTriListPushNew(arena, &list, v[6], v[5], v[1]);
-    geo_BSPTriListPushNew(arena, &list, v[6], v[1], v[2]);
-    geo_BSPTriListPushNew(arena, &list, v[5], v[4], v[0]);
-    geo_BSPTriListPushNew(arena, &list, v[5], v[0], v[1]);
-    geo_BSPTriListPushNew(arena, &list, v[4], v[7], v[3]);
-    geo_BSPTriListPushNew(arena, &list, v[4], v[3], v[0]);
-    geo_BSPTriListPushNew(arena, &list, v[4], v[5], v[6]);
-    geo_BSPTriListPushNew(arena, &list, v[4], v[6], v[7]);
-    return list;
+    geo_MeshFace* face = SNZ_ARENA_PUSH(arena, geo_MeshFace);
+    face->next = out.firstFace;
+    out.firstFace = face;
+    geo_BSPTriListPushNew(arena, &out.bspTris, v[0], v[2], v[1], face);
+    geo_BSPTriListPushNew(arena, &out.bspTris, v[0], v[3], v[2], face);
+
+    face = SNZ_ARENA_PUSH(arena, geo_MeshFace);
+    face->next = out.firstFace;
+    out.firstFace = face;
+    geo_BSPTriListPushNew(arena, &out.bspTris, v[7], v[6], v[2], face);
+    geo_BSPTriListPushNew(arena, &out.bspTris, v[7], v[2], v[3], face);
+
+    face = SNZ_ARENA_PUSH(arena, geo_MeshFace);
+    face->next = out.firstFace;
+    out.firstFace = face;
+    geo_BSPTriListPushNew(arena, &out.bspTris, v[6], v[5], v[1], face);
+    geo_BSPTriListPushNew(arena, &out.bspTris, v[6], v[1], v[2], face);
+
+    face = SNZ_ARENA_PUSH(arena, geo_MeshFace);
+    face->next = out.firstFace;
+    out.firstFace = face;
+    geo_BSPTriListPushNew(arena, &out.bspTris, v[5], v[4], v[0], face);
+    geo_BSPTriListPushNew(arena, &out.bspTris, v[5], v[0], v[1], face);
+
+    face = SNZ_ARENA_PUSH(arena, geo_MeshFace);
+    face->next = out.firstFace;
+    out.firstFace = face;
+    geo_BSPTriListPushNew(arena, &out.bspTris, v[4], v[7], v[3], face);
+    geo_BSPTriListPushNew(arena, &out.bspTris, v[4], v[3], v[0], face);
+
+    face = SNZ_ARENA_PUSH(arena, geo_MeshFace);
+    face->next = out.firstFace;
+    out.firstFace = face;
+    geo_BSPTriListPushNew(arena, &out.bspTris, v[4], v[5], v[6], face);
+    geo_BSPTriListPushNew(arena, &out.bspTris, v[4], v[6], v[7], face);
+
+    return out;
 }
 
 void geo_tests() {
@@ -568,10 +628,10 @@ void geo_tests() {
         };
 
         geo_BSPTriList list = geo_BSPTriListInit();
-        geo_BSPTriListPushNew(&arena, &list, verts[0], verts[1], verts[2]);
-        geo_BSPTriListPushNew(&arena, &list, verts[0], verts[2], verts[3]);
-        geo_BSPTriListPushNew(&arena, &list, verts[0], verts[3], verts[1]);
-        geo_BSPTriListPushNew(&arena, &list, verts[3], verts[2], verts[1]);
+        geo_BSPTriListPushNew(&arena, &list, verts[0], verts[1], verts[2], NULL);
+        geo_BSPTriListPushNew(&arena, &list, verts[0], verts[2], verts[3], NULL);
+        geo_BSPTriListPushNew(&arena, &list, verts[0], verts[3], verts[1], NULL);
+        geo_BSPTriListPushNew(&arena, &list, verts[3], verts[2], verts[1], NULL);
 
         geo_BSPNode* tree = geo_BSPTriListToBSP(&list, &arena);
         snz_testPrint(geo_BSPContainsPoint(tree, HMM_V3(0.5, 0.5, 0.0)) == true, "Tetra contains pt");
@@ -597,14 +657,14 @@ void geo_tests() {
 
         geo_BSPTriList list = geo_BSPTriListInit();
         // top faces
-        geo_BSPTriListPushNew(&arena, &list, verts[1], verts[2], verts[3]);
-        geo_BSPTriListPushNew(&arena, &list, verts[1], verts[4], verts[2]);
-        geo_BSPTriListPushNew(&arena, &list, verts[1], verts[3], verts[0]);
-        geo_BSPTriListPushNew(&arena, &list, verts[1], verts[0], verts[4]);
+        geo_BSPTriListPushNew(&arena, &list, verts[1], verts[2], verts[3], NULL);
+        geo_BSPTriListPushNew(&arena, &list, verts[1], verts[4], verts[2], NULL);
+        geo_BSPTriListPushNew(&arena, &list, verts[1], verts[3], verts[0], NULL);
+        geo_BSPTriListPushNew(&arena, &list, verts[1], verts[0], verts[4], NULL);
 
         // bottom faces
-        geo_BSPTriListPushNew(&arena, &list, verts[0], verts[3], verts[2]);
-        geo_BSPTriListPushNew(&arena, &list, verts[0], verts[2], verts[4]);
+        geo_BSPTriListPushNew(&arena, &list, verts[0], verts[3], verts[2], NULL);
+        geo_BSPTriListPushNew(&arena, &list, verts[0], verts[2], verts[4], NULL);
         geo_BSPTriListToSTLFile(&list, "testing/object.stl");
 
         geo_BSPNode* tree = geo_BSPTriListToBSP(&list, &arena);
@@ -622,32 +682,32 @@ void geo_tests() {
     poolAllocClear(&pool);
 
     {
-        geo_BSPTriList cubeA = geo_cube(&arena);
-        geo_BSPTriList cubeB = geo_cube(&arena);
-        geo_BSPTriListTransform(&cubeB, HMM_Rotate_RH(HMM_AngleDeg(30), HMM_V3(1, 1, 1)));
-        geo_BSPTriListTransform(&cubeB, HMM_Translate(HMM_V3(1, 1, 1)));
+        geo_Mesh cubeA = geo_cube(&arena);
+        geo_Mesh cubeB = geo_cube(&arena);
+        geo_BSPTriListTransform(&cubeB.bspTris, HMM_Rotate_RH(HMM_AngleDeg(30), HMM_V3(1, 1, 1)));
+        geo_BSPTriListTransform(&cubeB.bspTris, HMM_Translate(HMM_V3(1, 1, 1)));
 
-        geo_BSPNode* treeA = geo_BSPTriListToBSP(&cubeA, &arena);
-        geo_BSPNode* treeB = geo_BSPTriListToBSP(&cubeB, &arena);
+        geo_BSPNode* treeA = geo_BSPTriListToBSP(&cubeA.bspTris, &arena);
+        geo_BSPNode* treeB = geo_BSPTriListToBSP(&cubeB.bspTris, &arena);
 
-        geo_BSPTriList* aClipped = geo_bspClipTris(true, &cubeA, treeB, &arena);
-        geo_BSPTriList* bClipped = geo_bspClipTris(true, &cubeB, treeA, &arena);
+        geo_BSPTriList* aClipped = geo_BSPTriListClip(true, &cubeA.bspTris, treeB, &arena);
+        geo_BSPTriList* bClipped = geo_BSPTriListClip(true, &cubeB.bspTris, treeA, &arena);
         geo_BSPTriList* final = geo_BSPTriListJoin(aClipped, bClipped);
         geo_BSPTriListRecoverNonBroken(&final, &arena);
         geo_BSPTriListToSTLFile(final, "testing/union.stl");
     }
 
     {
-        geo_BSPTriList cubeA = geo_cube(&arena);
-        geo_BSPTriList cubeB = geo_cube(&arena);
-        geo_BSPTriListTransform(&cubeB, HMM_Rotate_RH(HMM_AngleDeg(30), HMM_V3(1, 1, 1)));
-        geo_BSPTriListTransform(&cubeB, HMM_Translate(HMM_V3(1, 1, 1)));
+        geo_Mesh cubeA = geo_cube(&arena);
+        geo_Mesh cubeB = geo_cube(&arena);
+        geo_BSPTriListTransform(&cubeB.bspTris, HMM_Rotate_RH(HMM_AngleDeg(30), HMM_V3(1, 1, 1)));
+        geo_BSPTriListTransform(&cubeB.bspTris, HMM_Translate(HMM_V3(1, 1, 1)));
 
-        geo_BSPNode* treeA = geo_BSPTriListToBSP(&cubeA, &arena);
-        geo_BSPNode* treeB = geo_BSPTriListToBSP(&cubeB, &arena);
+        geo_BSPNode* treeA = geo_BSPTriListToBSP(&cubeA.bspTris, &arena);
+        geo_BSPNode* treeB = geo_BSPTriListToBSP(&cubeB.bspTris, &arena);
 
-        geo_BSPTriList* aClipped = geo_bspClipTris(true, &cubeA, treeB, &arena);
-        geo_BSPTriList* bClipped = geo_bspClipTris(false, &cubeB, treeA, &arena);
+        geo_BSPTriList* aClipped = geo_BSPTriListClip(true, &cubeA.bspTris, treeB, &arena);
+        geo_BSPTriList* bClipped = geo_BSPTriListClip(false, &cubeB.bspTris, treeA, &arena);
         geo_BSPTriListInvert(bClipped);
         geo_BSPTriList* final = geo_BSPTriListJoin(aClipped, bClipped);
         geo_BSPTriListRecoverNonBroken(&final, &arena);
@@ -659,12 +719,11 @@ void geo_tests() {
 }
 
 // https://en.wikipedia.org/wiki/M%C3%B6ller%E2%80%93Trumbore_intersection_algorithm
-bool geo_intersectRayAndTri(HMM_Vec3 rayOrigin, HMM_Vec3 rayDir,
-                            HMM_Vec3 pts[3], HMM_Vec3* outPos) {
+bool geo_intersectRayAndTri(HMM_Vec3 rayOrigin, HMM_Vec3 rayDir, geo_Tri tri, HMM_Vec3* outPos) {
     *outPos = HMM_V3(0, 0, 0);
 
-    HMM_Vec3 edge1 = HMM_Sub(pts[1], pts[0]);
-    HMM_Vec3 edge2 = HMM_Sub(pts[2], pts[0]);
+    HMM_Vec3 edge1 = HMM_Sub(tri.b, tri.a);
+    HMM_Vec3 edge2 = HMM_Sub(tri.c, tri.a);
     HMM_Vec3 ray_cross_e2 = HMM_Cross(rayDir, edge2);
     float det = HMM_Dot(edge1, ray_cross_e2);
 
@@ -673,7 +732,7 @@ bool geo_intersectRayAndTri(HMM_Vec3 rayOrigin, HMM_Vec3 rayDir,
     }
 
     float inv_det = 1.0 / det;
-    HMM_Vec3 s = HMM_Sub(rayOrigin, pts[0]);
+    HMM_Vec3 s = HMM_Sub(rayOrigin, tri.a);
     float u = inv_det * HMM_Dot(s, ray_cross_e2);
 
     if ((u < 0 && fabsf(u) > geo_EPSILON) || (u > 1 && fabsf(u - 1) > geo_EPSILON)) {
@@ -703,7 +762,7 @@ bool geo_intersectRayAndTri(HMM_Vec3 rayOrigin, HMM_Vec3 rayDir,
 
 ren3d_Mesh _geo_hoverMesh;
 
-void geo_buildHoverAndSelectionMesh(geo_Mesh* mesh, HMM_Mat4 vp, HMM_Vec3 cameraPos, HMM_Vec3 mouseRayDir) {
+void geo_buildHoverAndSelectionMesh(geo_Mesh* mesh, HMM_Mat4 vp, HMM_Vec3 cameraPos, HMM_Vec3 mouseRayDir, snz_Arena* scratch) {
     geo_MeshFace* closestHovered = NULL;
     {  // find and draw the hovered face
         float closestHoveredDist = INFINITY;
@@ -711,14 +770,16 @@ void geo_buildHoverAndSelectionMesh(geo_Mesh* mesh, HMM_Mat4 vp, HMM_Vec3 camera
         for (geo_MeshFace* face = mesh->firstFace; face; face = face->next) {
             HMM_Vec3 intersection = HMM_V3(0, 0, 0);
             // NOTE: any model transform will have to change this to adapt
-            bool hovered = geo_intersectRayAndTri(cameraPos, mouseRayDir, face->tri.elems, &intersection);
-            if (hovered) {
-                float dist = HMM_LenSqr(HMM_Sub(intersection, cameraPos));
-                if (dist < closestHoveredDist) {
-                    closestHoveredDist = dist;
-                    closestHovered = face;
-                }
-            }  // end hover check
+            for (int64_t i = 0; i < face->triCount; i++) {
+                bool hovered = geo_intersectRayAndTri(cameraPos, mouseRayDir, face->tris[i], &intersection);
+                if (hovered) {
+                    float dist = HMM_LenSqr(HMM_Sub(intersection, cameraPos));
+                    if (dist < closestHoveredDist) {
+                        closestHoveredDist = dist;
+                        closestHovered = face;
+                    }
+                }  // end hover check
+            }  // end face tri loop
         }  // end face loop
 
         if (!closestHovered) {
@@ -734,25 +795,23 @@ void geo_buildHoverAndSelectionMesh(geo_Mesh* mesh, HMM_Mat4 vp, HMM_Vec3 camera
         snzu_easeExp(selectionAnim, true, 15);
 
         ren3d_meshDeinit(&_geo_hoverMesh);
-        geo_BSPTri* t = closestHovered->tri;
-        HMM_Vec3 normal = geo_triNormal(t->a, t->b, t->c);
-        float scaleFactor = HMM_SqrtF(closestHoveredDist);
-        HMM_Vec3 offset = HMM_Mul(normal, scaleFactor * 0.03f * *selectionAnim);
-        ren3d_Vert verts[] = {
-            (ren3d_Vert){
-                .pos = HMM_Add(t->a, offset),
-                .normal = normal,
-            },
-            (ren3d_Vert){
-                .pos = HMM_Add(t->b, offset),
-                .normal = normal,
-            },
-            (ren3d_Vert){
-                .pos = HMM_Add(t->c, offset),
-                .normal = normal,
-            },
-        };
-        _geo_hoverMesh = ren3d_meshInit(verts, 3);
+
+        int64_t vertCount = closestHovered->triCount * 3;
+        ren3d_Vert* verts = SNZ_ARENA_PUSH_ARR(scratch, vertCount, ren3d_Vert);
+        for (int64_t i = 0; i < closestHovered->triCount; i++) {
+            geo_Tri t = closestHovered->tris[i];
+            HMM_Vec3 normal = geo_triNormal(t);
+            float scaleFactor = HMM_SqrtF(closestHoveredDist);
+            HMM_Vec3 offset = HMM_Mul(normal, scaleFactor * 0.03f * *selectionAnim);
+            for (int j = 0; j < 3; j++) {
+                verts[i * 3 + j] = (ren3d_Vert){
+                    .pos = HMM_Add(t.elems[j], offset),
+                    .normal = normal,
+                };
+            };
+        }
+
+        _geo_hoverMesh = ren3d_meshInit(verts, vertCount);
         HMM_Mat4 model = HMM_Translate(HMM_V3(0, 0, 0));
         HMM_Vec4 color = ui_colorText;  // FIXME: not text colored
         color.A = 0.1;                  // FIXME: ui val for this alpha
@@ -789,42 +848,33 @@ chamfer
 // SOA formatting in terms of the data for this comp would be great, but a giant pain in the ass to write out
 // or maybe thats the OO poison in my blood
 // FIXME: also this solution is very bad asymptotically
-bool geo_trisAdjacent(const geo_BSPTri* a, const geo_BSPTri* b, int* outEdgeA) {
-    *outEdgeA = -1;  // default return
+// bool geo_trisAdjacent(geo_Tri a, geo_Tri b, int* outEdgeA) {
+//     *outEdgeA = -1;  // default return
 
-    for (int i = 0; i < 3; i++) {
-        HMM_Vec3 aNext = a->tri.elems[(i + 1) % 3];
-        HMM_Vec3 aCurrent = a->tri.elems[i];
-        HMM_Vec3 aNormal = HMM_Norm(HMM_Sub(aNext, aCurrent));
-        // flipping like this so that if the normals were to be opposite they still match below
-        if (aNormal.X < 0) {
-            aNormal = HMM_Mul(aNormal, -1.0f);
-        }
+//     for (int i = 0; i < 3; i++) {
+//         HMM_Vec3 aNext = a.elems[(i + 1) % 3];
+//         HMM_Vec3 aCurrent = a.elems[i];
+//         HMM_Vec3 aNormal = HMM_Norm(HMM_Sub(aNext, aCurrent));
+//         // flipping like this so that if the normals were to be opposite they still match below
+//         if (aNormal.X < 0) {
+//             aNormal = HMM_Mul(aNormal, -1.0f);
+//         }
 
-        for (int j = 0; j < 3; j++) {
-            HMM_Vec3 bNext = b->tri.elems[(i + 1) % 3];
-            HMM_Vec3 bCurrent = b->tri.elems[i];
-            HMM_Vec3 bNormal = HMM_Norm(HMM_Sub(bNext, bCurrent));
-            if (bNormal.X < 0) {
-                aNormal = HMM_Mul(bNormal, -1.0f);
-            }
+//         for (int j = 0; j < 3; j++) {
+//             HMM_Vec3 bNext = b.elems[(i + 1) % 3];
+//             HMM_Vec3 bCurrent = b.elems[i];
+//             HMM_Vec3 bNormal = HMM_Norm(HMM_Sub(bNext, bCurrent));
+//             if (bNormal.X < 0) {
+//                 aNormal = HMM_Mul(bNormal, -1.0f);
+//             }
 
-            if (geo_v3Equal(bNormal, aNormal)) {
-                *outEdgeA = i;
-                return true;
-            }
-        }  // end tri b loop
-    }  // end tri a loop
+//             if (geo_v3Equal(bNormal, aNormal)) {
+//                 // FIXME: colinearity check
+//                 *outEdgeA = i;
+//                 return true;
+//             }
+//         }  // end tri b loop
+//     }  // end tri a loop
 
-    return false;
-}
-
-// void geo_copyTrisToFaceArrays(const geo_MeshFace* face, const geo_BSPTriList* fullTriList) {
-// }
-
-// // faces shouldn't be freestanding, so the edge is calcualted using only one faces geometry
-// bool geo_edgeBetweenFaces(const geo_MeshFace* a, const geo_MeshFace* b) {
-// }
-
-// bool geo_edgesMeet() {
+//     return false;
 // }
