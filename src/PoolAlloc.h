@@ -73,7 +73,7 @@ static PoolAllocNode* _poolAllocFindAlloc(PoolAlloc* pool, void* alloc) {
 
 // FIXME: macro
 void* poolAllocAlloc(PoolAlloc* pool, int64_t size) {
-    SNZ_ASSERTF(size >= 0, "new allocation with size <= 0, was: %lld", size);
+    SNZ_ASSERTF(size >= 0, "new allocation with size < 0, was: %lld", size);
 
     PoolAllocNode* node = NULL;
     for (int i = 0; i < pool->nodeCount; i++) {

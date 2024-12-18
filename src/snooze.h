@@ -63,6 +63,12 @@ void snz_testPrintSection(const char* name) {
     printf("\n    -- %s Tests -- \n", name);
 }
 
+#define SNZ_SLICE(T)   \
+    typedef struct {   \
+        T* elems;      \
+        int64_t count; \
+    } T##Slice;
+
 // FIXME: multiple def guards
 
 // UTILITIES ==================================================================

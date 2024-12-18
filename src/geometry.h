@@ -20,11 +20,12 @@ typedef struct {
     };
 } geo_Tri;
 
+SNZ_SLICE(geo_Tri);
+
 typedef struct geo_MeshFace geo_MeshFace;
 struct geo_MeshFace {
     geo_MeshFace* next;
-    geo_Tri* tris;
-    int64_t triCount;
+    geo_TriSlice tris;
 };
 
 typedef struct geo_BSPTri geo_BSPTri;
@@ -550,10 +551,10 @@ ren3d_Mesh geo_BSPTriListToRenderMesh(geo_BSPTriList list, PoolAlloc* pool) {
 // assumes valid mesh->bspTris and and old but non-null mesh->faces data.
 void geo_BSPTriListToFaceTris(PoolAlloc* pool, geo_Mesh* mesh) {
     for (geo_MeshFace* f = mesh->firstFace; f; f = f->next) {
-        f->triCount = 0;
+        f->tris = (geo_TriSlice){0};
     }
     for (geo_BSPTri* tri = mesh->bspTris.first; tri; tri = tri->next) {
-        geo_Tri* t = poolAllocPushArray(pool, tri->sourceFace->tris, tri->sourceFace->triCount, geo_Tri);
+        geo_Tri* t = poolAllocPushArray(pool, tri->sourceFace->tris.elems, tri->sourceFace->tris.count, geo_Tri);
         *t = tri->tri;
     }
 }
@@ -771,8 +772,8 @@ void geo_buildHoverAndSelectionMesh(geo_Mesh* mesh, HMM_Mat4 vp, HMM_Vec3 camera
         for (geo_MeshFace* face = mesh->firstFace; face; face = face->next) {
             HMM_Vec3 intersection = HMM_V3(0, 0, 0);
             // NOTE: any model transform will have to change this to adapt
-            for (int64_t i = 0; i < face->triCount; i++) {
-                bool hovered = geo_intersectRayAndTri(cameraPos, mouseRayDir, face->tris[i], &intersection);
+            for (int64_t i = 0; i < face->tris.count; i++) {
+                bool hovered = geo_intersectRayAndTri(cameraPos, mouseRayDir, face->tris.elems[i], &intersection);
                 if (hovered) {
                     float dist = HMM_LenSqr(HMM_Sub(intersection, cameraPos));
                     if (dist < closestHoveredDist) {
@@ -797,10 +798,10 @@ void geo_buildHoverAndSelectionMesh(geo_Mesh* mesh, HMM_Mat4 vp, HMM_Vec3 camera
 
         ren3d_meshDeinit(&_geo_hoverMesh);
 
-        int64_t vertCount = closestHovered->triCount * 3;
+        int64_t vertCount = closestHovered->tris.count * 3;
         ren3d_Vert* verts = SNZ_ARENA_PUSH_ARR(scratch, vertCount, ren3d_Vert);
-        for (int64_t i = 0; i < closestHovered->triCount; i++) {
-            geo_Tri t = closestHovered->tris[i];
+        for (int64_t i = 0; i < closestHovered->tris.count; i++) {
+            geo_Tri t = closestHovered->tris.elems[i];
             HMM_Vec3 normal = geo_triNormal(t);
             float scaleFactor = HMM_SqrtF(closestHoveredDist);
             HMM_Vec3 offset = HMM_Mul(normal, scaleFactor * 0.03f * *selectionAnim);
@@ -857,4 +858,39 @@ bool geo_trisAdjacent(geo_Tri a, geo_Tri b, int* outEdgeA) {
     }  // end tri a loop
 
     return false;
+}
+
+typedef struct {
+    HMM_Vec3 a;
+    HMM_Vec3 b;
+} geo_MeshEdgeSegment;
+
+SNZ_SLICE(geo_MeshEdgeSegment);
+
+// FIXME: this is disgusting and quadratic and gross atl optimze to log time plz
+// does not loop thru faces, just combines the given two
+// FIXME: pool use bad, should just have an arena, but rn there is no saftey when building slices out.
+// slice gets allocated into pool (FIXME: again, gross)
+geo_MeshEdgeSegmentSlice geo_meshFacesToMeshEdgeSegments(const geo_MeshFace* a, const geo_MeshFace* b, PoolAlloc* pool) {
+    geo_MeshEdgeSegmentSlice out = (geo_MeshEdgeSegmentSlice){
+        .count = 0,
+        .elems = poolAllocAlloc(pool, 0),
+    };
+
+    for (int64_t aIdx = 0; aIdx < a->tris.count; aIdx++) {
+        for (int64_t bIdx = 0; bIdx < b->tris.count; bIdx++) {
+            int edge = 0;
+            geo_Tri aTri = a->tris.elems[aIdx];
+            if (!geo_trisAdjacent(aTri, b->tris.elems[bIdx], &edge)) {
+                continue;
+            }
+
+            geo_MeshEdgeSegment* s = poolAllocPushArray(pool, out.elems, out.count, geo_MeshEdgeSegment);
+            *s = (geo_MeshEdgeSegment){
+                .a = aTri.elems[edge],
+                .b = aTri.elems[(edge + 1) % 3],
+            };
+        }  // b loop
+    }
+    return out;
 }
