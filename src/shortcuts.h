@@ -128,7 +128,7 @@ bool _scc_distanceConstraint(_sc_CommandArgs args) {
 
 bool _scc_angleConstraint(_sc_CommandArgs args) {
     int selectedCount = 0;
-    sk_Line* lines[2] = {NULL, NULL};
+    sk_Line* lines[2] = { NULL, NULL };
     for (sk_Line* line = args.activeSketch->firstLine; line; line = line->next) {
         if (line->sel.selected) {
             selectedCount++;
@@ -185,7 +185,7 @@ bool _scc_angleConstraint(_sc_CommandArgs args) {
 bool scc_line(_sc_CommandArgs args) {
     if (args.firstFrame) {  // creating a line between two selected pts
         int ptCount = 0;
-        sk_Point* pts[2] = {0};
+        sk_Point* pts[2] = { 0 };
         for (sk_Point* p = args.activeSketch->firstPoint; p; p = p->next) {
             if (p->sel.selected) {
                 ptCount++;
@@ -383,7 +383,7 @@ void sc_updateAndBuildHintWindow(sk_Sketch* activeSketch, sc_View* outCurrentVie
             }
 
             snzu_boxFillParent();
-            snzu_boxSetSizeFromEndAx(SNZU_AX_X, *openAnim * 400);
+            snzu_boxSetSizeFromEndAx(SNZU_AX_X, *openAnim * 375);
         }
 
         if (buildInners) {

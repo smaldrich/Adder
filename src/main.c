@@ -10,6 +10,7 @@
 #include "sound.h"
 #include "stb/stb_image.h"
 #include "ui.h"
+#include "settings.h"
 
 snzu_Instance main_uiInstance;
 
@@ -25,10 +26,9 @@ sku_Align main_sketchAlign;
 snzr_FrameBuffer main_sceneFB;
 geo_Mesh main_mesh;
 
-bool main_inDarkMode = true;
-bool main_inMusicMode = true;
-bool main_skybox = true;
-bool main_hintWindowAlwaysOpen = true;
+sc_View main_currentView = SC_VIEW_SCENE;
+set_Settings main_settings;
+
 
 void main_init(snz_Arena* scratch, SDL_Window* window) {
     _poolAllocTests();
@@ -43,10 +43,11 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
     main_uiInstance = snzu_instanceInit();
     snzu_instanceSelect(&main_uiInstance);
     main_sketchUIInstance = snzu_instanceInit();
+    main_settings = set_settingsDefault();
 
     {  // FIXME: move to snz
         SDL_Surface* s = SDL_LoadBMP("res/textures/icon.bmp");
-        char buf[1000] = {0};
+        char buf[1000] = { 0 };
         const char* err = SDL_GetErrorMsg(buf, 1000);
         printf("%s", err);
         SNZ_ASSERT(s != NULL, "icon load failed.");
@@ -256,7 +257,7 @@ void main_drawDemoScene(HMM_Vec2 panelSize, snz_Arena* scratch, float dt, snzu_I
     // FIXME: debug wireframe
     ren3d_drawMesh(&main_mesh.renderMesh, vp, model, HMM_V4(1, 1, 1, 1), HMM_V3(-1, -1, -1), ui_lightAmbient);
     geo_buildHoverAndSelectionMesh(&main_mesh, vp, cameraPos, mouseRayNormal, scratch);
-    if (main_skybox && ui_skyBox != NULL) {
+    if (main_settings.skybox && ui_skyBox != NULL) {
         ren3d_drawSkybox(vp, *ui_skyBox);
     }
 
@@ -277,7 +278,7 @@ void main_drawDemoScene(HMM_Vec2 panelSize, snz_Arena* scratch, float dt, snzu_I
             *min = cur;
         }
         soundVal = (*smooth / *max - 0.5) * 0.25;
-        if (!main_inMusicMode || *max == 0) {
+        if (!main_settings.musicMode || *max == 0) {
             soundVal = 0;
         }
     }
@@ -287,44 +288,18 @@ void main_drawDemoScene(HMM_Vec2 panelSize, snz_Arena* scratch, float dt, snzu_I
     snzu_instanceSelect(&main_uiInstance);
 }
 
-void main_drawSettings() {
-    ui_menuMargin();
-    snzu_boxScope() {
-        snzu_boxNew("title");
-        snzu_boxSetDisplayStr(&ui_titleFont, ui_colorText, "Settings");
-        snzu_boxSetSizeFitText(ui_padding);
-
-        bool prev = main_inDarkMode;
-        ui_switch("darkmode", "dark theme", &main_inDarkMode);
-
-        if (prev != main_inDarkMode) {
-            if (!main_inDarkMode) {
-                ui_setThemeLight();
-                // FIXME: make this constant refresh so i don't have to diff it here
-            } else {
-                ui_setThemeDark();
-                // FIXME: when in dark mode, button with highlight is awful
-                // FIXME: darkmode highligh is the same as err color
-                // FIXME: when in dark mode, text in the scene is really weird but only when the left bar is moving
-            }
-        }
-        ui_switch("musicmode", "music mode", &main_inMusicMode);
-        ui_switch("skybox", "sky box", &main_skybox);
-        ui_switch("hint window", "hint window always", &main_hintWindowAlwaysOpen);
-    }
-    // FIXME: UI variable for gap here
-    snzu_boxOrderChildrenInRowRecurse(10, SNZU_AX_Y);
-    snzuc_scrollArea();
-}
-
-sc_View main_currentView = SC_VIEW_SCENE;
-
 void main_frame(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screenSize) {
     snzu_instanceSelect(&main_uiInstance);
     snzu_frameStart(scratch, screenSize, dt);
 
     sk_sketchClearElementsMarkedForDelete(&main_sketch);
     sk_sketchSolve(&main_sketch);
+
+    if (main_settings.darkMode) {
+        ui_setThemeDark();
+    } else {
+        ui_setThemeLight();
+    }
 
     HMM_Vec2 rightPanelSize = HMM_V2(0, 0);
 
@@ -336,7 +311,7 @@ void main_frame(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screen
 
         // FIXME: on startup this flashes out
         float leftPanelSize = *leftPanelAnim * 200;
-        bool target = (leftPanelInter->mousePosGlobal.X < 20) || (leftPanelInter->mousePosGlobal.X < leftPanelSize);
+        bool target = main_settings.leftBarAlwaysOpen || (leftPanelInter->mousePosGlobal.X < 20) || (leftPanelInter->mousePosGlobal.X < leftPanelSize);
         // ^ FIXME: fixable without doing this: using hover doesn't work because of inner elts. masking hover events
         snzu_easeExp(leftPanelAnim, target, ui_menuAnimationSpeed);
 
@@ -393,7 +368,7 @@ void main_frame(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screen
             } else if (main_currentView == SC_VIEW_SCENE) {
                 main_drawDemoScene(rightPanelSize, scratch, dt, inputs);
             } else if (main_currentView == SC_VIEW_SETTINGS) {
-                main_drawSettings();
+                set_build(&main_settings);
             } else if (main_currentView == SC_VIEW_SHORTCUTS) {
                 sc_buildSettings();
             } else {
@@ -402,7 +377,7 @@ void main_frame(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screen
         }
 
         bool openHintWindow = inputs.mousePos.X > (screenSize.X - 20);
-        if (main_hintWindowAlwaysOpen) {
+        if (main_settings.hintWindowAlwaysOpen) {
             openHintWindow = true;
         }
         sc_updateAndBuildHintWindow(&main_sketch, &main_currentView, scratch, openHintWindow);

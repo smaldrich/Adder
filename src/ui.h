@@ -43,6 +43,9 @@ void ui_setThemeLight() {
 }
 
 void ui_setThemeDark() {
+    // FIXME: when in dark mode, button with highlight is awful
+    // FIXME: darkmode highligh is the same as err color
+    // FIXME: when in dark mode, text in the scene is really weird but only when the left bar is moving
     ui_colorText = HMM_V4(1, 1, 1, 1);
     ui_colorAccent = HMM_V4(181 / 255.0, 55 / 255.0, 93 / 255.0, 1);
     ui_colorTransparentAccent = ui_colorAccent;
@@ -125,12 +128,12 @@ _snzu_Box* ui_menuMargin() {
 }
 
 // constructs at 0, 0
-void ui_switch(const char* boxTag, const char* label, bool* const state) {
+void ui_switch(const char* label, bool* const state) {
     float textHeight = ui_labelFont.renderedSize;  // FIXME: no mucking like this
     float sliderWidth = 40;
     float innerMargin = 4;
 
-    snzu_boxNew(boxTag);
+    snzu_boxNew(label);
 
     snzu_Interaction* const inter = SNZU_USE_MEM(snzu_Interaction, "inter");
     snzu_boxSetInteractionOutput(inter, SNZU_IF_HOVER | SNZU_IF_MOUSE_BUTTONS);
