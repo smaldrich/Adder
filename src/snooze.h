@@ -69,6 +69,9 @@ void snz_testPrintSection(const char* name) {
         int64_t count; \
     } T##Slice
 
+SNZ_SLICE(HMM_Vec2);
+SNZ_SLICE(HMM_Vec3);
+
 // FIXME: multiple def guards
 
 // UTILITIES ==================================================================

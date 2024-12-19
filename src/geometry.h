@@ -100,7 +100,7 @@ HMM_Vec3 geo_triNormal(geo_Tri t) {
 }
 
 geo_BSPTriList geo_BSPTriListInit() {
-    return (geo_BSPTriList){.first = NULL, .last = NULL};
+    return (geo_BSPTriList) { .first = NULL, .last = NULL };
 }
 
 // destructive to node->next
@@ -146,7 +146,7 @@ void geo_BSPTriListPushNew(snz_Arena* arena, geo_BSPTriList* list, HMM_Vec3 a, H
 void geo_BSPTriListTransform(geo_BSPTriList* list, HMM_Mat4 transform) {
     for (geo_BSPTri* node = list->first; node; node = node->next) {
         for (int i = 0; i < 3; i++) {
-            HMM_Vec4 v4 = (HMM_Vec4){.XYZ = node->tri.elems[i], .W = 1};
+            HMM_Vec4 v4 = (HMM_Vec4){ .XYZ = node->tri.elems[i], .W = 1 };
             node->tri.elems[i] = HMM_MulM4V4(transform, v4).XYZ;
         }
     }
@@ -307,7 +307,7 @@ static void _geo_BSPTriSplit(geo_BSPTri* tri, snz_Arena* arena, geo_BSPTriList* 
     } else if (rel == geo_PR_WITHIN) {
         geo_BSPTriListPush(outInsideList, tri);
     } else {
-        HMM_Vec3 verts[5] = {0};
+        HMM_Vec3 verts[5] = { 0 };
         int vertCount = 0;
         int firstIntersectionIdx = -1;
 
@@ -361,7 +361,7 @@ static void _geo_BSPTriSplit(geo_BSPTri* tri, snz_Arena* arena, geo_BSPTriList* 
         // rotate points so that the verts can be triangulated consistantly
         // problem if you don't do this is that the triangulation doesn't end
         // up going across the cut line or will create zero-width tris
-        HMM_Vec3 rotatedVerts[5] = {0};
+        HMM_Vec3 rotatedVerts[5] = { 0 };
         for (int i = 0; i < vertCount; i++) {
             rotatedVerts[i] = verts[(i + firstIntersectionIdx) % vertCount];
         }
@@ -530,28 +530,26 @@ void geo_BSPTriListRecoverNonBroken(geo_BSPTriList** tris, snz_Arena* arena) {
     *tris = geo_BSPTriListJoin(trisRemaining, recovered);
 }
 
-// FIXME: remove pool here
-ren3d_Mesh geo_BSPTriListToRenderMesh(geo_BSPTriList list, PoolAlloc* pool) {
-    ren3d_Vert* verts = poolAllocAlloc(pool, 0);
-    int64_t vertCount = 0;
-
+ren3d_Mesh geo_BSPTriListToRenderMesh(geo_BSPTriList list, snz_Arena* scratch) {
+    SNZ_ARENA_ARR_BEGIN(scratch, ren3d_Vert);
     for (geo_BSPTri* tri = list.first; tri; tri = tri->next) {
         HMM_Vec3 triNormal = geo_triNormal(tri->tri);
         for (int i = 0; i < 3; i++) {
-            *poolAllocPushArray(pool, verts, vertCount, ren3d_Vert) = (ren3d_Vert){
+            *SNZ_ARENA_PUSH(scratch, ren3d_Vert) = (ren3d_Vert){
                 .pos = tri->tri.elems[i],
                 .normal = triNormal,
             };
         }
     }
-    return ren3d_meshInit(verts, vertCount);
+    ren3d_VertSlice s = SNZ_ARENA_ARR_END(scratch, ren3d_Vert);
+    return ren3d_meshInit(s.elems, s.count);
 }
 
 // uses a meshes BSPTriList to regenerate the face tri arrays
 // assumes valid mesh->bspTris and and old but non-null mesh->faces data.
 void geo_BSPTriListToFaceTris(PoolAlloc* pool, geo_Mesh* mesh) {
     for (geo_MeshFace* f = mesh->firstFace; f; f = f->next) {
-        f->tris = (geo_TriSlice){0};
+        f->tris = (geo_TriSlice){ 0 };
     }
     for (geo_BSPTri* tri = mesh->bspTris.first; tri; tri = tri->next) {
         geo_Tri* t = poolAllocPushArray(pool, tri->sourceFace->tris.elems, tri->sourceFace->tris.count, geo_Tri);
@@ -563,7 +561,7 @@ void geo_BSPTriListToFaceTris(PoolAlloc* pool, geo_Mesh* mesh) {
 // FIXME: ew
 // out mesh has valid bsp tris a face list that the tris are linked to (which does not have its copy of the triangle data)
 geo_Mesh geo_cube(snz_Arena* arena) {
-    geo_Mesh out = (geo_Mesh){0};
+    geo_Mesh out = (geo_Mesh){ 0 };
     out.bspTris = geo_BSPTriListInit();
 
     HMM_Vec3 v[] = {
@@ -869,14 +867,8 @@ SNZ_SLICE(geo_MeshEdgeSegment);
 
 // FIXME: this is disgusting and quadratic and gross atl optimze to log time plz
 // does not loop thru faces, just combines the given two
-// FIXME: pool use bad, should just have an arena, but rn there is no saftey when building slices out.
-// slice gets allocated into pool (FIXME: again, gross)
-geo_MeshEdgeSegmentSlice geo_meshFacesToMeshEdgeSegments(const geo_MeshFace* a, const geo_MeshFace* b, PoolAlloc* pool) {
-    geo_MeshEdgeSegmentSlice out = (geo_MeshEdgeSegmentSlice){
-        .count = 0,
-        .elems = poolAllocAlloc(pool, 0),
-    };
-
+geo_MeshEdgeSegmentSlice geo_meshFacesToMeshEdgeSegments(const geo_MeshFace* a, const geo_MeshFace* b, snz_Arena* arena) {
+    SNZ_ARENA_ARR_BEGIN(arena, geo_MeshEdgeSegment);
     for (int64_t aIdx = 0; aIdx < a->tris.count; aIdx++) {
         for (int64_t bIdx = 0; bIdx < b->tris.count; bIdx++) {
             int edge = 0;
@@ -885,12 +877,12 @@ geo_MeshEdgeSegmentSlice geo_meshFacesToMeshEdgeSegments(const geo_MeshFace* a, 
                 continue;
             }
 
-            geo_MeshEdgeSegment* s = poolAllocPushArray(pool, out.elems, out.count, geo_MeshEdgeSegment);
+            geo_MeshEdgeSegment* s = SNZ_ARENA_PUSH(arena, geo_MeshEdgeSegment);
             *s = (geo_MeshEdgeSegment){
                 .a = aTri.elems[edge],
                 .b = aTri.elems[(edge + 1) % 3],
             };
         }  // b loop
     }
-    return out;
+    return SNZ_ARENA_ARR_END(arena, geo_MeshEdgeSegment);
 }

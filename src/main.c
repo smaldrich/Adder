@@ -90,14 +90,12 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
             faces = cubeB.firstFace;
         }
 
-        PoolAlloc pool = poolAllocInit();  // FIXME: it's just the verts getting put in this pool, bad structure
         main_mesh = (geo_Mesh){
             .bspTris = *bspTris,
-            .renderMesh = geo_BSPTriListToRenderMesh(*bspTris, &pool),
+            .renderMesh = geo_BSPTriListToRenderMesh(*bspTris, scratch),
             .firstFace = faces,
         };
         geo_BSPTriListToFaceTris(&main_pool, &main_mesh);
-        poolAllocDeinit(&pool);
 
         geo_BSPTri* tri = main_mesh.bspTris.first;
         for (int i = 0; i < 9; i++) {

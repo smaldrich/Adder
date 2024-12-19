@@ -24,6 +24,8 @@ typedef struct {
     HMM_Vec3 normal;
 } ren3d_Vert;
 
+SNZ_SLICE(ren3d_Vert);
+
 typedef struct {
     uint64_t vertCount;
     uint32_t vaId;
