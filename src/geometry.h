@@ -802,7 +802,7 @@ void geo_buildHoverAndSelectionMesh(geo_Mesh* mesh, HMM_Mat4 vp, HMM_Vec3 camera
             geo_Tri t = closestHovered->tris.elems[i];
             HMM_Vec3 normal = geo_triNormal(t);
             float scaleFactor = HMM_SqrtF(closestHoveredDist);
-            HMM_Vec3 offset = HMM_Mul(normal, scaleFactor * 0.03f * *selectionAnim);
+            HMM_Vec3 offset = HMM_Mul(normal, scaleFactor * -0.01f * *selectionAnim);
             for (int j = 0; j < 3; j++) {
                 verts[i * 3 + j] = (ren3d_Vert){
                     .pos = HMM_Add(t.elems[j], offset),
@@ -866,6 +866,18 @@ typedef struct {
 } geo_MeshEdgeSegment;
 
 SNZ_SLICE(geo_MeshEdgeSegment);
+
+typedef struct geo_MeshEdge geo_MeshEdge;
+struct geo_MeshEdge {
+    geo_MeshEdge* next;
+    geo_MeshEdgeSegmentSlice segments;
+};
+
+// void geo_meshEdgeDraw(geo_MeshEdge e) {
+//     for (int64_t i = 0; i < e.segments.count; i++) {
+//         snzr_drawLine();
+//     }
+// }
 
 // FIXME: this is disgusting and quadratic and gross atl optimze to log time plz
 // does not loop thru faces, just combines the given two

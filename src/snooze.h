@@ -526,7 +526,7 @@ static void _snzr_init(snz_Arena* scratchArena) {
         const char* vertSrc =
             "#version 460\n"
             "struct lineVert {"
-            "    vec2 pos;"
+            "    vec3 pos;"
             "};"
 
             "layout(std430, binding = 0) buffer vertBuffer {"
@@ -534,7 +534,6 @@ static void _snzr_init(snz_Arena* scratchArena) {
             "};"
 
             "uniform mat4 uVP;"
-            "uniform float uZ;"
             "uniform vec2 uResolution;"
             "uniform float uThickness;"
 
@@ -548,7 +547,7 @@ static void _snzr_init(snz_Arena* scratchArena) {
             "    vec4 va[4];"
             "    for (int i=0; i<4; ++i)"
             "    {"
-            "        va[i] = uVP * vec4(verts[line_i+i].pos, uZ, 1);"
+            "        va[i] = uVP * vec4(verts[line_i+i].pos, 1);"
             "        va[i].xyz /= va[i].w;"
             "        va[i].xy = (va[i].xy + 1.0) * 0.5 * uResolution;"
             "    }"
@@ -563,7 +562,7 @@ static void _snzr_init(snz_Arena* scratchArena) {
             "        vec2 v_miter = normalize(nv_line + vec2(-v_pred.y, v_pred.x));"
             "        pos = va[1];"
             "        pos.xy += v_miter * uThickness * (tri_i == 1 ? -0.5 : 0.5) / dot(v_miter, nv_line);"
-            "        vFragPos = vec3(verts[line_i + 1].pos, uZ);"  // FIXME: technically this isn't accounting for the width of the line in determning frag position, but I don't care rn
+            "        vFragPos = verts[line_i + 1].pos;"  // FIXME: technically this isn't accounting for the width of the line in determning frag position, but I don't care rn
             "    }"
             "    else"
             "    {"
@@ -571,7 +570,7 @@ static void _snzr_init(snz_Arena* scratchArena) {
             "        vec2 v_miter = normalize(nv_line + vec2(-v_succ.y, v_succ.x));"
             "        pos = va[2];"
             "        pos.xy += v_miter * uThickness * (tri_i == 5 ? 0.5 : -0.5) / dot(v_miter, nv_line);"
-            "        vFragPos = vec3(verts[line_i + 2].pos, uZ);"  // FIXME: technically this isn't accounting for the width of the line in determning frag position, but I don't care rn
+            "        vFragPos = verts[line_i + 2].pos;"  // FIXME: technically this isn't accounting for the width of the line in determning frag position, but I don't care rn
             "    }"
             "    pos.xy = pos.xy / uResolution * 2.0 - 1.0;"
             "    pos.xyz *= pos.w;"
@@ -802,7 +801,7 @@ void snzr_drawText(HMM_Vec2 start,
 
 // FIXME: disgusting hack on the shader for this
 void snzr_drawLineFaded(
-    HMM_Vec2* pts,
+    HMM_Vec3* pts,
     uint64_t ptCount,
     HMM_Vec4 color,
     float thickness,
@@ -834,24 +833,24 @@ void snzr_drawLineFaded(
     glUniform1f(loc, falloffDuration);
 
     snzr_callGLFnOrError(glBindBuffer(GL_SHADER_STORAGE_BUFFER, _snzr_globs.lineShaderSSBOId));
-    snzr_callGLFnOrError(glBufferData(GL_SHADER_STORAGE_BUFFER, sizeof(HMM_Vec2) * (ptCount + 2), NULL, GL_DYNAMIC_DRAW));
+    snzr_callGLFnOrError(glBufferData(GL_SHADER_STORAGE_BUFFER, sizeof(HMM_Vec3) * (ptCount + 2), NULL, GL_DYNAMIC_DRAW));
 
-    HMM_Vec2 startMiter = HMM_Sub(pts[1], pts[0]);
+    HMM_Vec3 startMiter = HMM_Sub(pts[1], pts[0]);
     startMiter = HMM_Mul(HMM_Norm(startMiter), 0.001f);
     startMiter = HMM_Sub(pts[0], startMiter);
-    snzr_callGLFnOrError(glBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, sizeof(HMM_Vec2), &startMiter));
-    snzr_callGLFnOrError(glBufferSubData(GL_SHADER_STORAGE_BUFFER, sizeof(HMM_Vec2), ptCount * sizeof(HMM_Vec2), pts));
-    HMM_Vec2 endMiter = HMM_Sub(pts[ptCount - 1], pts[ptCount - 2]);
+    snzr_callGLFnOrError(glBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, sizeof(HMM_Vec3), &startMiter));
+    snzr_callGLFnOrError(glBufferSubData(GL_SHADER_STORAGE_BUFFER, sizeof(HMM_Vec3), ptCount * sizeof(HMM_Vec3), pts));
+    HMM_Vec3 endMiter = HMM_Sub(pts[ptCount - 1], pts[ptCount - 2]);
     endMiter = HMM_Mul(HMM_Norm(endMiter), 0.001f);
     endMiter = HMM_Add(pts[ptCount - 1], endMiter);
-    snzr_callGLFnOrError(glBufferSubData(GL_SHADER_STORAGE_BUFFER, sizeof(HMM_Vec2) * (ptCount + 1), sizeof(HMM_Vec2), &endMiter));
+    snzr_callGLFnOrError(glBufferSubData(GL_SHADER_STORAGE_BUFFER, sizeof(HMM_Vec3) * (ptCount + 1), sizeof(HMM_Vec3), &endMiter));
 
     snzr_callGLFnOrError(glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, _snzr_globs.lineShaderSSBOId));
     snzr_callGLFnOrError(glDrawArrays(GL_TRIANGLES, 0, (ptCount - 1) * 6));
 }
 
 // end miters automatically added, pointing straight away
-void snzr_drawLine(HMM_Vec2* pts, uint64_t ptCount, HMM_Vec4 color, float thickness, HMM_Mat4 vp) {
+void snzr_drawLine(HMM_Vec3* pts, uint64_t ptCount, HMM_Vec4 color, float thickness, HMM_Mat4 vp) {
     snzr_drawLineFaded(pts, ptCount, color, thickness, vp, HMM_V3(0, 0, 0), INFINITY, INFINITY);
 }
 

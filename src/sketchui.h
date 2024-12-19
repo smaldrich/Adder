@@ -215,7 +215,9 @@ static void _sku_drawConstraint(sk_Constraint* c, snz_Arena* scratch, HMM_Mat4 s
         HMM_Vec2 offset = HMM_Mul(HMM_V2(diff.Y, -diff.X), SKU_DISTANCE_CONSTRAINT_OFFSET * (1 + soundPct) * c->uiInfo.scaleFactor);
         p1 = HMM_Add(p1, offset);
         p2 = HMM_Add(p2, offset);
-        HMM_Vec2 points[] = {p1, p2};
+        HMM_Vec3 points[2] = {0};
+        points[0].XY = p1;
+        points[1].XY = p2;
         snzr_drawLine(points, 2, c->uiInfo.drawnColor, drawnThickness, sketchMVP);
     } else if (c->kind == SK_CK_ANGLE) {
         sk_Point* joint = NULL;
@@ -234,11 +236,10 @@ static void _sku_drawConstraint(sk_Constraint* c, snz_Arena* scratch, HMM_Mat4 s
             sk_Point* otherOnLine2 = (c->line2->p1 == joint) ? c->line2->p2 : c->line2->p1;
             HMM_Vec2 offset1 = HMM_Mul(HMM_Norm(HMM_Sub(otherOnLine1->pos, joint->pos)), offset);
             HMM_Vec2 offset2 = HMM_Mul(HMM_Norm(HMM_Sub(otherOnLine2->pos, joint->pos)), offset);
-            HMM_Vec2 pts[] = {
-                HMM_Add(joint->pos, offset1),
-                HMM_Add(joint->pos, HMM_Add(offset1, offset2)),
-                HMM_Add(joint->pos, offset2),
-            };
+            HMM_Vec3 pts[3] = {0};
+            pts[0].XY = HMM_Add(joint->pos, offset1);
+            pts[1].XY = HMM_Add(joint->pos, HMM_Add(offset1, offset2));
+            pts[2].XY = HMM_Add(joint->pos, offset2);
             snzr_drawLine(pts, 3, c->uiInfo.drawnColor, drawnThickness, sketchMVP);
         } else {
             HMM_Vec2 angles = _sku_angleOfLinesInAngleConstraint(c);
@@ -246,10 +247,10 @@ static void _sku_drawConstraint(sk_Constraint* c, snz_Arena* scratch, HMM_Mat4 s
             float angleRange = _sku_angleDifferenceForConstraint(c, angles.Left, angles.Right);
 
             int ptCount = (int)(fabsf(angleRange) / HMM_AngleDeg(10)) + 1;
-            HMM_Vec2* linePts = SNZ_ARENA_PUSH_ARR(scratch, ptCount, HMM_Vec2);
+            HMM_Vec3* linePts = SNZ_ARENA_PUSH_ARR(scratch, ptCount, HMM_Vec3);
             for (int i = 0; i < ptCount; i++) {
                 HMM_Vec2 o = HMM_RotateV2(HMM_V2(offset, 0), startAngle + (i * c->value / (ptCount - 1)));
-                linePts[i] = HMM_Add(joint->pos, o);
+                linePts[i].XY = HMM_Add(joint->pos, o);
             }
             snzr_drawLine(linePts, ptCount, c->uiInfo.drawnColor, drawnThickness, sketchMVP);
         }
@@ -333,7 +334,7 @@ static void _sku_buildConstraint(sk_Constraint* c, float sound, HMM_Mat4 model, 
 }
 
 static void _sku_drawManifold(sk_Point* p, HMM_Vec3 cameraPos, HMM_Mat4 model, HMM_Mat4 mvp, float sound, snz_Arena* scratch) {
-    HMM_Vec2* pts = NULL;
+    HMM_Vec3* pts = NULL;
     int ptCount = 0;
 
     float distToCamera = HMM_Len(HMM_Sub(cameraPos, _sku_mulM4V3(model, HMM_V3(p->pos.X, p->pos.Y, 0))));
@@ -343,33 +344,33 @@ static void _sku_drawManifold(sk_Point* p, HMM_Vec3 cameraPos, HMM_Mat4 model, H
         return;
     } else if (p->manifold.kind == SK_MK_CIRCLE) {
         ptCount = 20;
-        pts = SNZ_ARENA_PUSH_ARR(scratch, ptCount, HMM_Vec2);
+        pts = SNZ_ARENA_PUSH_ARR(scratch, ptCount, HMM_Vec3);
 
         float angleRange = HMM_AngleDeg(90);
         HMM_Vec2 diff = HMM_Sub(p->pos, p->manifold.circle.origin);
         float startAngle = atan2f(diff.Y, diff.X);
         for (int i = 0; i < ptCount; i++) {
             float angle = startAngle + (i - (ptCount / 2)) * (angleRange / ptCount);
-            pts[i] = HMM_RotateV2(HMM_V2(p->manifold.circle.radius, 0), angle);
-            pts[i] = HMM_Add(pts[i], p->manifold.circle.origin);
+            pts[i].XY = HMM_RotateV2(HMM_V2(p->manifold.circle.radius, 0), angle);
+            pts[i].XY = HMM_Add(pts[i].XY, p->manifold.circle.origin);
         }
     } else if (p->manifold.kind == SK_MK_LINE) {
         ptCount = 2;
-        pts = SNZ_ARENA_PUSH_ARR(scratch, ptCount, HMM_Vec2);
-        pts[0] = p->pos;
-        pts[1] = HMM_Add(p->pos, HMM_Mul(HMM_Norm(p->manifold.line.direction), 0.4f * scaleFactor));
+        pts = SNZ_ARENA_PUSH_ARR(scratch, ptCount, HMM_Vec3);
+        pts[0].XY = p->pos;
+        pts[1].XY = HMM_Add(p->pos, HMM_Mul(HMM_Norm(p->manifold.line.direction), 0.4f * scaleFactor));
     } else if (p->manifold.kind == SK_MK_ANY) {
         // make it really big so the cross line is entirely faded out
         ptCount = 4;
-        pts = SNZ_ARENA_PUSH_ARR(scratch, ptCount, HMM_Vec2);
-        pts[0] = HMM_V2(-1 * scaleFactor, 0);
-        pts[1] = HMM_V2(1 * scaleFactor, 0);
-        pts[2] = HMM_V2(0, -1 * scaleFactor);
-        pts[3] = HMM_V2(0, 1 * scaleFactor);
+        pts = SNZ_ARENA_PUSH_ARR(scratch, ptCount, HMM_Vec3);
+        pts[0].XY = HMM_V2(-1 * scaleFactor, 0);
+        pts[1].XY = HMM_V2(1 * scaleFactor, 0);
+        pts[2].XY = HMM_V2(0, -1 * scaleFactor);
+        pts[3].XY = HMM_V2(0, 1 * scaleFactor);
 
         for (int i = 0; i < ptCount; i++) {
-            pts[i] = HMM_RotateV2(pts[i], HMM_AngleDeg(10));
-            pts[i] = HMM_AddV2(pts[i], p->pos);
+            pts[i].XY = HMM_RotateV2(pts[i].XY, HMM_AngleDeg(10));
+            pts[i].XY = HMM_AddV2(pts[i].XY, p->pos);
         }
     } else if (p->manifold.kind == SK_MK_TWO_POINTS) {
         return;
@@ -424,7 +425,10 @@ static void _sku_draw(sk_Sketch* sketch, snzu_Interaction* inter, HMM_Mat4 model
             for (int i = 0; i < lineCount; i++) {
                 float x = (i - (lineCount / 2)) * lineGap;
                 x -= axOffset;
-                HMM_Vec2 pts[] = {inter->mousePosGlobal, inter->mousePosGlobal};
+                HMM_Vec3 pts[2] = {0};
+                pts[0].XY = inter->mousePosGlobal;
+                pts[1].XY = inter->mousePosGlobal;
+
                 pts[0].Elements[ax] += x;
                 pts[0].Elements[!ax] += 1.5 * scaleFactor;
                 pts[1].Elements[ax] += x;
@@ -447,10 +451,9 @@ static void _sku_draw(sk_Sketch* sketch, snzu_Interaction* inter, HMM_Mat4 model
     }
 
     for (sk_Line* l = sketch->firstLine; l; l = l->next) {
-        HMM_Vec2 points[] = {
-            l->p1->pos,
-            l->p2->pos,
-        };
+        HMM_Vec3 points[] = {0};
+        points[0].XY = l->p1->pos;
+        points[0].XY = l->p2->pos;
         float thickness = HMM_Lerp(2.0f, l->sel.hoverAnim, 5.0f);
         HMM_Vec4 color = HMM_LerpV4(ui_colorText, l->sel.selectionAnim, ui_colorAccent);
         snzr_drawLine(points, 2, color, thickness, sketchMVP);
@@ -475,15 +478,14 @@ static void _sku_draw(sk_Sketch* sketch, snzu_Interaction* inter, HMM_Mat4 model
             vp = HMM_Mul(sketchMVP, vp);
 
             float rad = 0.04 * (p->scaleFactor + sizeAnim);
-            HMM_Vec2 pts[] = {
-                HMM_RotateV2(HMM_V2(rad, 0), HMM_AngleDeg(60)),
-                HMM_RotateV2(HMM_V2(rad, 0), HMM_AngleDeg(180)),
-                HMM_RotateV2(HMM_V2(rad, 0), HMM_AngleDeg(-60)),
-            };
+            HMM_Vec3 pts[] = {0};
+            pts[0].XY = HMM_RotateV2(HMM_V2(rad, 0), HMM_AngleDeg(60));
+            pts[1].XY = HMM_RotateV2(HMM_V2(rad, 0), HMM_AngleDeg(180));
+            pts[2].XY = HMM_RotateV2(HMM_V2(rad, 0), HMM_AngleDeg(-60));
 
             snzr_drawLine(
                 pts,
-                sizeof(pts) / sizeof(HMM_Vec2),
+                sizeof(pts) / sizeof(HMM_Vec3),
                 color,
                 SKU_CONSTRAINT_THICKNESS,
                 vp);
@@ -799,10 +801,9 @@ void sku_drawAndBuildSketch(
     if (inLineMode && lineSrcPoint) {
         HMM_Vec2 mousePos = inter->mousePosGlobal;
         mousePos.Y *= -1;
-        HMM_Vec2 pts[2] = {
-            lineSrcPoint->pos,
-            mousePos,
-        };
+        HMM_Vec3 pts[2] = {0};
+        pts[0].XY = lineSrcPoint->pos;
+        pts[1].XY = mousePos;
         snzr_drawLine(pts, 2, ui_colorTransparentAccent, SKU_LINE_HOVERED_THICKNESS, sketchMVP);
     }
 
