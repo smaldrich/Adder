@@ -67,7 +67,7 @@ void snz_testPrintSection(const char* name) {
     typedef struct {   \
         T* elems;      \
         int64_t count; \
-    } T##Slice;
+    } T##Slice
 
 // FIXME: multiple def guards
 
@@ -88,6 +88,10 @@ typedef struct {
     void* end;
     int64_t reserved;
     const char* name;  // used for debug messages only
+
+    int64_t arrModeElemSize;
+    int64_t arrModeElemCount;
+    const char* arrModeTypeName; // used for debug only
 } snz_Arena;
 
 // returns a pointer to memory that is zeroed
@@ -97,7 +101,7 @@ typedef struct {
 #define SNZ_ARENA_PUSH_ARR(bump, count, T) (T*)(snz_arenaPush((bump), sizeof(T) * (count)))
 
 snz_Arena snz_arenaInit(int64_t size, const char* name) {
-    snz_Arena a;
+    snz_Arena a = { 0 };
     a.name = name;
     a.reserved = size;
     a.start = calloc(1, size);
@@ -113,7 +117,14 @@ void snz_arenaDeinit(snz_Arena* a) {
 
 // FIXME: file and line of req.
 void* snz_arenaPush(snz_Arena* a, int64_t size) {
-    size += (size % sizeof(uint64_t));
+    SNZ_ASSERTF(a->arrModeElemSize == 0 || a->arrModeElemSize == size,
+                "arena push failed for '%s'. Active array elem: '%s' (size %lld), requested: %lld",
+                a->name, a->arrModeTypeName, a->arrModeElemSize, size);
+    a->arrModeElemCount++; // this will always be correct when inside arr mode, and it will just get reset on enter, so we don't need to branch here.
+
+    if (!a->arrModeElemSize) { // only align allocations when not in array mode
+        size += sizeof(uint64_t) - (size % sizeof(uint64_t));
+    }
     char* o = (char*)(a->end);
     if (!(o + size < (char*)(a->start) + a->reserved)) {
         SNZ_ASSERTF(false,
@@ -125,6 +136,9 @@ void* snz_arenaPush(snz_Arena* a, int64_t size) {
 }
 
 void snz_arenaPop(snz_Arena* a, int64_t size) {
+    SNZ_ASSERTF(a->arrModeElemSize == 0,
+                "arena pop failed for '%s'. Active array elem: '%s'",
+                a->name, a->arrModeTypeName);
     char* c = (char*)(a->end);
     SNZ_ASSERTF(size <= (c - (char*)(a->start)),
                 "arena pop failed for '%s', tried to pop %lld bytes, only %lld remaining",
@@ -137,6 +151,9 @@ void snz_arenaClear(snz_Arena* a) {
     SNZ_ASSERTF(a->start != NULL,
                 "arena clear failed for '%s', start was null (unallocated?)",
                 a->name);
+    SNZ_ASSERTF(a->arrModeElemSize == 0,
+                "arena clear failed for '%s'. Active array elem: '%s'",
+                a->name, a->arrModeTypeName);
     memset(a->start, 0, (int64_t)(a->end) - (int64_t)(a->start));
     a->end = a->start;
 }
@@ -157,6 +174,28 @@ char* snz_arenaFormatStr(snz_Arena* arena, const char* fmt, ...) {
 
     va_end(args);
     return out;
+}
+
+#define SNZ_ARENA_ARR_BEGIN(arena, T) _snz_arenaArrBegin(arena, sizeof(T), #T)
+void _snz_arenaArrBegin(snz_Arena* a, int64_t elemSize, const char* elemName) {
+    SNZ_ASSERTF(a->arrModeElemSize == 0,
+                "arena arr begin failed for '%s'. Previous array elem: '%s', attempted to begin with '%s'",
+                a->name, a->arrModeTypeName, elemName);
+    a->arrModeElemSize = elemSize;
+    a->arrModeElemCount = 0;
+    a->arrModeTypeName = elemName;
+}
+
+// evaluates to a slice containing all the elts pushed since SNZ_ARENA_ARR_BEGIN was called.
+// arena should be an arena ptr
+// also sry abt this one, it's real gross. Ease of use should compensate.
+#define SNZ_ARENA_ARR_END(arena, T) (_snz_arenaArrEnd(arena, sizeof(T)), (T##Slice){.elems = (T*)((arena)->end) - (arena)->arrModeElemCount, .count = (arena)->arrModeElemCount})
+void _snz_arenaArrEnd(snz_Arena* a, int64_t elemSize) {
+    SNZ_ASSERTF(a->arrModeElemSize == elemSize,
+        "arena arr end failed for '%s', Current elem: '%s' (size %lld), end elt size was: %lld",
+        a->name, a->arrModeTypeName, a->arrModeElemSize, elemSize);
+    a->arrModeElemSize = 0;
+    a->arrModeTypeName = NULL;
 }
 
 // ARENAS ======================================================================
@@ -250,7 +289,7 @@ uint32_t snzr_shaderInit(const char* vertChars, const char* fragChars, snz_Arena
 // data does not need to be kept alive after this call
 // may be null to indicate undefined contents
 snzr_Texture snzr_textureInitRBGA(int32_t width, int32_t height, uint8_t* data) {
-    snzr_Texture out = {.width = width, .height = height};
+    snzr_Texture out = { .width = width, .height = height };
     snzr_callGLFnOrError(glGenTextures(1, &out.glId));
     snzr_callGLFnOrError(glBindTexture(GL_TEXTURE_2D, out.glId));
     snzr_callGLFnOrError(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR));
@@ -263,7 +302,7 @@ snzr_Texture snzr_textureInitRBGA(int32_t width, int32_t height, uint8_t* data) 
 
 // data does not need to be kept alive after this call
 snzr_Texture snzr_textureInitGrayscale(int32_t width, int32_t height, uint8_t* data) {
-    snzr_Texture out = {.width = width, .height = height};
+    snzr_Texture out = { .width = width, .height = height };
     snzr_callGLFnOrError(glGenTextures(1, &out.glId));
     snzr_callGLFnOrError(glBindTexture(GL_TEXTURE_2D, out.glId));
     snzr_callGLFnOrError(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR));
@@ -318,7 +357,7 @@ void snzr_frameBufferDeinit(snzr_FrameBuffer* fb) {
 #define _SNZR_FONT_UNKNOWN_CHAR 9633  // white box, see: https://www.fileformat.info/info/unicode/char/25a1/index.htm
 
 snzr_Font snzr_fontInit(snz_Arena* dataArena, snz_Arena* scratch, const char* path, float size) {
-    snzr_Font out = {.renderedSize = size};
+    snzr_Font out = { .renderedSize = size };
 
     uint8_t* fileData;
     {
@@ -344,11 +383,11 @@ snzr_Font snzr_fontInit(snz_Arena* dataArena, snz_Arena* scratch, const char* pa
     stbtt_pack_context ctx;
     uint8_t* atlasData = SNZ_ARENA_PUSH_ARR(scratch, _SNZR_FONT_ATLAS_W * _SNZR_FONT_ATLAS_H, uint8_t);
     assert(stbtt_PackBegin(&ctx, atlasData,
-                           _SNZR_FONT_ATLAS_W,
-                           _SNZR_FONT_ATLAS_H,
-                           _SNZR_FONT_ATLAS_W,
-                           1,
-                           NULL));
+        _SNZR_FONT_ATLAS_W,
+        _SNZR_FONT_ATLAS_H,
+        _SNZR_FONT_ATLAS_W,
+        1,
+        NULL));
     stbtt_PackSetOversampling(&ctx, 1, 1);
 
     const int glyphCount = _SNZR_FONT_ASCII_CHAR_COUNT + 1;
@@ -559,7 +598,7 @@ static void _snzr_init(snz_Arena* scratchArena) {
     snzr_callGLFnOrError(glBindBuffer(GL_SHADER_STORAGE_BUFFER, _snzr_globs.lineShaderSSBOId));
     snzr_callGLFnOrError(glBufferData(GL_SHADER_STORAGE_BUFFER, 0, NULL, GL_DYNAMIC_DRAW));
 
-    uint8_t solidTexData[] = {255, 255, 255, 255};
+    uint8_t solidTexData[] = { 255, 255, 255, 255 };
     _snzr_globs.solidTex = snzr_textureInitRBGA(1, 1, solidTexData);
 }
 
@@ -1051,7 +1090,7 @@ static void _snzu_useMemClearOld() {
 #define SNZU_USE_ARRAY(T, count, tag) ((T*)snzu_useMem(sizeof(T) * (count), (tag)))
 
 snzu_Instance snzu_instanceInit() {
-    return (snzu_Instance){0};
+    return (snzu_Instance) { 0 };
 }
 
 void snzu_instanceSelect(snzu_Instance* instance) {
@@ -1732,7 +1771,7 @@ void snz_main(const char* windowTitle, snz_InitFunc initFunc, snz_FrameFunc fram
         SDL_GL_GetDrawableSize(window, &screenW, &screenH);
         _snzr_globs.screenSize = HMM_V2(screenW, screenH);
 
-        snzu_Input uiInputs = (snzu_Input){0};
+        snzu_Input uiInputs = (snzu_Input){ 0 };
 
         SDL_Event e;
         while (SDL_PollEvent(&e)) {
