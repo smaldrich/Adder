@@ -3,6 +3,7 @@
 #include "geometry.h"
 #include "render3d.h"
 #include "serialization2.h"
+#include "settings.h"
 #include "shortcuts.h"
 #include "sketches2.h"
 #include "sketchui.h"
@@ -10,7 +11,6 @@
 #include "sound.h"
 #include "stb/stb_image.h"
 #include "ui.h"
-#include "settings.h"
 
 snzu_Instance main_uiInstance;
 
@@ -29,7 +29,6 @@ geo_Mesh main_mesh;
 sc_View main_currentView = SC_VIEW_SCENE;
 set_Settings main_settings;
 
-
 void main_init(snz_Arena* scratch, SDL_Window* window) {
     _poolAllocTests();
     sk_tests();
@@ -47,7 +46,7 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
 
     {  // FIXME: move to snz
         SDL_Surface* s = SDL_LoadBMP("res/textures/icon.bmp");
-        char buf[1000] = { 0 };
+        char buf[1000] = {0};
         const char* err = SDL_GetErrorMsg(buf, 1000);
         printf("%s", err);
         SNZ_ASSERT(s != NULL, "icon load failed.");
@@ -252,12 +251,12 @@ void main_drawDemoScene(HMM_Vec2 panelSize, snz_Arena* scratch, float dt, snzu_I
     HMM_Mat4 model = HMM_Translate(HMM_V3(0, 0, 0));
     HMM_Mat4 vp = HMM_MulM4(proj, view);
 
-    // FIXME: debug wireframe
-    ren3d_drawMesh(&main_mesh.renderMesh, vp, model, HMM_V4(1, 1, 1, 1), HMM_V3(-1, -1, -1), ui_lightAmbient);
-    geo_buildHoverAndSelectionMesh(&main_mesh, vp, cameraPos, mouseRayNormal, scratch);
     if (main_settings.skybox && ui_skyBox != NULL) {
         ren3d_drawSkybox(vp, *ui_skyBox);
     }
+    // FIXME: debug wireframe
+    ren3d_drawMesh(&main_mesh.renderMesh, vp, model, HMM_V4(1, 1, 1, 1), HMM_V3(-1, -1, -1), ui_lightAmbient);
+    geo_buildHoverAndSelectionMesh(&main_mesh, vp, cameraPos, mouseRayNormal, scratch);
 
     // FIXME: this is gross af
     float soundVal = 0;

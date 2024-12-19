@@ -100,7 +100,7 @@ HMM_Vec3 geo_triNormal(geo_Tri t) {
 }
 
 geo_BSPTriList geo_BSPTriListInit() {
-    return (geo_BSPTriList) { .first = NULL, .last = NULL };
+    return (geo_BSPTriList){.first = NULL, .last = NULL};
 }
 
 // destructive to node->next
@@ -146,7 +146,7 @@ void geo_BSPTriListPushNew(snz_Arena* arena, geo_BSPTriList* list, HMM_Vec3 a, H
 void geo_BSPTriListTransform(geo_BSPTriList* list, HMM_Mat4 transform) {
     for (geo_BSPTri* node = list->first; node; node = node->next) {
         for (int i = 0; i < 3; i++) {
-            HMM_Vec4 v4 = (HMM_Vec4){ .XYZ = node->tri.elems[i], .W = 1 };
+            HMM_Vec4 v4 = (HMM_Vec4){.XYZ = node->tri.elems[i], .W = 1};
             node->tri.elems[i] = HMM_MulM4V4(transform, v4).XYZ;
         }
     }
@@ -307,7 +307,7 @@ static void _geo_BSPTriSplit(geo_BSPTri* tri, snz_Arena* arena, geo_BSPTriList* 
     } else if (rel == geo_PR_WITHIN) {
         geo_BSPTriListPush(outInsideList, tri);
     } else {
-        HMM_Vec3 verts[5] = { 0 };
+        HMM_Vec3 verts[5] = {0};
         int vertCount = 0;
         int firstIntersectionIdx = -1;
 
@@ -361,7 +361,7 @@ static void _geo_BSPTriSplit(geo_BSPTri* tri, snz_Arena* arena, geo_BSPTriList* 
         // rotate points so that the verts can be triangulated consistantly
         // problem if you don't do this is that the triangulation doesn't end
         // up going across the cut line or will create zero-width tris
-        HMM_Vec3 rotatedVerts[5] = { 0 };
+        HMM_Vec3 rotatedVerts[5] = {0};
         for (int i = 0; i < vertCount; i++) {
             rotatedVerts[i] = verts[(i + firstIntersectionIdx) % vertCount];
         }
@@ -549,7 +549,7 @@ ren3d_Mesh geo_BSPTriListToRenderMesh(geo_BSPTriList list, snz_Arena* scratch) {
 // assumes valid mesh->bspTris and and old but non-null mesh->faces data.
 void geo_BSPTriListToFaceTris(PoolAlloc* pool, geo_Mesh* mesh) {
     for (geo_MeshFace* f = mesh->firstFace; f; f = f->next) {
-        f->tris = (geo_TriSlice){ 0 };
+        f->tris = (geo_TriSlice){0};
     }
     for (geo_BSPTri* tri = mesh->bspTris.first; tri; tri = tri->next) {
         geo_Tri* t = poolAllocPushArray(pool, tri->sourceFace->tris.elems, tri->sourceFace->tris.count, geo_Tri);
@@ -561,7 +561,7 @@ void geo_BSPTriListToFaceTris(PoolAlloc* pool, geo_Mesh* mesh) {
 // FIXME: ew
 // out mesh has valid bsp tris a face list that the tris are linked to (which does not have its copy of the triangle data)
 geo_Mesh geo_cube(snz_Arena* arena) {
-    geo_Mesh out = (geo_Mesh){ 0 };
+    geo_Mesh out = (geo_Mesh){0};
     out.bspTris = geo_BSPTriListInit();
 
     HMM_Vec3 v[] = {
@@ -815,7 +815,9 @@ void geo_buildHoverAndSelectionMesh(geo_Mesh* mesh, HMM_Mat4 vp, HMM_Vec3 camera
         HMM_Mat4 model = HMM_Translate(HMM_V3(0, 0, 0));
         HMM_Vec4 color = ui_colorText;  // FIXME: not text colored
         color.A = 0.1;                  // FIXME: ui val for this alpha
+        glDisable(GL_DEPTH_TEST);
         ren3d_drawMesh(&_geo_hoverMesh, vp, model, color, HMM_V3(-1, -1, -1), 1);
+        glEnable(GL_DEPTH_TEST);
     }  // end hovered drawing
 }
 
