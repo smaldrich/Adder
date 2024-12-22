@@ -19,10 +19,12 @@ typedef struct {
 typedef struct tl_Op tl_Op;
 struct tl_Op {
     tl_Op* next;
-    HMM_Vec2 pos;
-    ui_SelectableState sel;
 
-    snzu_Interaction inter;
+    struct {
+        HMM_Vec2 pos;
+        ui_SelectableState sel;
+        snzu_Interaction inter;
+    } ui;
 
     tl_OpKind kind;
     union {
@@ -34,7 +36,7 @@ struct tl_Op {
 // does not push to a list
 tl_Op tl_opSketchInit(HMM_Vec2 pos, sk_Sketch sketch) {
     tl_Op out = (tl_Op){
-        .pos = pos,
+        .ui.pos = pos,
         .kind = TL_OPK_SKETCH,
         .val.sketch.sketch = sketch,
     };
@@ -43,7 +45,7 @@ tl_Op tl_opSketchInit(HMM_Vec2 pos, sk_Sketch sketch) {
 
 tl_Op tl_opCommentInit(HMM_Vec2 pos, const char* text) {
     tl_Op out = (tl_Op){
-        .pos = pos,
+        .ui.pos = pos,
         .kind = TL_OPK_COMMENT,
         .val.comment.text = text,
     };
@@ -72,8 +74,8 @@ void tl_build(tl_Op* operations, snz_Arena* scratch) {
             HMM_Vec2 dragMax = HMM_V2(SNZ_MAX(inter->mousePosGlobal.X, region->dragOrigin.X), SNZ_MAX(inter->mousePosGlobal.Y, region->dragOrigin.Y));
             for (tl_Op* op = operations; op; op = op->next) {
                 bool inDragZone = false;
-                if (dragMin.X < op->pos.X && dragMax.X > op->pos.X) {
-                    if (dragMin.Y < op->pos.Y && dragMax.Y > op->pos.Y) {
+                if (dragMin.X < op->ui.pos.X && dragMax.X > op->ui.pos.X) {
+                    if (dragMin.Y < op->ui.pos.Y && dragMax.Y > op->ui.pos.Y) {
                         inDragZone = true;
                     }
                 }
@@ -81,8 +83,8 @@ void tl_build(tl_Op* operations, snz_Arena* scratch) {
                 ui_SelectableStatus* status = SNZ_ARENA_PUSH(scratch, ui_SelectableStatus);
                 *status = (ui_SelectableStatus){
                     .next = firstStatus,
-                    .state = &(op->sel),
-                    .hovered = op->inter.hovered,
+                    .state = &(op->ui.sel),
+                    .hovered = op->ui.inter.hovered,
                     .withinDragZone = inDragZone,
                 };
                 firstStatus = status;
@@ -92,20 +94,22 @@ void tl_build(tl_Op* operations, snz_Arena* scratch) {
 
         for (tl_Op* op = operations; op; op = op->next) {
             snzu_boxNew(snz_arenaFormatStr(scratch, "%p", op));
-            snzu_boxSetColor(ui_colorBackground);
-            snzu_boxSetBorder(ui_borderThickness, ui_colorText);
+            snzu_boxSetInteractionOutput(&op->ui.inter, SNZU_IF_HOVER | SNZU_IF_MOUSE_BUTTONS | SNZU_IF_ALLOW_EVENT_FALLTHROUGH); // FIXME: this is a bad way of making the sel region work
+
             const char* labelStr = NULL;
             if (op->kind == TL_OPK_COMMENT) {
                 labelStr = "comment";
             } else if (op->kind == TL_OPK_SKETCH) {
                 labelStr = "sketch";
             }
-            snzu_boxSetDisplayStr(&ui_labelFont, ui_colorText, labelStr);
-            snzu_boxSetInteractionOutput(&op->inter, SNZU_IF_HOVER | SNZU_IF_MOUSE_BUTTONS);
-            float radius = 60;
+            HMM_Vec4 textColor = HMM_Lerp(ui_colorText, op->ui.sel.selectionAnim, ui_colorAccent);
+            snzu_boxSetDisplayStr(&ui_labelFont, textColor, labelStr);
+            float radius = 60 + (10 * op->ui.sel.hoverAnim);
             snzu_boxSetCornerRadius(radius);
-            snzu_boxSetStart(HMM_Sub(op->pos, HMM_V2(radius, radius)));
-            snzu_boxSetEnd(HMM_Add(op->pos, HMM_V2(radius, radius)));
+            snzu_boxSetStart(HMM_Sub(op->ui.pos, HMM_V2(radius, radius)));
+            snzu_boxSetEnd(HMM_Add(op->ui.pos, HMM_V2(radius, radius)));
+            snzu_boxSetColor(ui_colorBackground);
+            snzu_boxSetBorder(ui_borderThickness, textColor);
         }
 
         if (region->dragging) {
