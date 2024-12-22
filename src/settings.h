@@ -16,8 +16,8 @@ set_Settings set_settingsDefault() {
         .darkMode = true,
         .skybox = true,
         .musicMode = true,
-        .leftBarAlwaysOpen = true,
-        .hintWindowAlwaysOpen = true,
+        .leftBarAlwaysOpen = false,
+        .hintWindowAlwaysOpen = false,
     };
     return out;
 }

@@ -927,7 +927,9 @@ struct snzu_Interaction {
     HMM_Vec2 mousePosLocal;  // mouse pos relative to the start of this box
     HMM_Vec2 mousePosGlobal;
     float mouseScrollY;
-    snzu_Action mouseActions[SNZU_MB_COUNT];  // index into this using the snzu_MouseButton enum
+    // index into this using the snzu_MouseButton enum
+    // will not contain info if the box is not hovered and has not captured the mouse
+    snzu_Action mouseActions[SNZU_MB_COUNT];
 
     char keyChars[_SNZU_TEXT_INPUT_CHAR_MAX];
     uint64_t keyCode;

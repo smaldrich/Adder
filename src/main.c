@@ -11,11 +11,13 @@
 #include "sound.h"
 #include "stb/stb_image.h"
 #include "ui.h"
+#include "timeline.h"
 
 snzu_Instance main_uiInstance;
 
 snz_Arena main_fontArena;
 snz_Arena main_meshArena;
+snz_Arena main_tlArena;
 PoolAlloc main_pool;
 
 sk_Sketch main_sketch;
@@ -29,6 +31,8 @@ geo_Mesh main_mesh;
 sc_View main_currentView = SC_VIEW_SCENE;
 set_Settings main_settings;
 
+tl_Op* main_firstTLOperation;
+
 void main_init(snz_Arena* scratch, SDL_Window* window) {
     _poolAllocTests();
     sk_tests();
@@ -38,6 +42,7 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
     main_fontArena = snz_arenaInit(10000000, "main font arena");
     main_sketchArena = snz_arenaInit(10000000, "main sketch arena");
     main_meshArena = snz_arenaInit(10000000, "main mesh arena");
+    main_tlArena = snz_arenaInit(10000000, "main tl arena");
     main_pool = poolAllocInit();
     main_uiInstance = snzu_instanceInit();
     snzu_instanceSelect(&main_uiInstance);
@@ -46,7 +51,7 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
 
     {  // FIXME: move to snz
         SDL_Surface* s = SDL_LoadBMP("res/textures/icon.bmp");
-        char buf[1000] = {0};
+        char buf[1000] = { 0 };
         const char* err = SDL_GetErrorMsg(buf, 1000);
         printf("%s", err);
         SNZ_ASSERT(s != NULL, "icon load failed.");
@@ -139,6 +144,21 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
         main_sketch.originLine = vertical;
         main_sketch.originPt = main_sketch.originLine->p1;
         sk_sketchSolve(&main_sketch);
+    }
+
+    {
+        main_firstTLOperation = SNZ_ARENA_PUSH(&main_tlArena, tl_Op);
+        *main_firstTLOperation = tl_opSketchInit(HMM_V2(0, 0), main_sketch);
+
+        tl_Op* op = SNZ_ARENA_PUSH(&main_tlArena, tl_Op);
+        *op = tl_opCommentInit(HMM_V2(0, 200), "yooooo");
+        op->next = main_firstTLOperation;
+        main_firstTLOperation = op;
+
+        op = SNZ_ARENA_PUSH(&main_tlArena, tl_Op);
+        *op = tl_opCommentInit(HMM_V2(200, 200), "2nd comment wow");
+        op->next = main_firstTLOperation;
+        main_firstTLOperation = op;
     }
 }
 
@@ -331,6 +351,9 @@ void main_frame(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screen
                     if (ui_buttonWithHighlight(main_currentView == SC_VIEW_SCENE, "demo scene")) {
                         main_currentView = SC_VIEW_SCENE;
                     }
+                    if (ui_buttonWithHighlight(main_currentView == SC_VIEW_TIMELINE, "timeline")) {
+                        main_currentView = SC_VIEW_TIMELINE;
+                    }
                 }
                 snzu_boxOrderChildrenInRowRecurse(5, SNZU_AX_Y);
                 snzuc_scrollArea();
@@ -368,6 +391,8 @@ void main_frame(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screen
                 set_build(&main_settings);
             } else if (main_currentView == SC_VIEW_SHORTCUTS) {
                 sc_buildSettings();
+            } else if (main_currentView == SC_VIEW_TIMELINE) {
+                tl_build(main_firstTLOperation, scratch);
             } else {
                 SNZ_ASSERTF(false, "unreachable view case, view was: %d", main_currentView);
             }

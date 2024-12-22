@@ -12,7 +12,8 @@ typedef enum {
     SC_VIEW_DOCS = 1 << 1,
     SC_VIEW_SETTINGS = 1 << 2,
     SC_VIEW_SHORTCUTS = 1 << 3,
-    SC_VIEW_ALL = SC_VIEW_SCENE | SC_VIEW_DOCS | SC_VIEW_SETTINGS | SC_VIEW_SHORTCUTS,
+    SC_VIEW_TIMELINE = 1 << 4,
+    SC_VIEW_ALL = SC_VIEW_SCENE | SC_VIEW_DOCS | SC_VIEW_SETTINGS | SC_VIEW_SHORTCUTS | SC_VIEW_TIMELINE,
 } sc_View;
 
 typedef struct {
@@ -81,6 +82,11 @@ bool _scc_goToShortcuts(_sc_CommandArgs args) {
 
 bool _scc_goToMainScene(_sc_CommandArgs args) {
     *args.currentView = SC_VIEW_SCENE;
+    return true;
+}
+
+bool _scc_goToTimeline(_sc_CommandArgs args) {
+    *args.currentView = SC_VIEW_TIMELINE;
     return true;
 }
 
@@ -258,6 +264,7 @@ void sc_init(PoolAlloc* pool) {
     _sc_commandInit("goto docs", "D", SDLK_d, KMOD_LSHIFT, SC_VIEW_ALL, _scc_goToDocs);
     _sc_commandInit("goto main scene", "W", SDLK_w, KMOD_LSHIFT, SC_VIEW_ALL, _scc_goToMainScene);
     _sc_commandInit("goto settings", "S", SDLK_s, KMOD_LSHIFT, SC_VIEW_ALL, _scc_goToSettings);
+    _sc_commandInit("goto timeline", "T", SDLK_t, KMOD_LSHIFT, SC_VIEW_ALL, _scc_goToTimeline);
 }
 
 // immediately sets the active cmd to null, so make sure you don't trample shit
