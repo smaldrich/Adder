@@ -20,7 +20,7 @@ static float _sku_gridLineGap(float area, float visibleCount) {
         exp++;
     }
 
-    int roundingTargets[] = {5, 2, 1};
+    int roundingTargets[] = { 5, 2, 1 };
     for (int i = 0; i < 3; i++) {
         if (dec > roundingTargets[i]) {
             dec = (float)roundingTargets[i];
@@ -215,7 +215,7 @@ static void _sku_drawConstraint(sk_Constraint* c, snz_Arena* scratch, HMM_Mat4 s
         HMM_Vec2 offset = HMM_Mul(HMM_V2(diff.Y, -diff.X), SKU_DISTANCE_CONSTRAINT_OFFSET * (1 + soundPct) * c->uiInfo.scaleFactor);
         p1 = HMM_Add(p1, offset);
         p2 = HMM_Add(p2, offset);
-        HMM_Vec3 points[2] = {0};
+        HMM_Vec4 points[2] = { 0 };
         points[0].XY = p1;
         points[1].XY = p2;
         snzr_drawLine(points, 2, c->uiInfo.drawnColor, drawnThickness, sketchMVP);
@@ -236,7 +236,7 @@ static void _sku_drawConstraint(sk_Constraint* c, snz_Arena* scratch, HMM_Mat4 s
             sk_Point* otherOnLine2 = (c->line2->p1 == joint) ? c->line2->p2 : c->line2->p1;
             HMM_Vec2 offset1 = HMM_Mul(HMM_Norm(HMM_Sub(otherOnLine1->pos, joint->pos)), offset);
             HMM_Vec2 offset2 = HMM_Mul(HMM_Norm(HMM_Sub(otherOnLine2->pos, joint->pos)), offset);
-            HMM_Vec3 pts[3] = {0};
+            HMM_Vec4 pts[3] = { 0 };
             pts[0].XY = HMM_Add(joint->pos, offset1);
             pts[1].XY = HMM_Add(joint->pos, HMM_Add(offset1, offset2));
             pts[2].XY = HMM_Add(joint->pos, offset2);
@@ -247,7 +247,7 @@ static void _sku_drawConstraint(sk_Constraint* c, snz_Arena* scratch, HMM_Mat4 s
             float angleRange = _sku_angleDifferenceForConstraint(c, angles.Left, angles.Right);
 
             int ptCount = (int)(fabsf(angleRange) / HMM_AngleDeg(10)) + 1;
-            HMM_Vec3* linePts = SNZ_ARENA_PUSH_ARR(scratch, ptCount, HMM_Vec3);
+            HMM_Vec4* linePts = SNZ_ARENA_PUSH_ARR(scratch, ptCount, HMM_Vec4);
             for (int i = 0; i < ptCount; i++) {
                 HMM_Vec2 o = HMM_RotateV2(HMM_V2(offset, 0), startAngle + (i * c->value / (ptCount - 1)));
                 linePts[i].XY = HMM_Add(joint->pos, o);
@@ -334,7 +334,7 @@ static void _sku_buildConstraint(sk_Constraint* c, float sound, HMM_Mat4 model, 
 }
 
 static void _sku_drawManifold(sk_Point* p, HMM_Vec3 cameraPos, HMM_Mat4 model, HMM_Mat4 mvp, float sound, snz_Arena* scratch) {
-    HMM_Vec3* pts = NULL;
+    HMM_Vec4* pts = NULL;
     int ptCount = 0;
 
     float distToCamera = HMM_Len(HMM_Sub(cameraPos, _sku_mulM4V3(model, HMM_V3(p->pos.X, p->pos.Y, 0))));
@@ -344,7 +344,7 @@ static void _sku_drawManifold(sk_Point* p, HMM_Vec3 cameraPos, HMM_Mat4 model, H
         return;
     } else if (p->manifold.kind == SK_MK_CIRCLE) {
         ptCount = 20;
-        pts = SNZ_ARENA_PUSH_ARR(scratch, ptCount, HMM_Vec3);
+        pts = SNZ_ARENA_PUSH_ARR(scratch, ptCount, HMM_Vec4);
 
         float angleRange = HMM_AngleDeg(90);
         HMM_Vec2 diff = HMM_Sub(p->pos, p->manifold.circle.origin);
@@ -356,13 +356,13 @@ static void _sku_drawManifold(sk_Point* p, HMM_Vec3 cameraPos, HMM_Mat4 model, H
         }
     } else if (p->manifold.kind == SK_MK_LINE) {
         ptCount = 2;
-        pts = SNZ_ARENA_PUSH_ARR(scratch, ptCount, HMM_Vec3);
+        pts = SNZ_ARENA_PUSH_ARR(scratch, ptCount, HMM_Vec4);
         pts[0].XY = p->pos;
         pts[1].XY = HMM_Add(p->pos, HMM_Mul(HMM_Norm(p->manifold.line.direction), 0.4f * scaleFactor));
     } else if (p->manifold.kind == SK_MK_ANY) {
         // make it really big so the cross line is entirely faded out
         ptCount = 4;
-        pts = SNZ_ARENA_PUSH_ARR(scratch, ptCount, HMM_Vec3);
+        pts = SNZ_ARENA_PUSH_ARR(scratch, ptCount, HMM_Vec4);
         pts[0].XY = HMM_V2(-1 * scaleFactor, 0);
         pts[1].XY = HMM_V2(1 * scaleFactor, 0);
         pts[2].XY = HMM_V2(0, -1 * scaleFactor);
@@ -425,16 +425,16 @@ static void _sku_draw(sk_Sketch* sketch, snzu_Interaction* inter, HMM_Mat4 model
             for (int i = 0; i < lineCount; i++) {
                 float x = (i - (lineCount / 2)) * lineGap;
                 x -= axOffset;
-                HMM_Vec3 pts[2] = {0};
+                HMM_Vec4 pts[2] = { 0 };
                 pts[0].XY = inter->mousePosGlobal;
                 pts[1].XY = inter->mousePosGlobal;
 
-                pts[0].Elements[ax] += x;
-                pts[0].Elements[!ax] += 1.5 * scaleFactor;
-                pts[1].Elements[ax] += x;
-                pts[1].Elements[!ax] += -1.5 * scaleFactor;
+                pts[0].XY.Elements[ax] += x;
+                pts[0].XY.Elements[!ax] += 1.5 * scaleFactor;
+                pts[1].XY.Elements[ax] += x;
+                pts[1].XY.Elements[!ax] += -1.5 * scaleFactor;
 
-                HMM_Vec3 fadeOrigin = {0};
+                HMM_Vec3 fadeOrigin = { 0 };
                 fadeOrigin.XY = inter->mousePosGlobal;
                 // FIXME: have this invert color when behind smth in the scene
                 snzr_drawLineFaded(pts, 2, ui_colorAlmostBackground, 1, uiMVP, fadeOrigin, 0, 0.5 * scaleFactor);
@@ -451,9 +451,9 @@ static void _sku_draw(sk_Sketch* sketch, snzu_Interaction* inter, HMM_Mat4 model
     }
 
     for (sk_Line* l = sketch->firstLine; l; l = l->next) {
-        HMM_Vec3 points[] = {0};
+        HMM_Vec4 points[2] = { 0 };
         points[0].XY = l->p1->pos;
-        points[0].XY = l->p2->pos;
+        points[1].XY = l->p2->pos;
         float thickness = HMM_Lerp(2.0f, l->sel.hoverAnim, 5.0f);
         HMM_Vec4 color = HMM_LerpV4(ui_colorText, l->sel.selectionAnim, ui_colorAccent);
         snzr_drawLine(points, 2, color, thickness, sketchMVP);
@@ -477,15 +477,15 @@ static void _sku_draw(sk_Sketch* sketch, snzu_Interaction* inter, HMM_Mat4 model
             vp = HMM_Mul(HMM_Translate(HMM_V3(p->pos.X, p->pos.Y, 0)), vp);
             vp = HMM_Mul(sketchMVP, vp);
 
-            float rad = 0.04 * (p->scaleFactor + sizeAnim);
-            HMM_Vec3 pts[] = {0};
+            float rad = 0.04 * p->scaleFactor * (1 + (sizeAnim * 0.25));
+            HMM_Vec4 pts[3] = { 0 };
             pts[0].XY = HMM_RotateV2(HMM_V2(rad, 0), HMM_AngleDeg(60));
             pts[1].XY = HMM_RotateV2(HMM_V2(rad, 0), HMM_AngleDeg(180));
             pts[2].XY = HMM_RotateV2(HMM_V2(rad, 0), HMM_AngleDeg(-60));
 
             snzr_drawLine(
                 pts,
-                sizeof(pts) / sizeof(HMM_Vec3),
+                sizeof(pts) / sizeof(*pts),
                 color,
                 SKU_CONSTRAINT_THICKNESS,
                 vp);
@@ -801,7 +801,7 @@ void sku_drawAndBuildSketch(
     if (inLineMode && lineSrcPoint) {
         HMM_Vec2 mousePos = inter->mousePosGlobal;
         mousePos.Y *= -1;
-        HMM_Vec3 pts[2] = {0};
+        HMM_Vec4 pts[2] = { 0 };
         pts[0].XY = lineSrcPoint->pos;
         pts[1].XY = mousePos;
         snzr_drawLine(pts, 2, ui_colorTransparentAccent, SKU_LINE_HOVERED_THICKNESS, sketchMVP);

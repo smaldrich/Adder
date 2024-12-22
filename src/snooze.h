@@ -104,7 +104,7 @@ typedef struct {
 #define SNZ_ARENA_PUSH_ARR(bump, count, T) (T*)(snz_arenaPush((bump), sizeof(T) * (count)))
 
 snz_Arena snz_arenaInit(int64_t size, const char* name) {
-    snz_Arena a = {0};
+    snz_Arena a = { 0 };
     a.name = name;
     a.reserved = size;
     a.start = calloc(1, size);
@@ -292,7 +292,7 @@ uint32_t snzr_shaderInit(const char* vertChars, const char* fragChars, snz_Arena
 // data does not need to be kept alive after this call
 // may be null to indicate undefined contents
 snzr_Texture snzr_textureInitRBGA(int32_t width, int32_t height, uint8_t* data) {
-    snzr_Texture out = {.width = width, .height = height};
+    snzr_Texture out = { .width = width, .height = height };
     snzr_callGLFnOrError(glGenTextures(1, &out.glId));
     snzr_callGLFnOrError(glBindTexture(GL_TEXTURE_2D, out.glId));
     snzr_callGLFnOrError(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR));
@@ -305,7 +305,7 @@ snzr_Texture snzr_textureInitRBGA(int32_t width, int32_t height, uint8_t* data) 
 
 // data does not need to be kept alive after this call
 snzr_Texture snzr_textureInitGrayscale(int32_t width, int32_t height, uint8_t* data) {
-    snzr_Texture out = {.width = width, .height = height};
+    snzr_Texture out = { .width = width, .height = height };
     snzr_callGLFnOrError(glGenTextures(1, &out.glId));
     snzr_callGLFnOrError(glBindTexture(GL_TEXTURE_2D, out.glId));
     snzr_callGLFnOrError(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR));
@@ -360,7 +360,7 @@ void snzr_frameBufferDeinit(snzr_FrameBuffer* fb) {
 #define _SNZR_FONT_UNKNOWN_CHAR 9633  // white box, see: https://www.fileformat.info/info/unicode/char/25a1/index.htm
 
 snzr_Font snzr_fontInit(snz_Arena* dataArena, snz_Arena* scratch, const char* path, float size) {
-    snzr_Font out = {.renderedSize = size};
+    snzr_Font out = { .renderedSize = size };
 
     uint8_t* fileData;
     {
@@ -386,11 +386,11 @@ snzr_Font snzr_fontInit(snz_Arena* dataArena, snz_Arena* scratch, const char* pa
     stbtt_pack_context ctx;
     uint8_t* atlasData = SNZ_ARENA_PUSH_ARR(scratch, _SNZR_FONT_ATLAS_W * _SNZR_FONT_ATLAS_H, uint8_t);
     assert(stbtt_PackBegin(&ctx, atlasData,
-                           _SNZR_FONT_ATLAS_W,
-                           _SNZR_FONT_ATLAS_H,
-                           _SNZR_FONT_ATLAS_W,
-                           1,
-                           NULL));
+        _SNZR_FONT_ATLAS_W,
+        _SNZR_FONT_ATLAS_H,
+        _SNZR_FONT_ATLAS_W,
+        1,
+        NULL));
     stbtt_PackSetOversampling(&ctx, 1, 1);
 
     const int glyphCount = _SNZR_FONT_ASCII_CHAR_COUNT + 1;
@@ -526,7 +526,7 @@ static void _snzr_init(snz_Arena* scratchArena) {
         const char* vertSrc =
             "#version 460\n"
             "struct lineVert {"
-            "    vec3 pos;"
+            "    vec4 pos;"
             "};"
 
             "layout(std430, binding = 0) buffer vertBuffer {"
@@ -547,7 +547,7 @@ static void _snzr_init(snz_Arena* scratchArena) {
             "    vec4 va[4];"
             "    for (int i=0; i<4; ++i)"
             "    {"
-            "        va[i] = uVP * vec4(verts[line_i+i].pos, 1);"
+            "        va[i] = uVP * vec4(verts[line_i+i].pos.xyz, 1);"
             "        va[i].xyz /= va[i].w;"
             "        va[i].xy = (va[i].xy + 1.0) * 0.5 * uResolution;"
             "    }"
@@ -562,7 +562,7 @@ static void _snzr_init(snz_Arena* scratchArena) {
             "        vec2 v_miter = normalize(nv_line + vec2(-v_pred.y, v_pred.x));"
             "        pos = va[1];"
             "        pos.xy += v_miter * uThickness * (tri_i == 1 ? -0.5 : 0.5) / dot(v_miter, nv_line);"
-            "        vFragPos = verts[line_i + 1].pos;"  // FIXME: technically this isn't accounting for the width of the line in determning frag position, but I don't care rn
+            "        vFragPos = verts[line_i + 1].pos.xyz;"  // FIXME: technically this isn't accounting for the width of the line in determning frag position, but I don't care rn
             "    }"
             "    else"
             "    {"
@@ -570,9 +570,10 @@ static void _snzr_init(snz_Arena* scratchArena) {
             "        vec2 v_miter = normalize(nv_line + vec2(-v_succ.y, v_succ.x));"
             "        pos = va[2];"
             "        pos.xy += v_miter * uThickness * (tri_i == 5 ? 0.5 : -0.5) / dot(v_miter, nv_line);"
-            "        vFragPos = verts[line_i + 2].pos;"  // FIXME: technically this isn't accounting for the width of the line in determning frag position, but I don't care rn
+            "        vFragPos = verts[line_i + 2].pos.xyz;"  // FIXME: technically this isn't accounting for the width of the line in determning frag position, but I don't care rn
             "    }"
             "    pos.xy = pos.xy / uResolution * 2.0 - 1.0;"
+            "    pos.w = 1;" // FIXME: lord forgive me
             "    pos.xyz *= pos.w;"
             "    gl_Position = pos;"
             "};";
@@ -600,7 +601,7 @@ static void _snzr_init(snz_Arena* scratchArena) {
     snzr_callGLFnOrError(glBindBuffer(GL_SHADER_STORAGE_BUFFER, _snzr_globs.lineShaderSSBOId));
     snzr_callGLFnOrError(glBufferData(GL_SHADER_STORAGE_BUFFER, 0, NULL, GL_DYNAMIC_DRAW));
 
-    uint8_t solidTexData[] = {255, 255, 255, 255};
+    uint8_t solidTexData[] = { 255, 255, 255, 255 };
     _snzr_globs.solidTex = snzr_textureInitRBGA(1, 1, solidTexData);
 }
 
@@ -800,8 +801,13 @@ void snzr_drawText(HMM_Vec2 start,
 }
 
 // FIXME: disgusting hack on the shader for this
+// see the section on memory layout here: https://www.khronos.org/opengl/wiki/Interface_Block_(GLSL)
+// where they just happen to say that vendors let a buffer of V3s fail. WHAT.
+// So that's why the pts are v4s. W component just gets forced to one in the shader because I didn't
+// want to (a) make user code deal with it or (b) have to reformat the pts into correct v4s before upload.
+// so sorry.
 void snzr_drawLineFaded(
-    HMM_Vec3* pts,
+    HMM_Vec4* pts,
     uint64_t ptCount,
     HMM_Vec4 color,
     float thickness,
@@ -820,8 +826,6 @@ void snzr_drawLineFaded(
     glUniform1f(loc, thickness);
     loc = glGetUniformLocation(_snzr_globs.lineShaderId, "uVP");
     glUniformMatrix4fv(loc, 1, false, (float*)&vp);
-    loc = glGetUniformLocation(_snzr_globs.lineShaderId, "uZ");
-    glUniform1f(loc, 0);
     loc = glGetUniformLocation(_snzr_globs.lineShaderId, "uResolution");
     glUniform2f(loc, _snzr_globs.screenSize.X, _snzr_globs.screenSize.Y);
 
@@ -833,24 +837,24 @@ void snzr_drawLineFaded(
     glUniform1f(loc, falloffDuration);
 
     snzr_callGLFnOrError(glBindBuffer(GL_SHADER_STORAGE_BUFFER, _snzr_globs.lineShaderSSBOId));
-    snzr_callGLFnOrError(glBufferData(GL_SHADER_STORAGE_BUFFER, sizeof(HMM_Vec3) * (ptCount + 2), NULL, GL_DYNAMIC_DRAW));
+    snzr_callGLFnOrError(glBufferData(GL_SHADER_STORAGE_BUFFER, sizeof(HMM_Vec4) * (ptCount + 2), NULL, GL_DYNAMIC_DRAW));
 
-    HMM_Vec3 startMiter = HMM_Sub(pts[1], pts[0]);
+    HMM_Vec4 startMiter = HMM_Sub(pts[1], pts[0]);
     startMiter = HMM_Mul(HMM_Norm(startMiter), 0.001f);
     startMiter = HMM_Sub(pts[0], startMiter);
-    snzr_callGLFnOrError(glBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, sizeof(HMM_Vec3), &startMiter));
-    snzr_callGLFnOrError(glBufferSubData(GL_SHADER_STORAGE_BUFFER, sizeof(HMM_Vec3), ptCount * sizeof(HMM_Vec3), pts));
-    HMM_Vec3 endMiter = HMM_Sub(pts[ptCount - 1], pts[ptCount - 2]);
+    snzr_callGLFnOrError(glBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, sizeof(HMM_Vec4), &startMiter));
+    snzr_callGLFnOrError(glBufferSubData(GL_SHADER_STORAGE_BUFFER, sizeof(HMM_Vec4), ptCount * sizeof(HMM_Vec4), pts));
+    HMM_Vec4 endMiter = HMM_Sub(pts[ptCount - 1], pts[ptCount - 2]);
     endMiter = HMM_Mul(HMM_Norm(endMiter), 0.001f);
     endMiter = HMM_Add(pts[ptCount - 1], endMiter);
-    snzr_callGLFnOrError(glBufferSubData(GL_SHADER_STORAGE_BUFFER, sizeof(HMM_Vec3) * (ptCount + 1), sizeof(HMM_Vec3), &endMiter));
+    snzr_callGLFnOrError(glBufferSubData(GL_SHADER_STORAGE_BUFFER, sizeof(HMM_Vec4) * (ptCount + 1), sizeof(HMM_Vec4), &endMiter));
 
     snzr_callGLFnOrError(glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, _snzr_globs.lineShaderSSBOId));
     snzr_callGLFnOrError(glDrawArrays(GL_TRIANGLES, 0, (ptCount - 1) * 6));
 }
 
 // end miters automatically added, pointing straight away
-void snzr_drawLine(HMM_Vec3* pts, uint64_t ptCount, HMM_Vec4 color, float thickness, HMM_Mat4 vp) {
+void snzr_drawLine(HMM_Vec4* pts, uint64_t ptCount, HMM_Vec4 color, float thickness, HMM_Mat4 vp) {
     snzr_drawLineFaded(pts, ptCount, color, thickness, vp, HMM_V3(0, 0, 0), INFINITY, INFINITY);
 }
 
@@ -1092,7 +1096,7 @@ static void _snzu_useMemClearOld() {
 #define SNZU_USE_ARRAY(T, count, tag) ((T*)snzu_useMem(sizeof(T) * (count), (tag)))
 
 snzu_Instance snzu_instanceInit() {
-    return (snzu_Instance){0};
+    return (snzu_Instance) { 0 };
 }
 
 void snzu_instanceSelect(snzu_Instance* instance) {
@@ -1773,7 +1777,7 @@ void snz_main(const char* windowTitle, snz_InitFunc initFunc, snz_FrameFunc fram
         SDL_GL_GetDrawableSize(window, &screenW, &screenH);
         _snzr_globs.screenSize = HMM_V2(screenW, screenH);
 
-        snzu_Input uiInputs = (snzu_Input){0};
+        snzu_Input uiInputs = (snzu_Input){ 0 };
 
         SDL_Event e;
         while (SDL_PollEvent(&e)) {
