@@ -524,57 +524,66 @@ typedef struct {
     bool selected;
     float selectionAnim;
     float hoverAnim;
-} ui_SelectableState;
+} ui_SelectionState;
 
-typedef struct ui_SelectableStatus ui_SelectableStatus;
-struct ui_SelectableStatus {
+typedef struct ui_SelectionStatus ui_SelectionStatus;
+struct ui_SelectionStatus {
     bool hovered;
     bool withinDragZone;
-    ui_SelectableState* state;
-    ui_SelectableStatus* next;
+    snzu_Action mouseAct;
+    ui_SelectionState* state;
+    ui_SelectionStatus* next;
 };
 
 typedef struct {
     bool wasDragging;
     bool dragging;
     HMM_Vec2 dragOrigin;
-} ui_SelectableRegion;
+} ui_SelectionRegion;
 
-// FIXME: document/ make less bad
-void ui_selectableRegionUpdate(ui_SelectableRegion* region, ui_SelectableStatus* firstStatus, snzu_Action mouseAct, bool shiftPressed) {
-    bool mouseDown = mouseAct == SNZU_ACT_DOWN;
-    bool dragEnded = (region->dragging) && (mouseAct == SNZU_ACT_UP);
-    if (region->wasDragging && !region->dragging) {
-        dragEnded = true;
+// mouseaction should not contain data if any status has mouseaction data
+// If the inners are just using stock inters, shouldn't be an issue because they will capture mouse actions
+void ui_selectionRegionUpdate(ui_SelectionRegion* region, snzu_Action regionMouseAction, HMM_Vec2 mousePos, bool shiftPressed, bool anotherToolActive, ui_SelectionStatus* firstStatus) {
+    // FIXME: technically this should be updated before statuses get created, but then there are two
+    // update calls for the region and I don't feel like putting up with that for a one frame delay/inaccuracy
+    if (regionMouseAction == SNZU_ACT_DOWN) {
+        region->dragging = true;
+        region->dragOrigin = mousePos;
     }
-    region->wasDragging = region->dragging;
 
-    if (dragEnded) {
+    if (regionMouseAction == SNZU_ACT_UP || anotherToolActive || !snzu_isNothingFocused()) {
         region->dragging = false;
     }
 
-    for (ui_SelectableStatus* status = firstStatus; status; status = status->next) {
-        if (!snzu_isNothingFocused()) {
-            status->state->selected = false;
+    bool dragEnded = region->wasDragging && !region->dragging;
+    region->wasDragging = region->dragging;
+
+    bool anyMouseDown = regionMouseAction == SNZU_ACT_DOWN;
+    for (ui_SelectionStatus* s = firstStatus; s; s = s->next) {
+        if (s->mouseAct == SNZU_ACT_DOWN) {
+            anyMouseDown = true;
+            break;
         }
-
-        if (mouseDown) {
-            if (!shiftPressed && !status->hovered && !status->withinDragZone) {
-                status->state->selected = false;
-            }
-            if (status->hovered) {
-                status->state->selected = !status->state->selected;
-            }
-        }
-
-        if (dragEnded && status->withinDragZone) {
-            status->state->selected = true;
-        }
-
-        float hoverTarget = status->hovered && !region->dragging;
-        snzu_easeExp(&status->state->hoverAnim, hoverTarget, 15);
-
-        float selectionTarget = (status->withinDragZone && region->dragging) || status->state->selected;
-        snzu_easeExp(&status->state->selectionAnim, selectionTarget, 15);
     }
+
+    for (ui_SelectionStatus* s = firstStatus; s; s = s->next) {
+        if (!snzu_isNothingFocused()) {
+            s->state->selected = false;
+        } else if (dragEnded && s->withinDragZone) {
+            s->state->selected = true;
+        }
+        if (!anotherToolActive) {
+            if (s->mouseAct == SNZU_ACT_DOWN && s->hovered) {
+                s->state->selected = !s->state->selected;
+            } else if (anyMouseDown && !shiftPressed) {
+                s->state->selected = false;
+            }
+        }
+
+        float hoverTarget = s->hovered && !region->dragging && !anotherToolActive;
+        snzu_easeExp(&s->state->hoverAnim, hoverTarget, 15);
+
+        float selectionTarget = (s->withinDragZone && region->dragging) || s->state->selected;
+        snzu_easeExp(&s->state->selectionAnim, selectionTarget, 15);
+    } // end status loop
 }

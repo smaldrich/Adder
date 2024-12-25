@@ -550,22 +550,16 @@ void sku_drawAndBuildSketch(
     {  // selection // UI state updates
         HMM_Vec2 mouse = inter->mousePosGlobal;
         mouse.Y *= -1;  // interaction mouse pos in UI space, this is in sketch space
-        bool mouseDown = inter->mouseActions[SNZU_MB_LEFT] == SNZU_ACT_DOWN;
+        // FIXME: what happens on the border of mouse not being projectable??
 
-        ui_SelectableRegion* const region = SNZU_USE_MEM(ui_SelectableRegion, "region");
+        ui_SelectionRegion* const region = SNZU_USE_MEM(ui_SelectionRegion, "region");
+        snzu_Action regionAct = inter->mouseActions[SNZU_MB_LEFT];
 
-        if (mouseDown) {
-            region->dragOrigin = mouse;
-            region->dragging = true;
-            // FIXME: what happens on the border of mouse not being projectable??
-        }
+        // used to fake mouse capture on an element within the sketch
+        ui_SelectionState** const focusedSketchElt = SNZU_USE_MEM(ui_SelectionState*, "focusedsketchelt");
 
-        if (inLineMode || inNonLineTool) {
-            region->dragging = false;
-        }
-
-        ui_SelectableStatus* firstStatus = NULL;
-        {  // loop over all points, check whether they are within the contained zone and update their selection status
+        ui_SelectionStatus* firstStatus = NULL;
+        {  // loop over all points make the list of selection statuses
             bool anyPointHovered = false;
 
             // FIXME: make contains check precise, not per vert
@@ -585,13 +579,10 @@ void sku_drawAndBuildSketch(
                 float scaleFactor = HMM_Len(HMM_Sub(cameraPos, transformed));
                 p->scaleFactor = scaleFactor;
                 bool hovered = HMM_Len(HMM_Sub(mouse, p->pos)) < (0.02 * scaleFactor);
-                if (inNonLineTool) {
-                    hovered = false;
-                }
                 anyPointHovered |= hovered;
 
-                ui_SelectableStatus* status = SNZ_ARENA_PUSH(scratch, ui_SelectableStatus);
-                *status = (ui_SelectableStatus){
+                ui_SelectionStatus* status = SNZ_ARENA_PUSH(scratch, ui_SelectionStatus);
+                *status = (ui_SelectionStatus){
                     .state = &p->sel,
                     .hovered = hovered,
                     .withinDragZone = p->inDragZone,
@@ -607,16 +598,12 @@ void sku_drawAndBuildSketch(
                 HMM_Vec3 transformedCenter = HMM_MulM4V4(model, HMM_V4(midpt.X, midpt.Y, 0, 1)).XYZ;
                 float distToCamera = HMM_Len(HMM_Sub(transformedCenter, cameraPos));
                 bool hovered = _sku_lineContainsPt(l->p1->pos, l->p2->pos, 0.01 * distToCamera, mouse);
-                if (anyPointHovered || inLineMode || inNonLineTool) {
+                if (anyPointHovered) {
                     hovered = false;
                 }
 
-                if (mouseDown && hovered) {
-                    region->dragging = false;  // cancel a drag before it is processed if it lands on this
-                }
-
-                ui_SelectableStatus* status = SNZ_ARENA_PUSH(scratch, ui_SelectableStatus);
-                *status = (ui_SelectableStatus){
+                ui_SelectionStatus* status = SNZ_ARENA_PUSH(scratch, ui_SelectionStatus);
+                *status = (ui_SelectionStatus){
                     .state = &l->sel,
                     .hovered = hovered,
                     .withinDragZone = withinDragZone,
@@ -631,16 +618,13 @@ void sku_drawAndBuildSketch(
                 _sku_constraintScaleFactorAndCenter(c, model, cameraPos, &visualCenter, &scaleFactor);
 
                 bool hovered = _sku_constraintHovered(c, scaleFactor, visualCenter, mouse);
-                if (anyPointHovered || inLineMode || inNonLineTool) {
+                if (anyPointHovered) {
                     hovered = false;
                 }
 
                 if (hovered) {
                     if (inter->doubleClicked) {
                         c->uiInfo.shouldStartFocus = true;  // this is reset in build, so that signals from shortcuts make it
-                        region->dragging = false;           // cancel a drag before it is processed if it lands on this
-                    } else if (mouseDown) {
-                        region->dragging = false;  // cancel a drag before it is processed if it lands on this
                     }
                 }
 
@@ -653,8 +637,8 @@ void sku_drawAndBuildSketch(
                     withinDragZone = c->line1->p1->inDragZone && c->line1->p2->inDragZone;
                 }
 
-                ui_SelectableStatus* status = SNZ_ARENA_PUSH(scratch, ui_SelectableStatus);
-                *status = (ui_SelectableStatus){
+                ui_SelectionStatus* status = SNZ_ARENA_PUSH(scratch, ui_SelectionStatus);
+                *status = (ui_SelectionStatus){
                     .state = &c->uiInfo.sel,
                     .hovered = hovered,
                     .withinDragZone = withinDragZone,
@@ -664,126 +648,137 @@ void sku_drawAndBuildSketch(
             }
         }
 
-        bool shiftPressed = SNZU_USE_MEM(bool, "shiftPressed");
-        if (!snzu_isNothingFocused()) {
-            shiftPressed = false;
-        } else {
-            shiftPressed = inter->keyMods & KMOD_SHIFT;
+        {
+            if (regionAct == SNZU_ACT_UP) {
+                *focusedSketchElt = NULL;
+            }
+
+            ui_SelectionStatus* focusedStatus = NULL;
+            for (ui_SelectionStatus* status = firstStatus; status; status = status->next) {
+                if (regionAct == SNZU_ACT_DOWN && status->hovered) {
+                    *focusedSketchElt = status->state;
+                }
+                if (*focusedSketchElt == status->state) {
+                    focusedStatus = status;
+                    break;
+                }
+            }
+
+            if (*focusedSketchElt) {
+                SNZ_ASSERT(focusedStatus != NULL, "Sketch elt focused but status doesn't exist.");;
+                focusedStatus->mouseAct = regionAct;
+                regionAct = SNZU_ACT_NONE;
+            }
+
+            bool shiftPressed = inter->keyMods & KMOD_SHIFT;
+            ui_selectionRegionUpdate(region, regionAct, mouse, shiftPressed, inLineMode || inNonLineTool, firstStatus);
         }
 
-        snzu_Action mouseAct = inter->mouseActions[SNZU_MB_LEFT];
-        if (inLineMode) {
-            shiftPressed = false;
-        } else if (inNonLineTool) {
-            mouseAct = SNZU_ACT_NONE;
-        }
-
-        ui_selectableRegionUpdate(region, firstStatus, mouseAct, shiftPressed);
-
-        if (inLineMode) {
-            shiftPressed = false;
-
-            sk_Point** const lastPt = SNZU_USE_MEM(sk_Point*, "line point");
-            sk_Point* newSel = NULL;
-            int selectedCount = 0;
-            for (sk_Point* p = sketch->firstPoint; p; p = p->next) {
-                if (p->sel.selected) {
-                    if (p != *lastPt) {
-                        newSel = p;
+        {
+            bool mouseDown = regionAct == SNZU_ACT_DOWN;
+            if (inLineMode) {
+                sk_Point** const lastPt = SNZU_USE_MEM(sk_Point*, "line point");
+                sk_Point* newSel = NULL;
+                int selectedCount = 0;
+                for (sk_Point* p = sketch->firstPoint; p; p = p->next) {
+                    if (p->sel.selected) {
+                        if (p != *lastPt) {
+                            newSel = p;
+                        }
+                        selectedCount++;
                     }
-                    selectedCount++;
                 }
-            }
-            if (selectedCount > 2) {
-                *lastPt = NULL;
-                newSel = NULL;
-            }
-            sk_sketchDeselectAll(sketch);
-
-            if (mouseDown) {
-                if (!*lastPt && !newSel) {
-                    HMM_Vec2 mousePos = inter->mousePosGlobal;
-                    mousePos.Y *= -1;
-                    sk_Point* p = sk_sketchAddPoint(sketch, mousePos);
-                    *lastPt = p;
-                } else if (!newSel && *lastPt) {
-                    HMM_Vec2 mousePos = inter->mousePosGlobal;
-                    mousePos.Y *= -1;
-                    sk_Point* p = sk_sketchAddPoint(sketch, mousePos);
-                    sk_sketchAddLine(sketch, p, *lastPt);
-                    *lastPt = p;
-                } else if (newSel && *lastPt) {
-                    sk_sketchAddLine(sketch, *lastPt, newSel);
-                    *lastPt = newSel;
-                } else {
-                    *lastPt = newSel;
+                if (selectedCount > 2) {
+                    *lastPt = NULL;
+                    newSel = NULL;
                 }
-            }
+                sk_sketchDeselectAll(sketch);
 
-            if (*lastPt) {
-                (*lastPt)->sel.selected = true;
-            }
+                if (mouseDown) {
+                    if (!*lastPt && !newSel) {
+                        HMM_Vec2 mousePos = inter->mousePosGlobal;
+                        mousePos.Y *= -1;
+                        sk_Point* p = sk_sketchAddPoint(sketch, mousePos);
+                        *lastPt = p;
+                    } else if (!newSel && *lastPt) {
+                        HMM_Vec2 mousePos = inter->mousePosGlobal;
+                        mousePos.Y *= -1;
+                        sk_Point* p = sk_sketchAddPoint(sketch, mousePos);
+                        sk_sketchAddLine(sketch, p, *lastPt);
+                        *lastPt = p;
+                    } else if (newSel && *lastPt) {
+                        sk_sketchAddLine(sketch, *lastPt, newSel);
+                        *lastPt = newSel;
+                    } else {
+                        *lastPt = newSel;
+                    }
+                }
 
-            lineSrcPoint = *lastPt;
-        }  // end line mode logic
-        else if (inMoveMode) {
-            HMM_Vec2* const prevMouse = SNZU_USE_MEM(HMM_Vec2, "prev mouse");
-            if (snzu_useMemIsPrevNew()) {
+                if (*lastPt) {
+                    (*lastPt)->sel.selected = true;
+                }
+
+                lineSrcPoint = *lastPt;
+            }  // end line mode logic
+            else if (inMoveMode) {
+                HMM_Vec2* const prevMouse = SNZU_USE_MEM(HMM_Vec2, "prev mouse");
+                if (snzu_useMemIsPrevNew()) {
+                    *prevMouse = mouse;
+                }
+                HMM_Vec2 diff = HMM_Sub(mouse, *prevMouse);
                 *prevMouse = mouse;
-            }
-            HMM_Vec2 diff = HMM_Sub(mouse, *prevMouse);
-            *prevMouse = mouse;
 
-            // FIXME: selecting a line should select the base pts also?? but then deletion is weird???
-            for (sk_Point* p = sketch->firstPoint; p; p = p->next) {
-                if (p->sel.selected) {
-                    p->pos = HMM_Add(p->pos, diff);
+                // FIXME: selecting a line should select the base pts also?? but then deletion is weird???
+                for (sk_Point* p = sketch->firstPoint; p; p = p->next) {
+                    if (p->sel.selected) {
+                        p->pos = HMM_Add(p->pos, diff);
+                    }
                 }
-            }
-            if (mouseDown) {
-                sc_cancelActiveCommand();
-                sk_sketchDeselectAll(sketch);
-            }
-            // FIXME: doing this by diff instead of abs feels sluggish
-        } else if (inRotateMode) {
-            HMM_Vec2* const mouseSrc = SNZU_USE_MEM(HMM_Vec2, "mouse src");
-            if (snzu_useMemIsPrevNew()) {
-                *mouseSrc = mouse;
-            }
-            float* const prevAngle = SNZU_USE_MEM(float, "prevAngle");
-            HMM_Vec2 diff = HMM_Sub(mouse, *mouseSrc);
-            float angle = atan2f(diff.Y, diff.X);
-            if (snzu_useMemIsPrevNew()) {
+                if (mouseDown) {
+                    sc_cancelActiveCommand();
+                    sk_sketchDeselectAll(sketch);
+                }
+                // FIXME: doing this by diff instead of abs feels sluggish
+            } else if (inRotateMode) {
+                HMM_Vec2* const mouseSrc = SNZU_USE_MEM(HMM_Vec2, "mouse src");
+                if (snzu_useMemIsPrevNew()) {
+                    *mouseSrc = mouse;
+                }
+                float* const prevAngle = SNZU_USE_MEM(float, "prevAngle");
+                HMM_Vec2 diff = HMM_Sub(mouse, *mouseSrc);
+                float angle = atan2f(diff.Y, diff.X);
+                if (snzu_useMemIsPrevNew()) {
+                    *prevAngle = angle;
+                }
+
+                float angleDiff = _sku_normalizeAngle(angle - *prevAngle);
                 *prevAngle = angle;
-            }
 
-            float angleDiff = _sku_normalizeAngle(angle - *prevAngle);
-            *prevAngle = angle;
-
-            HMM_Vec2 center = HMM_V2(0, 0);
-            int count = 0;
-            for (sk_Point* p = sketch->firstPoint; p; p = p->next) {
-                if (p->sel.selected) {
-                    center = HMM_Add(center, p->pos);
-                    count++;
+                HMM_Vec2 center = HMM_V2(0, 0);
+                int count = 0;
+                for (sk_Point* p = sketch->firstPoint; p; p = p->next) {
+                    if (p->sel.selected) {
+                        center = HMM_Add(center, p->pos);
+                        count++;
+                    }
                 }
-            }
-            center = HMM_DivV2F(center, (float)count);
+                center = HMM_DivV2F(center, (float)count);
 
-            for (sk_Point* p = sketch->firstPoint; p; p = p->next) {
-                if (p->sel.selected) {
-                    HMM_Vec2 nPos = HMM_RotateV2(HMM_Sub(p->pos, center), angleDiff);
-                    p->pos = HMM_Add(nPos, center);
+                for (sk_Point* p = sketch->firstPoint; p; p = p->next) {
+                    if (p->sel.selected) {
+                        HMM_Vec2 nPos = HMM_RotateV2(HMM_Sub(p->pos, center), angleDiff);
+                        p->pos = HMM_Add(nPos, center);
+                    }
                 }
-            }
 
-            if (mouseDown) {
-                sc_cancelActiveCommand();
-                sk_sketchDeselectAll(sketch);
-                // FIXME: this smells of bugs
-            }
-            // FIXME: everything for the move tool
-        }  // end rotate mode logic
+                if (mouseDown) {
+                    sc_cancelActiveCommand();
+                    sk_sketchDeselectAll(sketch);
+                    // FIXME: this smells of bugs
+                }
+                // FIXME: everything for the move tool
+            }  // end rotate mode logic
+        }
 
         if (region->dragging) {
             snzr_drawRect(region->dragOrigin, mouse,
