@@ -407,7 +407,7 @@ static bool _sku_AABBContainsPt(HMM_Vec2 boxStart, HMM_Vec2 boxEnd, HMM_Vec2 pt)
 // FIXME: factor out inter, only pass mouse pos
 static void _sku_draw(sk_Sketch* sketch, snzu_Interaction* inter, HMM_Mat4 model, HMM_Mat4 sketchMVP, HMM_Mat4 uiMVP, HMM_Vec3 cameraPos, snz_Arena* scratch, float sound) {
     {  // grid around the cursor
-        HMM_Vec3 mousePos = HMM_V3(inter->mousePosGlobal.X, inter->mousePosGlobal.Y, 0);
+        HMM_Vec3 mousePos = HMM_V3(inter->mousePosGlobal.X, -inter->mousePosGlobal.Y, 0);
         float scaleFactor = HMM_LenV3(HMM_Sub(_sku_mulM4V3(model, mousePos), cameraPos));
 
         // FIXME: jarring switches in gaplen
@@ -420,6 +420,7 @@ static void _sku_draw(sk_Sketch* sketch, snzu_Interaction* inter, HMM_Mat4 model
             skOrigin.Y *= -1;
             origin = HMM_Sub(inter->mousePosGlobal, skOrigin);
         }
+        HMM_Vec3 fadeOrigin = HMM_V3(inter->mousePosGlobal.X, inter->mousePosGlobal.Y, 0);
         for (int ax = 0; ax < 2; ax++) {
             float axOffset = fmod(origin.Elements[ax], lineGap);
             for (int i = 0; i < lineCount; i++) {
@@ -434,10 +435,8 @@ static void _sku_draw(sk_Sketch* sketch, snzu_Interaction* inter, HMM_Mat4 model
                 pts[1].XY.Elements[ax] += x;
                 pts[1].XY.Elements[!ax] += -1.5 * scaleFactor;
 
-                HMM_Vec3 fadeOrigin = { 0 };
-                fadeOrigin.XY = inter->mousePosGlobal;
                 // FIXME: have this invert color when behind smth in the scene
-                snzr_drawLineFaded(pts, 2, ui_colorAlmostBackground, 1, uiMVP, fadeOrigin, 0, 0.5 * scaleFactor);
+                snzr_drawLineFaded(pts, 2, HMM_V4(1, 0, 0, 1), 1, uiMVP, fadeOrigin, 0, 0.5 * scaleFactor);
             }
         }
     }  // end grid
