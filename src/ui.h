@@ -521,6 +521,7 @@ void ui_textArea(ui_TextArea* const text, const snzr_Font* font, float textHeigh
 }  // end text area
 
 typedef struct {
+    bool tempSelected;
     bool selected;
     float selectionAnim;
     float hoverAnim;
@@ -543,15 +544,13 @@ typedef struct {
 
 // mouseaction should not contain data if any status has mouseaction data
 // If the inners are just using stock inters, shouldn't be an issue because they will capture mouse actions
-void ui_selectionRegionUpdate(ui_SelectionRegion* region, snzu_Action regionMouseAction, HMM_Vec2 mousePos, bool shiftPressed, bool anotherToolActive, ui_SelectionStatus* firstStatus) {
-    // FIXME: technically this should be updated before statuses get created, but then there are two
-    // update calls for the region and I don't feel like putting up with that for a one frame delay/inaccuracy
+void ui_selectionRegionUpdate(ui_SelectionRegion* region, snzu_Action regionMouseAction, HMM_Vec2 mousePos, bool shiftPressed, ui_SelectionStatus* firstStatus, bool allowDragging) {
     if (regionMouseAction == SNZU_ACT_DOWN) {
         region->dragging = true;
         region->dragOrigin = mousePos;
     }
 
-    if (regionMouseAction == SNZU_ACT_UP || anotherToolActive || !snzu_isNothingFocused()) {
+    if (regionMouseAction == SNZU_ACT_UP || !allowDragging || !snzu_isNothingFocused()) {
         region->dragging = false;
     }
 
@@ -567,23 +566,40 @@ void ui_selectionRegionUpdate(ui_SelectionRegion* region, snzu_Action regionMous
     }
 
     for (ui_SelectionStatus* s = firstStatus; s; s = s->next) {
+        s->state->tempSelected = s->withinDragZone && region->dragging;
+
         if (!snzu_isNothingFocused()) {
             s->state->selected = false;
         } else if (dragEnded && s->withinDragZone) {
             s->state->selected = true;
         }
-        if (!anotherToolActive) {
-            if (s->mouseAct == SNZU_ACT_DOWN && s->hovered) {
-                s->state->selected = !s->state->selected;
-            } else if (anyMouseDown && !shiftPressed) {
-                s->state->selected = false;
-            }
+
+        if (s->mouseAct == SNZU_ACT_DOWN && s->hovered) {
+            s->state->selected = !s->state->selected;
+        } else if (anyMouseDown && !shiftPressed) {
+            s->state->selected = false;
         }
+    }
+}
 
-        float hoverTarget = s->hovered && !region->dragging && !anotherToolActive;
-        snzu_easeExp(&s->state->hoverAnim, hoverTarget, 15);
+void ui_selectionRegionUpdateIgnoreMouse(ui_SelectionRegion* region, ui_SelectionStatus* firstStatus) {
+    region->dragging = false;
+    region->wasDragging = false;
 
-        float selectionTarget = (s->withinDragZone && region->dragging) || s->state->selected;
-        snzu_easeExp(&s->state->selectionAnim, selectionTarget, 15);
-    } // end status loop
+    for (ui_SelectionStatus* s = firstStatus; s; s = s->next) {
+        if (!snzu_isNothingFocused()) {
+            s->state->selected = false;
+        } else if (s->state->tempSelected) {
+            s->state->tempSelected = false;
+            s->state->selected = true;
+        }
+        s->hovered = false;
+    }
+}
+
+void ui_selectionRegionAnimate(ui_SelectionStatus* firstStatus) {
+    for (ui_SelectionStatus* s = firstStatus; s; s = s->next) {
+        snzu_easeExp(&s->state->hoverAnim, s->hovered, 15);
+        snzu_easeExp(&s->state->selectionAnim, s->state->selected || s->state->tempSelected, 15);
+    }
 }

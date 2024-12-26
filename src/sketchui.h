@@ -559,7 +559,7 @@ void sku_drawAndBuildSketch(
         ui_SelectionState** const focusedSketchElt = SNZU_USE_MEM(ui_SelectionState*, "focusedsketchelt");
 
         ui_SelectionStatus* firstStatus = NULL;
-        {  // loop over all points make the list of selection statuses
+        {  // loop over all elems and make the list of selection statuses
             bool anyPointHovered = false;
 
             // FIXME: make contains check precise, not per vert
@@ -580,6 +580,9 @@ void sku_drawAndBuildSketch(
                 p->scaleFactor = scaleFactor;
                 bool hovered = HMM_Len(HMM_Sub(mouse, p->pos)) < (0.02 * scaleFactor);
                 anyPointHovered |= hovered;
+                if (inNonLineTool) {
+                    hovered = false;
+                }
 
                 ui_SelectionStatus* status = SNZ_ARENA_PUSH(scratch, ui_SelectionStatus);
                 *status = (ui_SelectionStatus){
@@ -598,7 +601,7 @@ void sku_drawAndBuildSketch(
                 HMM_Vec3 transformedCenter = HMM_MulM4V4(model, HMM_V4(midpt.X, midpt.Y, 0, 1)).XYZ;
                 float distToCamera = HMM_Len(HMM_Sub(transformedCenter, cameraPos));
                 bool hovered = _sku_lineContainsPt(l->p1->pos, l->p2->pos, 0.01 * distToCamera, mouse);
-                if (anyPointHovered) {
+                if (anyPointHovered || inLineMode || inNonLineTool) {
                     hovered = false;
                 }
 
@@ -617,8 +620,11 @@ void sku_drawAndBuildSketch(
                 float scaleFactor;
                 _sku_constraintScaleFactorAndCenter(c, model, cameraPos, &visualCenter, &scaleFactor);
 
+                // FIXME: multiple elems are animated as if clickable when only one is, pick a side please
                 bool hovered = _sku_constraintHovered(c, scaleFactor, visualCenter, mouse);
-                if (anyPointHovered) {
+                // NOTE: cancelling hover here means that even though these statuses are in the set to update
+                // when in line mode, they will never be able to capture the mouse or be selected.
+                if (anyPointHovered || inLineMode || inNonLineTool) {
                     hovered = false;
                 }
 
@@ -648,7 +654,7 @@ void sku_drawAndBuildSketch(
             }
         }
 
-        {
+        { // update statuses for everything in the sketch + manage faking mouse capture
             if (regionAct == SNZU_ACT_UP) {
                 *focusedSketchElt = NULL;
             }
@@ -670,31 +676,42 @@ void sku_drawAndBuildSketch(
                 regionAct = SNZU_ACT_NONE;
             }
 
-            bool shiftPressed = inter->keyMods & KMOD_SHIFT;
-            ui_selectionRegionUpdate(region, regionAct, mouse, shiftPressed, inLineMode || inNonLineTool, firstStatus);
+            if (inNonLineTool) {
+                ui_selectionRegionUpdateIgnoreMouse(region, firstStatus);
+            } else {
+                ui_selectionRegionUpdate(region, regionAct, mouse, inter->keyMods & KMOD_SHIFT, firstStatus, !inLineMode);
+            }
+            ui_selectionRegionAnimate(firstStatus);
         }
 
-        {
-            bool mouseDown = regionAct == SNZU_ACT_DOWN;
+        { // handle logic for each tool mode
             if (inLineMode) {
-                sk_Point** const lastPt = SNZU_USE_MEM(sk_Point*, "line point");
-                sk_Point* newSel = NULL;
+                { // make sure no invalid selections can linger into line mode
+                    // FIXME: this number of loops happening ev frame gonna be a perf issue?
+                    for (sk_Line* l = sketch->firstLine; l; l = l->next) {
+                        l->sel.selected = false;
+                    }
+
+                    for (sk_Constraint* c = sketch->firstConstraint; c; c = c->nextAllocated) {
+                        c->uiInfo.sel.selected = false;
+                    }
+                }
+
+                sk_Point** const lastPt = SNZU_USE_MEM(sk_Point*, "lastPt");
+
                 int selectedCount = 0;
+                sk_Point* newSel = NULL;
                 for (sk_Point* p = sketch->firstPoint; p; p = p->next) {
                     if (p->sel.selected) {
+                        selectedCount++;
                         if (p != *lastPt) {
                             newSel = p;
                         }
-                        selectedCount++;
                     }
-                }
-                if (selectedCount > 2) {
-                    *lastPt = NULL;
-                    newSel = NULL;
                 }
                 sk_sketchDeselectAll(sketch);
 
-                if (mouseDown) {
+                if (inter->mouseActions[SNZU_MB_LEFT] == SNZU_ACT_DOWN) {
                     if (!*lastPt && !newSel) {
                         HMM_Vec2 mousePos = inter->mousePosGlobal;
                         mousePos.Y *= -1;
@@ -734,7 +751,7 @@ void sku_drawAndBuildSketch(
                         p->pos = HMM_Add(p->pos, diff);
                     }
                 }
-                if (mouseDown) {
+                if (regionAct == SNZU_ACT_DOWN) {
                     sc_cancelActiveCommand();
                     sk_sketchDeselectAll(sketch);
                 }
@@ -771,7 +788,7 @@ void sku_drawAndBuildSketch(
                     }
                 }
 
-                if (mouseDown) {
+                if (regionAct == SNZU_ACT_DOWN) {
                     sc_cancelActiveCommand();
                     sk_sketchDeselectAll(sketch);
                     // FIXME: this smells of bugs
