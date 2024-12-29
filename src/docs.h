@@ -70,6 +70,8 @@ void docs_buildPage() {
             snzu_boxSetSizeFromStartAx(SNZU_AX_Y, snzu_boxGetSizeToFitChildrenAx(SNZU_AX_Y));
         }  // scroll area for files
         snzuc_scrollArea();
+        snzu_boxClipChildren(false);
+
 
         snzu_boxNew("scroll area for text");
         snzu_boxFillParent();
@@ -85,5 +87,6 @@ void docs_buildPage() {
         }  // scroll area for files
         snzu_boxOrderChildrenInRowRecurse(10, SNZU_AX_Y);
         snzuc_scrollArea();
+        snzu_boxClipChildren(false);
     }  // end box for both scroll areas // margin
 }  // end docs_buildPage
