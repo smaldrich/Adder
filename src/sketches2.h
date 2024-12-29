@@ -126,7 +126,6 @@ typedef struct {
     sk_Point* originPt;
     sk_Line* originLine;
     float originAngle;
-    // FIXME: make setters
 
     snz_Arena* arena;
 } sk_Sketch;
@@ -139,6 +138,12 @@ sk_Sketch sk_sketchInit(snz_Arena* arena) {
             .firstConstraint = NULL,
             .arena = arena,
     };
+}
+
+void sk_sketchSetOrigin(sk_Sketch* sketch, sk_Line* line, bool originOnP1, float angle) {
+    sketch->originLine = line;
+    sketch->originPt = (originOnP1 ? line->p1 : line->p2);
+    sketch->originAngle = angle;
 }
 
 sk_Point* sk_sketchAddPoint(sk_Sketch* sketch, HMM_Vec2 pos) {
@@ -870,8 +875,7 @@ void sk_tests() {
         sk_sketchAddConstraintDistance(&s, l2, 1);
         sk_sketchAddConstraintDistance(&s, l3, 1);
 
-        s.originLine = l1;
-        s.originPt = p1;
+        sk_sketchSetOrigin(&s, l1, true, 0);
         sk_sketchSolve(&s);  // FIXME: message?
     }
 
@@ -890,8 +894,7 @@ void sk_tests() {
         sk_sketchAddConstraintAngle(&s, l1, true, l2, false, HMM_AngleDeg(30));
         sk_sketchAddConstraintAngle(&s, l1, false, l3, true, HMM_AngleDeg(-30));
 
-        s.originLine = l1;
-        s.originPt = p1;
+        sk_sketchSetOrigin(&s, l1, true, 0);
         sk_sketchSolve(&s);  // FIXME: message?
     }
 

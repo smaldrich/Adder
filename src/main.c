@@ -141,8 +141,7 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
 
         sk_sketchAddLine(&main_sketch, up, right);
 
-        main_sketch.originLine = vertical;
-        main_sketch.originPt = main_sketch.originLine->p1;
+        sk_sketchSetOrigin(&main_sketch, vertical, true, HMM_AngleDeg(90));
         sk_sketchSolve(&main_sketch);
     }
 
