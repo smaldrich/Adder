@@ -22,7 +22,7 @@ struct tl_Op {
 
     struct {
         HMM_Vec2 pos;
-        // ui_SelectableState sel;
+        ui_SelectionState sel;
         snzu_Interaction inter;
     } ui;
 
@@ -59,85 +59,87 @@ void tl_build(tl_Op* operations, snz_Arena* scratch) {
 
     snzu_Interaction* const inter = SNZU_USE_MEM(snzu_Interaction, "inter");
     snzu_boxSetInteractionOutput(inter, SNZU_IF_HOVER | SNZU_IF_MOUSE_BUTTONS | SNZU_IF_MOUSE_SCROLL);
+    // FIXME: drag stuck on when left bar gets opened and mouseupd
 
-    assert(operations || !operations);
-    assert(scratch || !scratch);
     {
-        // HMM_Vec2* const camPos = SNZU_USE_MEM(HMM_Vec2, "campos");
-        // float* const camHeight = SNZU_USE_MEM(float, "camheight");
+        HMM_Vec2* const camPos = SNZU_USE_MEM(HMM_Vec2, "campos");
+        float* const camHeight = SNZU_USE_MEM(float, "camheight");
 
-        // *camHeight += inter->mouseScrollY * (*camHeight) * 0.05;
+        *camHeight += inter->mouseScrollY * (*camHeight) * 0.05;
 
-        // HMM_Vec2* const prevMouse = SNZU_USE_MEM(HMM_Vec2, "camlastmouse");
-        // HMM_Vec2 diff = HMM_V2(0, 0);
-        // if (inter->mouseActions[SNZU_MB_RIGHT] == SNZU_ACT_DOWN) {
-        //     *prevMouse = inter->mousePosGlobal;
-        // } else if (inter->mouseActions[SNZU_MB_RIGHT] == SNZU_ACT_DRAG) {
-        //     diff = HMM_Sub(inter->mousePosGlobal, *prevMouse);
-        // }
-        // *prevMouse = inter->mousePosGlobal;
+        HMM_Vec2* const prevMouse = SNZU_USE_MEM(HMM_Vec2, "camlastmouse");
+        HMM_Vec2 diff = HMM_V2(0, 0);
+        if (inter->mouseActions[SNZU_MB_RIGHT] == SNZU_ACT_DOWN) {
+            *prevMouse = inter->mousePosGlobal;
+        } else if (inter->mouseActions[SNZU_MB_RIGHT] == SNZU_ACT_DRAG) {
+            diff = HMM_Sub(inter->mousePosGlobal, *prevMouse);
+        }
+        *prevMouse = inter->mousePosGlobal;
 
-        // *camPos = HMM_Add(*camPos, diff);
+        *camPos = HMM_Add(*camPos, diff);
     }
 
-    // snzu_boxScope() {
-    //     // Handle selection status and dragging for everything in the region
-    //     ui_SelectableRegion* const region = SNZU_USE_MEM(ui_SelectableRegion, "sel region");
-    //     {
-    //         if (inter->mouseActions[SNZU_MB_LEFT] == SNZU_ACT_DOWN) {
-    //             region->dragOrigin = inter->mousePosGlobal;
-    //             region->dragging = true;
-    //             // FIXME: BUG: when you drag and then open the left bar and mouseup, dragging gets stuck on
-    //         }
+    snzu_boxScope() {
+        // Handle selection status and dragging for everything in the region
+        ui_SelectionRegion* const region = SNZU_USE_MEM(ui_SelectionRegion, "sel region");
+        {
+            ui_SelectionStatus* firstStatus = NULL;
+            HMM_Vec2 dragMin = HMM_V2(SNZ_MIN(inter->mousePosGlobal.X, region->dragOrigin.X), SNZ_MIN(inter->mousePosGlobal.Y, region->dragOrigin.Y));
+            HMM_Vec2 dragMax = HMM_V2(SNZ_MAX(inter->mousePosGlobal.X, region->dragOrigin.X), SNZ_MAX(inter->mousePosGlobal.Y, region->dragOrigin.Y));
+            for (tl_Op* op = operations; op; op = op->next) {
+                bool inDragZone = false;
+                if (dragMin.X < op->ui.pos.X && dragMax.X > op->ui.pos.X) {
+                    if (dragMin.Y < op->ui.pos.Y && dragMax.Y > op->ui.pos.Y) {
+                        inDragZone = true;
+                    }
+                }
 
-    //         ui_SelectableStatus* firstStatus = NULL;
-    //         HMM_Vec2 dragMin = HMM_V2(SNZ_MIN(inter->mousePosGlobal.X, region->dragOrigin.X), SNZ_MIN(inter->mousePosGlobal.Y, region->dragOrigin.Y));
-    //         HMM_Vec2 dragMax = HMM_V2(SNZ_MAX(inter->mousePosGlobal.X, region->dragOrigin.X), SNZ_MAX(inter->mousePosGlobal.Y, region->dragOrigin.Y));
-    //         for (tl_Op* op = operations; op; op = op->next) {
-    //             bool inDragZone = false;
-    //             if (dragMin.X < op->ui.pos.X && dragMax.X > op->ui.pos.X) {
-    //                 if (dragMin.Y < op->ui.pos.Y && dragMax.Y > op->ui.pos.Y) {
-    //                     inDragZone = true;
-    //                 }
-    //             }
+                ui_SelectionStatus* status = SNZ_ARENA_PUSH(scratch, ui_SelectionStatus);
+                *status = (ui_SelectionStatus){
+                    .next = firstStatus,
+                    .state = &(op->ui.sel),
+                    .hovered = op->ui.inter.hovered,
+                    .withinDragZone = inDragZone,
+                    .mouseAct = op->ui.inter.mouseActions[SNZU_MB_LEFT],
+                };
+                firstStatus = status;
+            }
 
-    //             ui_SelectableStatus* status = SNZ_ARENA_PUSH(scratch, ui_SelectableStatus);
-    //             *status = (ui_SelectableStatus){
-    //                 .next = firstStatus,
-    //                 .state = &(op->ui.sel),
-    //                 .hovered = op->ui.inter.hovered,
-    //                 .withinDragZone = inDragZone,
-    //             };
-    //             firstStatus = status;
-    //         }
-    //         ui_selectableRegionUpdate(region, firstStatus, inter->mouseActions[SNZU_MB_LEFT], inter->keyMods & KMOD_SHIFT);
-    //     }
+            ui_selectionRegionUpdate(
+                region,
+                inter->mouseActions[SNZU_MB_LEFT],
+                inter->mousePosGlobal,
+                inter->keyMods & KMOD_SHIFT,
+                firstStatus,
+                true);
+            ui_selectionRegionAnimate(firstStatus);
+        }
 
-    //     for (tl_Op* op = operations; op; op = op->next) {
-    //         snzu_boxNew(snz_arenaFormatStr(scratch, "%p", op));
-    //         snzu_boxSetInteractionOutput(&op->ui.inter, SNZU_IF_HOVER | SNZU_IF_MOUSE_BUTTONS); // FIXME: this is a bad way of making the sel region work
+        for (tl_Op* op = operations; op; op = op->next) {
+            snzu_boxNew(snz_arenaFormatStr(scratch, "%p", op));
+            snzu_boxSetInteractionOutput(&op->ui.inter, SNZU_IF_HOVER | SNZU_IF_MOUSE_BUTTONS);
 
-    //         const char* labelStr = NULL;
-    //         if (op->kind == TL_OPK_COMMENT) {
-    //             labelStr = op->val.comment.text;
-    //         } else if (op->kind == TL_OPK_SKETCH) {
-    //             labelStr = "sketch";
-    //         }
-    //         HMM_Vec4 textColor = HMM_Lerp(ui_colorText, op->ui.sel.selectionAnim, ui_colorAccent);
-    //         snzu_boxSetDisplayStr(&ui_labelFont, textColor, labelStr);
-    //         float radius = 60 + (10 * op->ui.sel.hoverAnim);
-    //         snzu_boxSetCornerRadius(radius);
-    //         snzu_boxSetStart(HMM_Sub(op->ui.pos, HMM_V2(radius, radius)));
-    //         snzu_boxSetEnd(HMM_Add(op->ui.pos, HMM_V2(radius, radius)));
-    //         snzu_boxSetColor(ui_colorBackground);
-    //         snzu_boxSetBorder(ui_borderThickness, textColor);
-    //     }
+            const char* labelStr = NULL;
+            if (op->kind == TL_OPK_COMMENT) {
+                labelStr = op->val.comment.text;
+            } else if (op->kind == TL_OPK_SKETCH) {
+                labelStr = "sketch";
+            }
+            HMM_Vec4 textColor = HMM_Lerp(ui_colorText, op->ui.sel.selectionAnim, ui_colorAccent);
+            snzu_boxSetDisplayStr(&ui_labelFont, textColor, labelStr);
+            float radius = 60 + (10 * op->ui.sel.hoverAnim);
+            snzu_boxSetCornerRadius(radius);
+            snzu_boxSetStart(HMM_Sub(op->ui.pos, HMM_V2(radius, radius)));
+            snzu_boxSetEnd(HMM_Add(op->ui.pos, HMM_V2(radius, radius)));
+            snzu_boxSetColor(ui_colorBackground);
+            snzu_boxSetBorder(ui_borderThickness, textColor);
+        }
 
-    //     if (region->dragging) {
-    //         snzu_boxNew("selBox");
-    //         snzu_boxSetStart(region->dragOrigin);
-    //         snzu_boxSetEnd(inter->mousePosGlobal);
-    //         snzu_boxSetColor(ui_colorTransparentAccent);
-    //     }
-    // } // end main parent box scope
+        if (region->dragging) {
+            snzu_boxNew("selBox");
+            snzu_boxSetStart(region->dragOrigin);
+            snzu_boxSetEnd(inter->mousePosGlobal);
+            snzu_boxSetColor(ui_colorTransparentAccent);
+        }
+    } // end main parent box scope
 }

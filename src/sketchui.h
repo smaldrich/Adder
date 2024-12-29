@@ -535,7 +535,7 @@ void sku_drawAndBuildSketch(
     snzu_boxSetStart(HMM_V2(-INFINITY, -INFINITY));
     snzu_boxSetEnd(HMM_V2(INFINITY, INFINITY));
     snzu_Interaction* const inter = SNZU_USE_MEM(snzu_Interaction, "inter");
-    snzu_boxSetInteractionOutput(inter, SNZU_IF_HOVER | SNZU_IF_MOUSE_BUTTONS | SNZU_IF_MOUSE_SCROLL | SNZU_IF_ALLOW_EVENT_FALLTHROUGH);
+    snzu_boxSetInteractionOutput(inter, SNZU_IF_HOVER | SNZU_IF_MOUSE_BUTTONS | SNZU_IF_MOUSE_SCROLL);
     // fallthru required because otherwise this captures the mouse on click // i hate it but it it works
     snzu_boxEnter();
     glDisable(GL_DEPTH_TEST);
