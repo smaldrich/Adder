@@ -573,7 +573,6 @@ static void _snzr_init(snz_Arena* scratchArena) {
             "        vFragPos = verts[line_i + 2].pos.xyz;"  // FIXME: technically this isn't accounting for the width of the line in determning frag position, but I don't care rn
             "    }"
             "    pos.xy = pos.xy / uResolution * 2.0 - 1.0;"
-            "    pos.w = 1;" // FIXME: lord forgive me
             "    pos.xyz *= pos.w;"
             "    gl_Position = pos;"
             "};";

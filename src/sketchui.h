@@ -436,7 +436,7 @@ static void _sku_draw(sk_Sketch* sketch, snzu_Interaction* inter, HMM_Mat4 model
                 pts[1].XY.Elements[!ax] += -1.5 * scaleFactor;
 
                 // FIXME: have this invert color when behind smth in the scene
-                snzr_drawLineFaded(pts, 2, HMM_V4(1, 0, 0, 1), 1, uiMVP, fadeOrigin, 0, 0.5 * scaleFactor);
+                snzr_drawLineFaded(pts, 2, ui_colorAlmostBackground, 1, uiMVP, fadeOrigin, 0, 0.5 * scaleFactor);
             }
         }
     }  // end grid
