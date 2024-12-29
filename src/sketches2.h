@@ -125,6 +125,7 @@ typedef struct {
 
     sk_Point* originPt;
     sk_Line* originLine;
+    float originAngle;
     // FIXME: make setters
 
     snz_Arena* arena;
@@ -444,9 +445,7 @@ void sk_sketchSolve(sk_Sketch* sketch) {
         SNZ_ASSERT(sketch->originPt == sketch->originLine->p1 || sketch->originPt == sketch->originLine->p2, "origin pt wasn't a part of origin line.");
 
         sketch->originLine->angleSolved = true;
-        // FIXME: this is wrong + leads to yucky behaviour, go back to originangle
-        float ang = sk_angleOfLine(sketch->originLine->p1->pos, sketch->originLine->p2->pos, false);
-        sketch->originLine->expectedAngle = ang;
+        sketch->originLine->expectedAngle = sketch->originAngle;
 
         sketch->originPt->solved = true;
         sketch->originPt->manifold = (sk_Manifold){
@@ -584,6 +583,7 @@ void sk_sketchSolve(sk_Sketch* sketch) {
         for (sk_Constraint* c = sketch->firstConstraint; c; c = c->nextAllocated) {
             float error = 0;
             if (c->kind == SK_CK_ANGLE) {
+                // FIXME: Origin angle should be a constraint but it doesnt get applied here??
                 if (c->line1->p1->solved && c->line1->p2->solved && c->line2->p1->solved && c->line2->p2->solved) {
                     continue;
                 }

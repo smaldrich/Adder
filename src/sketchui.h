@@ -790,6 +790,10 @@ void sku_drawAndBuildSketch(
                     }
                 }
 
+                if (sketch->originLine->p1->sel.selected && sketch->originLine->p2->sel.selected) {
+                    sketch->originAngle += angleDiff;
+                }
+
                 if (regionAct == SNZU_ACT_DOWN) {
                     sc_cancelActiveCommand();
                     sk_sketchDeselectAll(sketch);
