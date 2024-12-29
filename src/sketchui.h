@@ -670,9 +670,12 @@ void sku_drawAndBuildSketch(
             }
 
             if (*focusedSketchElt) {
-                SNZ_ASSERT(focusedStatus != NULL, "Sketch elt focused but status doesn't exist.");;
-                focusedStatus->mouseAct = regionAct;
-                regionAct = SNZU_ACT_NONE;
+                if (focusedStatus == NULL) {
+                    *focusedSketchElt = NULL; // may be null in the event of an elem deleted under from the user
+                } else {
+                    focusedStatus->mouseAct = regionAct;
+                    regionAct = SNZU_ACT_NONE;
+                }
             }
 
             if (inNonLineTool) {
