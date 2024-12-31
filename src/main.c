@@ -21,7 +21,7 @@ snz_Arena main_tlArena;
 PoolAlloc main_pool;
 
 sk_Sketch main_sketch;
-snzu_Instance main_sketchUIInstance;
+snzu_Instance main_sceneUIInstance;
 snz_Arena main_sketchArena;
 sku_Align main_sketchAlign;
 
@@ -46,7 +46,7 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
     main_pool = poolAllocInit();
     main_uiInstance = snzu_instanceInit();
     snzu_instanceSelect(&main_uiInstance);
-    main_sketchUIInstance = snzu_instanceInit();
+    main_sceneUIInstance = snzu_instanceInit();
     main_settings = set_settingsDefault();
 
     {  // FIXME: move to snz
@@ -175,14 +175,9 @@ HMM_Vec3 main_rayFromCamera(float fov, HMM_Mat4 cameraTransform, HMM_Vec2 mouseP
     return HMM_Norm(v);
 }
 
-void main_drawDemoScene(HMM_Vec2 panelSize, snz_Arena* scratch, float dt, snzu_Input inputs) {
-    snzu_boxNew("inner");
-    snzu_boxFillParent();
-    snzu_boxSetTexture(main_sceneFB.texture);
-
-    snzu_Interaction* inter = SNZU_USE_MEM(snzu_Interaction, "inter");
-    snzu_boxSetInteractionOutput(inter, SNZU_IF_HOVER | SNZU_IF_MOUSE_BUTTONS | SNZU_IF_MOUSE_SCROLL);
-
+// returns the VP matrix
+HMM_Mat4 main_drawDemoScene(HMM_Vec2 panelSize, snz_Arena* scratch, snzu_Interaction* panelInter, HMM_Vec3* outCameraPos, HMM_Vec3* outMouseDir) {
+    snzu_boxNew("camera usemems");
     HMM_Vec2* const orbitAngle = SNZU_USE_MEM(HMM_Vec2, "orbitAngle");
     // ^^ X meaning rotation around X axis
     float* const orbitDistance = SNZU_USE_MEM(float, "orbitDistance");
@@ -209,12 +204,12 @@ void main_drawDemoScene(HMM_Vec2 panelSize, snz_Arena* scratch, float dt, snzu_I
     }
 
     HMM_Vec2* const lastMousePos = SNZU_USE_MEM(HMM_Vec2, "lastMousePos");
-    if (inter->mouseActions[SNZU_MB_RIGHT] == SNZU_ACT_DOWN) {
-        *lastMousePos = inter->mousePosGlobal;
+    if (panelInter->mouseActions[SNZU_MB_RIGHT] == SNZU_ACT_DOWN) {
+        *lastMousePos = panelInter->mousePosGlobal;
     }
-    if (inter->mouseActions[SNZU_MB_RIGHT] == SNZU_ACT_DRAG) {
-        HMM_Vec2 diff = HMM_SubV2(inter->mousePosGlobal, *lastMousePos);
-        if (inter->keyMods & KMOD_SHIFT) {
+    if (panelInter->mouseActions[SNZU_MB_RIGHT] == SNZU_ACT_DRAG) {
+        HMM_Vec2 diff = HMM_SubV2(panelInter->mousePosGlobal, *lastMousePos);
+        if (panelInter->keyMods & KMOD_SHIFT) {
             HMM_Quat cameraRot = HMM_QFromAxisAngle_RH(HMM_V3(1, 0, 0), orbitAngle->X);
             cameraRot = HMM_MulQ(HMM_QFromAxisAngle_RH(HMM_V3(0, 1, 0), orbitAngle->Y), cameraRot);
             HMM_Quat originRot = sku_alignToQuat(*orbitOrigin);
@@ -237,35 +232,24 @@ void main_drawDemoScene(HMM_Vec2 panelSize, snz_Arena* scratch, float dt, snzu_I
             }
         }
     }
-    *lastMousePos = inter->mousePosGlobal;
+    *lastMousePos = panelInter->mousePosGlobal;
 
-    *orbitDistance += inter->mouseScrollY * (*orbitDistance) * 0.05;
+    *orbitDistance += panelInter->mouseScrollY * (*orbitDistance) * 0.05;
 
     HMM_Mat4 view = HMM_Translate(HMM_V3(0, 0, *orbitDistance));
     view = HMM_MulM4(HMM_Rotate_RH(orbitAngle->X, HMM_V3(1, 0, 0)), view);
     view = HMM_MulM4(HMM_Rotate_RH(orbitAngle->Y, HMM_V3(0, 1, 0)), view);
     view = HMM_MulM4(sku_alignToM4(*orbitOrigin), view);
-    HMM_Vec3 cameraPos = HMM_MulM4V4(view, HMM_V4(0, 0, 0, 1)).XYZ;
 
-    HMM_Vec3 mouseRayNormal = main_rayFromCamera(HMM_AngleDeg(90), view, inter->mousePosLocal, panelSize);
+    HMM_Vec3 cameraPos = HMM_MulM4V4(view, HMM_V4(0, 0, 0, 1)).XYZ;
+    HMM_Vec3 mouseRayNormal = main_rayFromCamera(HMM_AngleDeg(90), view, panelInter->mousePosLocal, panelSize);
+    *outCameraPos = cameraPos;
+    *outMouseDir = mouseRayNormal;
 
     view = HMM_InvGeneral(view);
 
     float aspect = panelSize.X / panelSize.Y;
     HMM_Mat4 proj = HMM_Perspective_RH_NO(HMM_AngleDeg(90), aspect, 0.001, 100000);
-
-    uint32_t w = (uint32_t)panelSize.X;
-    uint32_t h = (uint32_t)panelSize.Y;
-    if (w != main_sceneFB.texture.width || h != main_sceneFB.texture.height) {
-        snzr_frameBufferDeinit(&main_sceneFB);
-        main_sceneFB = snzr_frameBufferInit(snzr_textureInitRBGA(w, h, NULL));
-    }
-
-    // FIXME: opengl here is gross
-    snzr_callGLFnOrError(glBindFramebuffer(GL_FRAMEBUFFER, main_sceneFB.glId));
-    snzr_callGLFnOrError(glViewport(0, 0, w, h));
-    snzr_callGLFnOrError(glClearColor(ui_colorBackground.X, ui_colorBackground.Y, ui_colorBackground.Z, ui_colorBackground.W));
-    snzr_callGLFnOrError(glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT));
 
     HMM_Mat4 model = HMM_Translate(HMM_V3(0, 0, 0));
     HMM_Mat4 vp = HMM_MulM4(proj, view);
@@ -299,9 +283,8 @@ void main_drawDemoScene(HMM_Vec2 panelSize, snz_Arena* scratch, float dt, snzu_I
         }
     }
 
-    snzu_instanceSelect(&main_sketchUIInstance);
-    sku_drawAndBuildSketch(&main_sketch, main_sketchAlign, vp, cameraPos, mouseRayNormal, inputs, soundVal, dt, scratch);
-    snzu_instanceSelect(&main_uiInstance);
+    sku_drawAndBuildSketch(&main_sketch, main_sketchAlign, vp, cameraPos, soundVal, scratch);
+    return vp;
 }
 
 void main_frame(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screenSize) {
@@ -384,14 +367,46 @@ void main_frame(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screen
         snzu_boxScope() {
             if (main_currentView == SC_VIEW_DOCS) {
                 docs_buildPage();
-            } else if (main_currentView == SC_VIEW_SCENE) {
-                main_drawDemoScene(rightPanelSize, scratch, dt, inputs);
+            } else if (main_currentView == SC_VIEW_SCENE || main_currentView == SC_VIEW_TIMELINE) {
+                uint32_t w = (uint32_t)rightPanelSize.X;
+                uint32_t h = (uint32_t)rightPanelSize.Y;
+                if (w != main_sceneFB.texture.width || h != main_sceneFB.texture.height) {
+                    snzr_frameBufferDeinit(&main_sceneFB);
+                    main_sceneFB = snzr_frameBufferInit(snzr_textureInitRBGA(w, h, NULL));
+                }
+
+                // FIXME: opengl here is gross
+                snzr_callGLFnOrError(glBindFramebuffer(GL_FRAMEBUFFER, main_sceneFB.glId));
+                snzr_callGLFnOrError(glViewport(0, 0, w, h));
+                snzr_callGLFnOrError(glClearColor(ui_colorBackground.X, ui_colorBackground.Y, ui_colorBackground.Z, ui_colorBackground.W));
+                snzr_callGLFnOrError(glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT));
+
+                snzu_boxNew("scene");
+                snzu_boxFillParent();
+                snzu_boxSetTexture(main_sceneFB.texture);
+
+                snzu_Interaction* inter = SNZU_USE_MEM(snzu_Interaction, "inter");
+                snzu_boxSetInteractionOutput(inter, SNZU_IF_HOVER | SNZU_IF_MOUSE_BUTTONS | SNZU_IF_MOUSE_SCROLL);
+
+                snzu_instanceSelect(&main_sceneUIInstance);
+                snzu_frameStart(scratch, HMM_V2(0, 0), dt);
+
+                if (main_currentView == SC_VIEW_SCENE) {
+                    HMM_Vec3 cameraPos, mouseDir;
+                    HMM_Mat4 vp = main_drawDemoScene(rightPanelSize, scratch, inter, &cameraPos, &mouseDir);
+                    sku_endFrameForUIInstance(inputs, main_sketchAlign, vp, cameraPos, mouseDir);
+                } else if (main_currentView == SC_VIEW_TIMELINE) {
+                    HMM_Mat4 vp = tl_build(main_firstTLOperation, scratch, rightPanelSize);
+                    snzu_Input inputCopy = inputs;
+                    inputCopy.mousePos = HMM_Mul(vp, HMM_V4(inputs.mousePos.X, inputs.mousePos.Y, 0, 1)).XY;
+                    snzu_frameDrawAndGenInteractions(inputCopy, vp);
+                }
+
+                snzu_instanceSelect(&main_uiInstance);
             } else if (main_currentView == SC_VIEW_SETTINGS) {
                 set_build(&main_settings);
             } else if (main_currentView == SC_VIEW_SHORTCUTS) {
                 sc_buildSettings();
-            } else if (main_currentView == SC_VIEW_TIMELINE) {
-                tl_build(main_firstTLOperation, scratch);
             } else {
                 SNZ_ASSERTF(false, "unreachable view case, view was: %d", main_currentView);
             }

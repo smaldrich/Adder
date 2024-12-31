@@ -52,18 +52,23 @@ tl_Op tl_opCommentInit(HMM_Vec2 pos, const char* text) {
     return out;
 }
 
-void tl_build(tl_Op* operations, snz_Arena* scratch) {
+// returns VP matrix
+HMM_Mat4 tl_build(tl_Op* operations, snz_Arena* scratch, HMM_Vec2 panelSize) {
     snzu_boxNew("timeline");
-    snzu_boxFillParent();
-    snzu_boxClipChildren(true);
+    snzu_boxSetStart(HMM_V2(-INFINITY, -INFINITY));
+    snzu_boxSetEnd(HMM_V2(INFINITY, INFINITY));
 
     snzu_Interaction* const inter = SNZU_USE_MEM(snzu_Interaction, "inter");
     snzu_boxSetInteractionOutput(inter, SNZU_IF_HOVER | SNZU_IF_MOUSE_BUTTONS | SNZU_IF_MOUSE_SCROLL);
     // FIXME: drag stuck on when left bar gets opened and mouseupd
 
+    HMM_Mat4 vp = { 0 };
     {
         HMM_Vec2* const camPos = SNZU_USE_MEM(HMM_Vec2, "campos");
         float* const camHeight = SNZU_USE_MEM(float, "camheight");
+        if (snzu_useMemIsPrevNew()) {
+            *camHeight = 1000;
+        }
 
         *camHeight += inter->mouseScrollY * (*camHeight) * 0.05;
 
@@ -77,6 +82,14 @@ void tl_build(tl_Op* operations, snz_Arena* scratch) {
         *prevMouse = inter->mousePosGlobal;
 
         *camPos = HMM_Add(*camPos, diff);
+
+        SNZ_ASSERT(panelSize.X || !panelSize.X, "hi");
+        float aspect = panelSize.X / panelSize.Y;
+        float halfHeight = *camHeight / 2;
+        float halfWidth = aspect * halfHeight;
+        HMM_Mat4 proj = HMM_Orthographic_RH_NO(-halfWidth, halfWidth, halfHeight, -halfHeight, 0, 1000);
+        HMM_Mat4 view = HMM_InvGeneral(HMM_Translate(HMM_V3(camPos->X, camPos->Y, 0)));
+        vp = HMM_Mul(proj, view);
     }
 
     snzu_boxScope() {
@@ -141,5 +154,12 @@ void tl_build(tl_Op* operations, snz_Arena* scratch) {
             snzu_boxSetEnd(inter->mousePosGlobal);
             snzu_boxSetColor(ui_colorTransparentAccent);
         }
+
+        snzu_boxNew("eruhfeiurfh");
+        snzu_boxSetColor(ui_colorText);
+        snzu_boxSetStart(HMM_V2(0, 0));
+        snzu_boxSetSizeFromStart(HMM_V2(1, 1));
     } // end main parent box scope
+
+    return vp;
 }

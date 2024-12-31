@@ -492,21 +492,34 @@ static void _sku_draw(sk_Sketch* sketch, snzu_Interaction* inter, HMM_Mat4 model
     }  // end pt loop
 }  // end draw sketch
 
+// FIXME: separate instance means that focus and clipping doesn't work right :(
+// factored out because the logic to get the mouse pos is a little verbose for main_
+void sku_endFrameForUIInstance(snzu_Input input, sku_Align align, HMM_Mat4 vp, HMM_Vec3 cameraPos, HMM_Vec3 mouseDir) {
+    float t = 0;
+    bool hit = geo_planeLineIntersection(align.endPt, align.endNormal, cameraPos, mouseDir, &t);
+    HMM_Vec3 point = HMM_Add(cameraPos, HMM_Mul(mouseDir, t));
+    if (!hit || geo_floatLessEqual(t, 0)) {
+        point = HMM_V3(100000, 100000, 100000);
+    }
+    point = HMM_Sub(point, align.endPt);
+    HMM_Vec3 xAxis = HMM_Cross(align.endVertical, align.endNormal);
+    float x = HMM_Dot(point, xAxis);
+    float y = HMM_Dot(point, align.endVertical);
+    input.mousePos = HMM_V2(x, -y);  // flip from sketch space to UI space here
+
+    HMM_Mat4 sketchMVP = HMM_Mul(vp, sku_alignToM4(align));
+    HMM_Mat4 uiMVP = HMM_Mul(sketchMVP, HMM_Scale(HMM_V3(1, -1, 1)));
+
+    glDisable(GL_DEPTH_TEST);
+    snzu_frameDrawAndGenInteractions(input, uiMVP);
+    glEnable(GL_DEPTH_TEST);
+}
+
 // FIXME: sketch element selection persists too much
-
-// Expects a UI instance that isn't the main one to be selected, for use exclusively here
-// this fn will do frameStart/end calls for the instance
-// FIXME: that is disgusting and way to subtle, the instance variable should only be here, but then there are problems w/ not freeing usemems, etc.
-// so well see. Also not portable at all, but this doesn't seem like the kind of thing that is happening more than once.
-// Inputs should be inputs that are being fed to the box this instance is being drawn on. mouse coords are ignored because
-// everythin in the sketch has been projected.
-
-// FIXME: passing inputs like this is ignoring clipping interactions that are outside the viewport
 void sku_drawAndBuildSketch(
     sk_Sketch* sketch, sku_Align align,
     HMM_Mat4 vp, HMM_Vec3 cameraPos,
-    HMM_Vec3 mouseRayNormal, snzu_Input inputs,
-    float sound, float dt,
+    float sound,
     snz_Arena* scratch) {
     // We are inverting the y axis because the UI library is built internally in a lot of places to
     // work with down positive coords. It works out if we invert the data it gets fed along with the
@@ -516,21 +529,6 @@ void sku_drawAndBuildSketch(
     HMM_Mat4 sketchMVP = HMM_Mul(vp, model);
     HMM_Mat4 uiMVP = HMM_Mul(sketchMVP, HMM_Scale(HMM_V3(1, -1, 1)));
 
-    {
-        float t = 0;
-        bool hit = geo_planeLineIntersection(align.endPt, align.endNormal, cameraPos, mouseRayNormal, &t);
-        HMM_Vec3 point = HMM_Add(cameraPos, HMM_Mul(mouseRayNormal, t));
-        if (!hit || geo_floatLessEqual(t, 0)) {
-            point = HMM_V3(100000, 100000, 100000);
-        }
-        point = HMM_Sub(point, align.endPt);
-        HMM_Vec3 xAxis = HMM_Cross(align.endVertical, align.endNormal);
-        float x = HMM_Dot(point, xAxis);
-        float y = HMM_Dot(point, align.endVertical);
-        inputs.mousePos = HMM_V2(x, -y);  // flip from sketch space to UI space here
-    }
-
-    snzu_frameStart(scratch, HMM_V2(0, 0), dt);
     snzu_boxNew("sketch ui parent");
     snzu_boxSetStart(HMM_V2(-INFINITY, -INFINITY));
     snzu_boxSetEnd(HMM_V2(INFINITY, INFINITY));
@@ -834,7 +832,6 @@ void sku_drawAndBuildSketch(
         sound);
 
     snzu_boxExit();  // exit main parent
-    snzu_frameDrawAndGenInteractions(inputs, uiMVP);
 
     glEnable(GL_DEPTH_TEST);
 }
