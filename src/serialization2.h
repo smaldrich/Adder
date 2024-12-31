@@ -655,7 +655,7 @@ ser_Error _ser_ptrTableFindPtrsInProp(const _ser_InnerProp* spec, const void* ob
         uint64_t count = *_SER_LOOKUP_MEMBER(uint64_t, obj, spec->arrLengthParentStructOffset);
         uint64_t innerSize = _ser_sizeOfProp(spec->inner);
         for (uint64_t i = 0; i < count; i++) {
-            const void* elementPtr = _SER_LOOKUP_MEMBER(void, arrayStart, i* innerSize);
+            const void* elementPtr = _SER_LOOKUP_MEMBER(void, arrayStart, i * innerSize);
             _ser_ptrTableFindPtrsInProp(spec->inner, NULL, elementPtr, table);
         }
     }
@@ -703,7 +703,7 @@ ser_Error _ser_ptrTableFindIDs(_ser_Decl* spec, void* obj, _ser_PtrTable* table,
             bool innerIsStruct = innerElemSpec->kind == SER_PK_DECL_REF;
             innerIsStruct = innerIsStruct && innerElemSpec->declRef->kind == SER_DK_STRUCT;
             for (uint64_t i = 0; i < count; i++) {
-                void* elemPos = _SER_LOOKUP_MEMBER(void, arrayStart, i* innerSize);
+                void* elemPos = _SER_LOOKUP_MEMBER(void, arrayStart, i * innerSize);
                 if (innerIsStruct) {  // only structs contain more things inside them that could match pointers
                     _ser_ptrTableFindIDs(prop->inner.inner->declRef, elemPos, table, currentObjId);
                 } else {
@@ -1035,7 +1035,7 @@ ser_Error _ser_readToObjFromProp(void* obj, _ser_OuterProp* prop, _ser_DserPtrTa
         *_SER_LOOKUP_MEMBER(void*, obj, prop->parentStructOffset) = array;
         _ser_dserPtrTablePush(table)->address = array;
         for (uint64_t i = 0; i < count; i++) {
-            void* loc = _SER_LOOKUP_MEMBER(void*, array, i* innerSize);
+            void* loc = _SER_LOOKUP_MEMBER(void*, array, i * innerSize);
             _SER_EXPECT_OK(_ser_readToPropFromInner(loc, prop->inner.inner, table, file, arena));
         }
     } else {
@@ -1240,8 +1240,8 @@ ser_Error _ser_test_expectString(const char* expected, uint64_t expectedLen, FIL
 ser_Error _ser_test_serializeVec2() {
     _SER_EXPECT_OK(
         ser_specStruct(HMM_Vec2,
-                       X float
-                           Y float));
+            X float
+            Y float));
     _SER_EXPECT_OK(ser_specStructOffsets(HMM_Vec2, X, Y));
     _SER_EXPECT_OK(ser_lockSpecs());
 
@@ -1288,12 +1288,12 @@ typedef struct {
 ser_Error _ser_test_multipleVec2RoundTrip() {
     _SER_EXPECT_OK(
         ser_specStruct(HMM_Vec2,
-                       X float
-                           Y float));
+            X float
+            Y float));
     _SER_EXPECT_OK(ser_specStructOffsets(HMM_Vec2, X, Y));
     _SER_EXPECT_OK(
         ser_specStruct(_ser_test_ArrayStruct,
-                       vecs arr HMM_Vec2));
+            vecs arr HMM_Vec2));
     _SER_EXPECT_OK(ser_specStructOffsets(_ser_test_ArrayStruct, elems, count));
     _SER_EXPECT_OK(ser_lockSpecs());
 
@@ -1302,8 +1302,8 @@ ser_Error _ser_test_multipleVec2RoundTrip() {
         HMM_V2(3, 4),
         HMM_V2(10, 20),
         HMM_V2(13, 24),
-        HMM_V2(69, 420)};
-    _ser_test_ArrayStruct vecArr = {.elems = vecs, .count = 5};
+        HMM_V2(69, 420) };
+    _ser_test_ArrayStruct vecArr = { .elems = vecs, .count = 5 };
     _SER_EXPECT_OK(ser_writeObj(_ser_test_ArrayStruct, &vecArr, "./testing/v2RoundTrip"));
 
     _ser_test_ArrayStruct outArr;
@@ -1331,19 +1331,19 @@ struct _ser_test_PtrStruct {
 ser_Error _ser_test_pointerThings() {
     _SER_EXPECT_OK(
         ser_specStruct(_ser_test_PtrStruct,
-                       payload int
-                           other ptr _ser_test_PtrStruct));
+            payload int
+            other ptr _ser_test_PtrStruct));
     _SER_EXPECT_OK(ser_specStructOffsets(_ser_test_PtrStruct, payload, other));
     _SER_EXPECT_OK(ser_specStruct(_ser_test_ArrayStruct, elems arr _ser_test_PtrStruct));
     _SER_EXPECT_OK(ser_specStructOffsets(_ser_test_ArrayStruct, elems, count));
     _SER_EXPECT_OK(ser_lockSpecs());
 
-    _ser_test_PtrStruct ptrArr[] = {0};
+    _ser_test_PtrStruct ptrArr[] = { 0 };
     ptrArr[0].other = NULL;
     ptrArr[0].payload = 50;
     ptrArr[1].other = &ptrArr[0];
     ptrArr[1].payload = 60;
-    _ser_test_ArrayStruct array = (_ser_test_ArrayStruct){.count = 2, .elems = ptrArr};
+    _ser_test_ArrayStruct array = (_ser_test_ArrayStruct){ .count = 2, .elems = ptrArr };
     _SER_EXPECT_OK(ser_writeObj(_ser_test_ArrayStruct, &array, "./testing/ptrThings"));
 
     snz_Arena outArena = snz_arenaInit(1000000, "ser test ptrThings arena");
@@ -1361,9 +1361,9 @@ ser_Error _ser_test_pointerThings() {
 ser_Error _ser_test_shortStructSpec() {
     _SER_EXPECT(
         ser_specStruct(myStruct,
-                       X float
-                           Y int
-                               Z arr) == SERE_PARSE_FAILED,
+            X float
+            Y int
+            Z arr) == SERE_PARSE_FAILED,
         SERE_TEST_EXPECT_FAILED);
     return SERE_OK;
 }
@@ -1379,8 +1379,8 @@ ser_Error _ser_test_badStructOffsetsCall() {
 ser_Error _ser_test_duplicateStructProps() {
     _SER_EXPECT_OK(
         ser_specStruct(HMM_Vec2,
-                       x int
-                           x char));
+            x int
+            x char));
     _SER_EXPECT_OK(ser_specStructOffsets(HMM_Vec2, X, Y));
     _SER_EXPECT(
         ser_lockSpecs() == SERE_DUPLICATE_PROP_TAGS,
@@ -1390,7 +1390,7 @@ ser_Error _ser_test_duplicateStructProps() {
 
 ser_Error _ser_test_duplicateDecls() {
     _SER_EXPECT_OK(ser_specStruct(myStruct, x int));
-    const char* vals[] = {"hello"};
+    const char* vals[] = { "hello" };
     _SER_EXPECT_OK(ser_specEnum(myStruct, vals, 1));
     _SER_EXPECT(
         ser_lockSpecs() == SERE_DUPLICATE_DECL_TAGS,
@@ -1399,7 +1399,7 @@ ser_Error _ser_test_duplicateDecls() {
 }
 
 ser_Error _ser_test_emptyEnum() {
-    const char* vals[] = {"hello"};
+    const char* vals[] = { "hello" };
     _SER_EXPECT_OK(ser_specEnum(enum, vals, 0));
     _SER_EXPECT(
         ser_lockSpecs() == SERE_EMPTY_ENUM,
@@ -1427,7 +1427,7 @@ ser_Error _ser_test_unresolvedDeclRef() {
 }
 
 #define _SER_TEST_INVOKE(func) _ser_test_invoke(func, _SER_STRINGIZE(func))
-typedef ser_Error (*_ser_testFunc)();
+typedef ser_Error(*_ser_testFunc)();
 void _ser_test_invoke(_ser_testFunc func, const char* name) {
     // reset the global spec so each test can run cleanly
     _ser_clearSpecSet(&_ser_globalSpecSet);
