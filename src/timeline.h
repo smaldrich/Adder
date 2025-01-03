@@ -52,8 +52,18 @@ tl_Op tl_opCommentInit(HMM_Vec2 pos, const char* text) {
     return out;
 }
 
-// returns VP matrix
-HMM_Mat4 tl_build(tl_Op* operations, snz_Arena* scratch, HMM_Vec2 panelSize) {
+HMM_Vec2 _tl_pixelToWorldSpace(HMM_Vec2 mousePosPx, HMM_Vec2 panelSize, HMM_Mat4 inverseVP) {
+    HMM_Vec2 mousePos = HMM_DivV2(mousePosPx, panelSize); // move to 0-1 coords
+    mousePos = HMM_MulV2F(mousePos, 2);
+    mousePos = HMM_SubV2(mousePos, HMM_V2(1, 1)); // now -1 to 1 coords
+    mousePos.Y *= -1;
+    mousePos = HMM_Mul(inverseVP, HMM_V4(mousePos.X, mousePos.Y, 0, 1)).XY;
+    return mousePos;
+}
+
+// returns mouse position in world space and a vp matrix to use ending the instances frame
+// mouse panel should be the input to send to the instance at the end of the frame
+void tl_build(tl_Op* operations, snz_Arena* scratch, HMM_Vec2 panelSize, HMM_Vec2 mousePosInPanel, HMM_Vec2* outMousePos, HMM_Mat4* outVP) {
     snzu_boxNew("timeline");
     snzu_boxSetStart(HMM_V2(-INFINITY, -INFINITY));
     snzu_boxSetEnd(HMM_V2(INFINITY, INFINITY));
@@ -62,34 +72,41 @@ HMM_Mat4 tl_build(tl_Op* operations, snz_Arena* scratch, HMM_Vec2 panelSize) {
     snzu_boxSetInteractionOutput(inter, SNZU_IF_HOVER | SNZU_IF_MOUSE_BUTTONS | SNZU_IF_MOUSE_SCROLL);
     // FIXME: drag stuck on when left bar gets opened and mouseupd
 
-    HMM_Mat4 vp = { 0 };
-    {
+    { // calculate out values
         HMM_Vec2* const camPos = SNZU_USE_MEM(HMM_Vec2, "campos");
         float* const camHeight = SNZU_USE_MEM(float, "camheight");
         if (snzu_useMemIsPrevNew()) {
-            *camHeight = 1000;
+            *camHeight = 1000; // in pixels
         }
 
         *camHeight += inter->mouseScrollY * (*camHeight) * 0.05;
 
-        HMM_Vec2* const prevMouse = SNZU_USE_MEM(HMM_Vec2, "camlastmouse");
-        HMM_Vec2 diff = HMM_V2(0, 0);
-        if (inter->mouseActions[SNZU_MB_RIGHT] == SNZU_ACT_DOWN) {
-            *prevMouse = inter->mousePosGlobal;
-        } else if (inter->mouseActions[SNZU_MB_RIGHT] == SNZU_ACT_DRAG) {
-            diff = HMM_Sub(inter->mousePosGlobal, *prevMouse);
+        {
+            HMM_Vec2* const prevMouse = SNZU_USE_MEM(HMM_Vec2, "camlastmouse"); // FIXME: This is ahead of other inputs by a frame? is that problematic?
+            HMM_Vec2 diff = HMM_V2(0, 0);
+            if (inter->mouseActions[SNZU_MB_RIGHT] == SNZU_ACT_DOWN) {
+                *prevMouse = mousePosInPanel;
+            } else if (inter->mouseActions[SNZU_MB_RIGHT] == SNZU_ACT_DRAG) {
+                diff = HMM_Sub(mousePosInPanel, *prevMouse);
+            }
+            *prevMouse = mousePosInPanel;
+
+            diff = HMM_MulV2F(diff, *camHeight / panelSize.Y);
+            *camPos = HMM_Sub(*camPos, diff);
         }
-        *prevMouse = inter->mousePosGlobal;
 
-        *camPos = HMM_Add(*camPos, diff);
-
-        SNZ_ASSERT(panelSize.X || !panelSize.X, "hi");
         float aspect = panelSize.X / panelSize.Y;
         float halfHeight = *camHeight / 2;
         float halfWidth = aspect * halfHeight;
         HMM_Mat4 proj = HMM_Orthographic_RH_NO(-halfWidth, halfWidth, halfHeight, -halfHeight, 0, 1000);
         HMM_Mat4 view = HMM_InvGeneral(HMM_Translate(HMM_V3(camPos->X, camPos->Y, 0)));
-        vp = HMM_Mul(proj, view);
+        HMM_Mat4 vp = HMM_Mul(proj, view);
+
+        HMM_Mat4 vpInverse = HMM_InvGeneral(vp);
+        HMM_Vec2 mousePos = _tl_pixelToWorldSpace(mousePosInPanel, panelSize, vpInverse);
+
+        *outVP = vp;
+        *outMousePos = mousePos;
     }
 
     snzu_boxScope() {
@@ -154,12 +171,5 @@ HMM_Mat4 tl_build(tl_Op* operations, snz_Arena* scratch, HMM_Vec2 panelSize) {
             snzu_boxSetEnd(inter->mousePosGlobal);
             snzu_boxSetColor(ui_colorTransparentAccent);
         }
-
-        snzu_boxNew("eruhfeiurfh");
-        snzu_boxSetColor(ui_colorText);
-        snzu_boxSetStart(HMM_V2(0, 0));
-        snzu_boxSetSizeFromStart(HMM_V2(1, 1));
     } // end main parent box scope
-
-    return vp;
 }

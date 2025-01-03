@@ -396,9 +396,9 @@ void main_frame(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screen
                     HMM_Mat4 vp = main_drawDemoScene(rightPanelSize, scratch, inter, &cameraPos, &mouseDir);
                     sku_endFrameForUIInstance(inputs, main_sketchAlign, vp, cameraPos, mouseDir);
                 } else if (main_currentView == SC_VIEW_TIMELINE) {
-                    HMM_Mat4 vp = tl_build(main_firstTLOperation, scratch, rightPanelSize);
+                    HMM_Mat4 vp = { 0 };
                     snzu_Input inputCopy = inputs;
-                    inputCopy.mousePos = HMM_Mul(vp, HMM_V4(inputs.mousePos.X, inputs.mousePos.Y, 0, 1)).XY;
+                    tl_build(main_firstTLOperation, scratch, rightPanelSize, inter->mousePosLocal, &inputCopy.mousePos, &vp);
                     snzu_frameDrawAndGenInteractions(inputCopy, vp);
                 }
 
