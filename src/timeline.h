@@ -113,6 +113,10 @@ void tl_timelineClearOpsMarkedForDelete(tl_Timeline* timeline) {
             } else {
                 timeline->firstOp = op->next;
             }
+
+            if (op == timeline->activeOp) {
+                timeline->activeOp = NULL;
+            }
         } else {
             prev = op;
         }

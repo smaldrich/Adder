@@ -281,8 +281,28 @@ bool scc_timelineAddGeoImport(_sc_CommandArgs args) {
     *args.currentView = SC_VIEW_TIMELINE;
     tl_timelineDeselectAll(args.timeline);
     tl_Op* newOp = tl_timelinePushGeoImport(args.timeline, HMM_V2(0, 0), "testing/intersection.stl");
+    // FIXME: should be on the mouse, isn't // enter move mode?
     newOp->ui.sel.selected = true;
     newOp->ui.sel.selectionAnim = 1;
+    return true;
+}
+
+bool scc_timelineMarkActive(_sc_CommandArgs args) {
+    tl_Op* selected = NULL;
+    for (tl_Op* op = args.timeline->firstOp; op; op = op->next) {
+        if (!op->ui.sel.selected) {
+            continue;
+        } else if (selected != NULL) {
+            selected = NULL;
+            break;
+        }
+        selected = op;
+    }
+    tl_timelineDeselectAll(args.timeline);
+
+    if (selected != NULL) {
+        args.timeline->activeOp = selected;
+    }
     return true;
 }
 
@@ -300,6 +320,7 @@ void sc_init(PoolAlloc* pool) {
     _sc_commandInit("move", "G", SDLK_g, KMOD_NONE, SC_VIEW_TIMELINE, scc_timelineMove);
     _sc_commandInit("rotate", "R", SDLK_r, KMOD_NONE, SC_VIEW_TIMELINE, scc_timelineRotate);
     _sc_commandInit("import geometry", "I", SDLK_i, KMOD_NONE, SC_VIEW_TIMELINE | SC_VIEW_SCENE, scc_timelineAddGeoImport);
+    _sc_commandInit("mark active", "W", SDLK_w, KMOD_NONE, SC_VIEW_TIMELINE, scc_timelineMarkActive);
 
     _sc_commandInit("goto main scene", "W", SDLK_w, KMOD_LSHIFT, SC_VIEW_ALL, _scc_goToMainScene);
     _sc_commandInit("goto timeline", "T", SDLK_t, KMOD_LSHIFT, SC_VIEW_ALL, _scc_goToTimeline);

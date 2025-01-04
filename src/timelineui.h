@@ -22,7 +22,9 @@ void tl_build(tl_Timeline* timeline, snz_Arena* scratch, HMM_Vec2 panelSize, HMM
     snzu_boxSetInteractionOutput(inter, SNZU_IF_HOVER | SNZU_IF_MOUSE_BUTTONS | SNZU_IF_MOUSE_SCROLL);
     // FIXME: drag stuck on when left bar gets opened and mouseupd
 
-    {  // calculate out values
+
+    HMM_Mat4 vp = { 0 };
+    {  // calculate out values + camera things
         timeline->camHeight += inter->mouseScrollY * (timeline->camHeight) * 0.05;
 
         {
@@ -44,7 +46,7 @@ void tl_build(tl_Timeline* timeline, snz_Arena* scratch, HMM_Vec2 panelSize, HMM
         float halfWidth = aspect * halfHeight;
         HMM_Mat4 proj = HMM_Orthographic_RH_NO(-halfWidth, halfWidth, halfHeight, -halfHeight, 0, 1000);
         HMM_Mat4 view = HMM_InvGeneral(HMM_Translate(HMM_V3(timeline->camPos.X, timeline->camPos.Y, 0)));
-        HMM_Mat4 vp = HMM_Mul(proj, view);
+        vp = HMM_Mul(proj, view);
 
         HMM_Mat4 vpInverse = HMM_InvGeneral(vp);
         HMM_Vec2 mousePos = _tl_pixelToWorldSpace(mousePosInPanel, panelSize, vpInverse);
@@ -177,6 +179,10 @@ void tl_build(tl_Timeline* timeline, snz_Arena* scratch, HMM_Vec2 panelSize, HMM
             snzu_boxSetStart(HMM_Sub(op->ui.pos, HMM_V2(radius, radius)));
             snzu_boxSetEnd(HMM_Add(op->ui.pos, HMM_V2(radius, radius)));
             snzu_boxSetBorder(ui_borderThickness, textColor);
+
+            if (op == timeline->activeOp) {
+                snzu_boxSetColor(ui_colorTransparentAccent); // FIXME: hate how this looks
+            }
         }
 
         if (region->dragging) {
