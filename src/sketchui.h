@@ -538,9 +538,9 @@ void sku_drawAndBuildSketch(
     snzu_boxEnter();
     glDisable(GL_DEPTH_TEST);
 
-    bool inLineMode = sc_getActiveCommand() == scc_line;
-    bool inMoveMode = sc_getActiveCommand() == scc_move;
-    bool inRotateMode = sc_getActiveCommand() == scc_rotate;
+    bool inLineMode = sc_getActiveCommand() == scc_sketchEnterLineMode;
+    bool inMoveMode = sc_getActiveCommand() == scc_sketchEnterMove;
+    bool inRotateMode = sc_getActiveCommand() == scc_sketchEnterRotate;
     bool inNonLineTool = inMoveMode || inRotateMode;
     sk_Point* lineSrcPoint = NULL;  // set below. FIXME: gross
 

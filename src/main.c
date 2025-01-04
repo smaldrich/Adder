@@ -31,7 +31,7 @@ geo_Mesh main_mesh;
 sc_View main_currentView = SC_VIEW_SCENE;
 set_Settings main_settings;
 
-tl_Op* main_firstTLOperation;
+tl_Op* main_tlFirstOp;
 
 void main_init(snz_Arena* scratch, SDL_Window* window) {
     _poolAllocTests();
@@ -146,18 +146,18 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
     }
 
     {
-        main_firstTLOperation = SNZ_ARENA_PUSH(&main_tlArena, tl_Op);
-        *main_firstTLOperation = tl_opSketchInit(HMM_V2(0, 0), main_sketch);
+        main_tlFirstOp = SNZ_ARENA_PUSH(&main_tlArena, tl_Op);
+        *main_tlFirstOp = tl_opSketchInit(HMM_V2(0, 0), main_sketch);
 
         tl_Op* op = SNZ_ARENA_PUSH(&main_tlArena, tl_Op);
         *op = tl_opCommentInit(HMM_V2(0, 200), "yooooo");
-        op->next = main_firstTLOperation;
-        main_firstTLOperation = op;
+        op->next = main_tlFirstOp;
+        main_tlFirstOp = op;
 
         op = SNZ_ARENA_PUSH(&main_tlArena, tl_Op);
         *op = tl_opCommentInit(HMM_V2(200, 200), "2nd comment wow");
-        op->next = main_firstTLOperation;
-        main_firstTLOperation = op;
+        op->next = main_tlFirstOp;
+        main_tlFirstOp = op;
     }
 }
 
@@ -427,7 +427,7 @@ void main_frame(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screen
                     }
                     HMM_Mat4 vp = {0};
                     snzu_Input inputCopy = inputs;
-                    tl_build(main_firstTLOperation, scratch, rightPanelSize, inter->mousePosLocal, &inputCopy.mousePos, &vp);
+                    tl_build(main_tlFirstOp, scratch, rightPanelSize, inter->mousePosLocal, &inputCopy.mousePos, &vp);
                     snzu_frameDrawAndGenInteractions(inputCopy, vp);
                 }
 
@@ -445,7 +445,7 @@ void main_frame(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screen
         if (main_settings.hintWindowAlwaysOpen) {
             openHintWindow = true;
         }
-        sc_updateAndBuildHintWindow(&main_sketch, &main_currentView, scratch, openHintWindow);
+        sc_updateAndBuildHintWindow(&main_sketch, main_tlFirstOp, &main_currentView, scratch, openHintWindow);
 
         snzu_boxNew("leftPanelBorder");
         snzu_boxFillParent();
