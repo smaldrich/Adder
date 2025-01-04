@@ -10,8 +10,8 @@
 #include "snooze.h"
 #include "sound.h"
 #include "stb/stb_image.h"
-#include "ui.h"
 #include "timeline.h"
+#include "ui.h"
 
 snzu_Instance main_uiInstance;
 
@@ -51,7 +51,7 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
 
     {  // FIXME: move to snz
         SDL_Surface* s = SDL_LoadBMP("res/textures/icon.bmp");
-        char buf[1000] = { 0 };
+        char buf[1000] = {0};
         const char* err = SDL_GetErrorMsg(buf, 1000);
         printf("%s", err);
         SNZ_ASSERT(s != NULL, "icon load failed.");
@@ -396,7 +396,36 @@ void main_frame(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screen
                     HMM_Mat4 vp = main_drawDemoScene(rightPanelSize, scratch, inter, &cameraPos, &mouseDir);
                     sku_endFrameForUIInstance(inputs, main_sketchAlign, vp, cameraPos, mouseDir);
                 } else if (main_currentView == SC_VIEW_TIMELINE) {
-                    HMM_Mat4 vp = { 0 };
+                    {
+                        HMM_Vec3* const spinAngles = SNZU_USE_MEM(HMM_Vec3, "preview spin");
+                        if (snzu_useMemIsPrevNew()) {
+                            spinAngles->X = HMM_AngleDeg(-45);
+                        }
+                        spinAngles->Y += 0.1 * dt;
+                        spinAngles->Z += 0.1 * dt;
+
+                        float orbitDistance = 5;
+
+                        HMM_Mat4 view = HMM_Translate(HMM_V3(0, 0, orbitDistance));
+                        view = HMM_InvGeneral(view);
+                        float aspect = (float)w / (float)h;
+                        HMM_Mat4 proj = HMM_Perspective_RH_NO(HMM_AngleDeg(90), aspect, 0.001, 100000);
+
+                        HMM_Mat4 model = HMM_M4D(1.0f);
+                        model = HMM_Mul(HMM_Rotate_RH(spinAngles->Z, HMM_V3(0, 0, 1)), model);
+                        model = HMM_Mul(HMM_Rotate_RH(spinAngles->X, HMM_V3(1, 0, 0)), model);
+                        model = HMM_Mul(HMM_Rotate_RH(spinAngles->Y, HMM_V3(0, 1, 0)), model);
+                        // FIXME: use center of mass of the body, use max extents as well
+                        HMM_Mat4 vp = HMM_MulM4(proj, view);
+
+                        // FIXME: this if is fragile bc in more than one plcae and also unintuitive
+                        if (main_settings.skybox && ui_skyBox != NULL) {
+                            ren3d_drawSkybox(vp, *ui_skyBox);
+                        }
+                        // FIXME: debug wireframe
+                        ren3d_drawMesh(&main_mesh.renderMesh, vp, model, HMM_V4(1, 1, 1, 1), HMM_V3(-1, -1, -1), ui_lightAmbient);
+                    }
+                    HMM_Mat4 vp = {0};
                     snzu_Input inputCopy = inputs;
                     tl_build(main_firstTLOperation, scratch, rightPanelSize, inter->mousePosLocal, &inputCopy.mousePos, &vp);
                     snzu_frameDrawAndGenInteractions(inputCopy, vp);

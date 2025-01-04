@@ -1,7 +1,7 @@
-#include "snooze.h"
 #include "geometry.h"
-#include "ui.h"
 #include "sketches2.h"
+#include "snooze.h"
+#include "ui.h"
 
 typedef enum {
     TL_OPK_SKETCH,
@@ -53,9 +53,9 @@ tl_Op tl_opCommentInit(HMM_Vec2 pos, const char* text) {
 }
 
 HMM_Vec2 _tl_pixelToWorldSpace(HMM_Vec2 mousePosPx, HMM_Vec2 panelSize, HMM_Mat4 inverseVP) {
-    HMM_Vec2 mousePos = HMM_DivV2(mousePosPx, panelSize); // move to 0-1 coords
+    HMM_Vec2 mousePos = HMM_DivV2(mousePosPx, panelSize);  // move to 0-1 coords
     mousePos = HMM_MulV2F(mousePos, 2);
-    mousePos = HMM_SubV2(mousePos, HMM_V2(1, 1)); // now -1 to 1 coords
+    mousePos = HMM_SubV2(mousePos, HMM_V2(1, 1));  // now -1 to 1 coords
     mousePos.Y *= -1;
     mousePos = HMM_Mul(inverseVP, HMM_V4(mousePos.X, mousePos.Y, 0, 1)).XY;
     return mousePos;
@@ -72,17 +72,17 @@ void tl_build(tl_Op* operations, snz_Arena* scratch, HMM_Vec2 panelSize, HMM_Vec
     snzu_boxSetInteractionOutput(inter, SNZU_IF_HOVER | SNZU_IF_MOUSE_BUTTONS | SNZU_IF_MOUSE_SCROLL);
     // FIXME: drag stuck on when left bar gets opened and mouseupd
 
-    { // calculate out values
+    {  // calculate out values
         HMM_Vec2* const camPos = SNZU_USE_MEM(HMM_Vec2, "campos");
         float* const camHeight = SNZU_USE_MEM(float, "camheight");
         if (snzu_useMemIsPrevNew()) {
-            *camHeight = 1000; // in pixels
+            *camHeight = 1000;  // in pixels
         }
 
         *camHeight += inter->mouseScrollY * (*camHeight) * 0.05;
 
         {
-            HMM_Vec2* const prevMouse = SNZU_USE_MEM(HMM_Vec2, "camlastmouse"); // FIXME: This is ahead of other inputs by a frame? is that problematic?
+            HMM_Vec2* const prevMouse = SNZU_USE_MEM(HMM_Vec2, "camlastmouse");  // FIXME: This is ahead of other inputs by a frame? is that problematic?
             HMM_Vec2 diff = HMM_V2(0, 0);
             if (inter->mouseActions[SNZU_MB_RIGHT] == SNZU_ACT_DOWN) {
                 *prevMouse = mousePosInPanel;
@@ -161,7 +161,6 @@ void tl_build(tl_Op* operations, snz_Arena* scratch, HMM_Vec2 panelSize, HMM_Vec
             snzu_boxSetCornerRadius(radius);
             snzu_boxSetStart(HMM_Sub(op->ui.pos, HMM_V2(radius, radius)));
             snzu_boxSetEnd(HMM_Add(op->ui.pos, HMM_V2(radius, radius)));
-            snzu_boxSetColor(ui_colorBackground);
             snzu_boxSetBorder(ui_borderThickness, textColor);
         }
 
@@ -171,5 +170,5 @@ void tl_build(tl_Op* operations, snz_Arena* scratch, HMM_Vec2 panelSize, HMM_Vec
             snzu_boxSetEnd(inter->mousePosGlobal);
             snzu_boxSetColor(ui_colorTransparentAccent);
         }
-    } // end main parent box scope
+    }  // end main parent box scope
 }

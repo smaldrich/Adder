@@ -15,6 +15,7 @@ HMM_Vec4 ui_colorTransparentAccent;
 HMM_Vec4 ui_colorErr;
 HMM_Vec4 ui_colorBackground;
 HMM_Vec4 ui_colorAlmostBackground;
+HMM_Vec4 ui_colorTransparentPanel;
 float ui_lightAmbient;
 // FIXME: border color instead of defaulting to text color
 
@@ -38,6 +39,8 @@ void ui_setThemeLight() {
     ui_colorErr = HMM_V4(181 / 255.0, 55 / 255.0, 93 / 255.0, 1);
     ui_colorBackground = HMM_V4(1, 1, 1, 1);
     ui_colorAlmostBackground = HMM_V4(0.9, 0.9, 0.9, 1);
+    ui_colorTransparentPanel = ui_colorBackground;
+    ui_colorTransparentPanel.A = 0.5;
     ui_lightAmbient = 0.8;
     ui_skyBox = ui_lightSky;
 }
@@ -53,6 +56,8 @@ void ui_setThemeDark() {
     ui_colorErr = HMM_V4(181 / 255.0, 55 / 255.0, 93 / 255.0, 1);
     ui_colorBackground = HMM_V4(60 / 255.0, 60 / 255.0, 60 / 255.0, 1);
     ui_colorAlmostBackground = HMM_V4(52 / 255.0, 52 / 255.0, 52 / 255.0, 1);
+    ui_colorTransparentPanel = ui_colorBackground;
+    ui_colorTransparentPanel.A = 0.5;
     ui_lightAmbient = 0.2;
     ui_skyBox = ui_darkSky;
 }
