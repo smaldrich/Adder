@@ -746,7 +746,7 @@ void sku_drawAndBuildSketch(
                 }
                 // FIXME: doing this by diff instead of abs feels sluggish
             } else if (inRotateMode) {
-                HMM_Vec2* const mouseSrc = SNZU_USE_MEM(HMM_Vec2, "mouse src");
+                HMM_Vec2* const mouseSrc = SNZU_USE_MEM(HMM_Vec2, "mouse src"); // FIXME: mark this on screen somehow or else default it to the center
                 if (snzu_useMemIsPrevNew()) {
                     *mouseSrc = mouse;
                 }

@@ -129,7 +129,7 @@ void tl_build(tl_Op* operations, snz_Arena* scratch, HMM_Vec2 panelSize, HMM_Vec
                     }
                 }
             } else if (sc_getActiveCommand() == scc_timelineRotate) {
-                HMM_Vec2* const center = SNZU_USE_MEM(HMM_Vec2, "center");
+                HMM_Vec2* const center = SNZU_USE_MEM(HMM_Vec2, "center"); // FIXME: mark this on screen somehow or else default it to the center
                 if (snzu_useMemIsPrevNew()) {
                     *center = inter->mousePosGlobal; // FIXME: this is wrong cause panning will still work, should be saved in pixel space
                 }
