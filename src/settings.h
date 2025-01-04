@@ -13,11 +13,11 @@ typedef struct {
 
 set_Settings set_settingsDefault() {
     set_Settings out = (set_Settings){
-        .darkMode = true,
+        .darkMode = false,
         .skybox = true,
         .musicMode = true,
-        .leftBarAlwaysOpen = false,
-        .hintWindowAlwaysOpen = false,
+        .leftBarAlwaysOpen = true,
+        .hintWindowAlwaysOpen = true,
     };
     return out;
 }

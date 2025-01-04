@@ -11,6 +11,7 @@
 #include "sound.h"
 #include "stb/stb_image.h"
 #include "timeline.h"
+#include "timelineui.h"
 #include "ui.h"
 
 snzu_Instance main_uiInstance;
@@ -424,6 +425,15 @@ void main_frame(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screen
                         }
                         // FIXME: debug wireframe
                         ren3d_drawMesh(&main_mesh.renderMesh, vp, model, HMM_V4(1, 1, 1, 1), HMM_V3(-1, -1, -1), ui_lightAmbient);
+
+                        snzr_drawRect( // put a transparent thing over the preview to aid contrast
+                            HMM_V2(-1, -1), HMM_V2(1, 1),
+                            HMM_V2(-1, -1), HMM_V2(1, 1),
+                            ui_colorTransparentPanel,
+                            0, 0, HMM_V4(0, 0, 0, 0),
+                            HMM_M4D(1.0f),
+                            _snzr_globs.solidTex);
+
                     }
                     HMM_Mat4 vp = { 0 };
                     snzu_Input inputCopy = inputs;

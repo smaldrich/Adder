@@ -105,17 +105,6 @@ static float _sku_angleOfV2(HMM_Vec2 v) {
     return atan2f(v.Y, v.X);
 }
 
-// puts it in the range of -180 to +180, in rads
-static float _sku_normalizeAngle(float a) {
-    while (a > HMM_AngleDeg(180)) {
-        a -= HMM_AngleDeg(360);
-    }
-    while (a < HMM_AngleDeg(-180)) {
-        a += HMM_AngleDeg(360);
-    }
-    return a;
-}
-
 static float _sku_angleDifferenceForConstraint(sk_Constraint* c, float a1, float a2) {
     SNZ_ASSERT(c->kind == SK_CK_ANGLE, "constraint wasn't an angle constraint.");
     float diff = a2 - a1;
@@ -191,7 +180,7 @@ static bool _sku_constraintHovered(sk_Constraint* c, float scaleFactor, HMM_Vec2
         float mouseAngle = _sku_angleOfV2(diff);
         float midAngle = angles.Left + (angleDiff / 2);
         float halfRange = fabsf(angleDiff / 2);
-        if (fabsf(_sku_normalizeAngle(midAngle - mouseAngle)) > halfRange) {
+        if (fabsf(geo_normalizeAngle(midAngle - mouseAngle)) > halfRange) {
             out = false;
         }
     } else {
@@ -538,9 +527,9 @@ void sku_drawAndBuildSketch(
     snzu_boxEnter();
     glDisable(GL_DEPTH_TEST);
 
-    bool inLineMode = sc_getActiveCommand() == scc_sketchEnterLineMode;
-    bool inMoveMode = sc_getActiveCommand() == scc_sketchEnterMove;
-    bool inRotateMode = sc_getActiveCommand() == scc_sketchEnterRotate;
+    bool inLineMode = sc_getActiveCommand() == scc_sketchLineMode;
+    bool inMoveMode = sc_getActiveCommand() == scc_sketchMove;
+    bool inRotateMode = sc_getActiveCommand() == scc_sketchRotate;
     bool inNonLineTool = inMoveMode || inRotateMode;
     sk_Point* lineSrcPoint = NULL;  // set below. FIXME: gross
 
@@ -768,7 +757,7 @@ void sku_drawAndBuildSketch(
                     *prevAngle = angle;
                 }
 
-                float angleDiff = _sku_normalizeAngle(angle - *prevAngle);
+                float angleDiff = geo_normalizeAngle(angle - *prevAngle);
                 *prevAngle = angle;
 
                 HMM_Vec2 center = HMM_V2(0, 0);
@@ -795,9 +784,7 @@ void sku_drawAndBuildSketch(
                 if (regionAct == SNZU_ACT_DOWN) {
                     sc_cancelActiveCommand();
                     sk_sketchDeselectAll(sketch);
-                    // FIXME: this smells of bugs
                 }
-                // FIXME: everything for the move tool
             }  // end rotate mode logic
         }
 

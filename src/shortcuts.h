@@ -136,7 +136,7 @@ bool _scc_sketchAddDistanceConstraint(_sc_CommandArgs args) {
 
 bool _scc_sketchAddAngleConstraint(_sc_CommandArgs args) {
     int selectedCount = 0;
-    sk_Line* lines[2] = {NULL, NULL};
+    sk_Line* lines[2] = { NULL, NULL };
     for (sk_Line* line = args.activeSketch->firstLine; line; line = line->next) {
         if (line->sel.selected) {
             selectedCount++;
@@ -190,10 +190,10 @@ bool _scc_sketchAddAngleConstraint(_sc_CommandArgs args) {
     return true;
 }
 
-bool scc_sketchEnterLineMode(_sc_CommandArgs args) {
+bool scc_sketchLineMode(_sc_CommandArgs args) {
     if (args.firstFrame) {  // creating a line between two selected pts
         int ptCount = 0;
-        sk_Point* pts[2] = {0};
+        sk_Point* pts[2] = { 0 };
         for (sk_Point* p = args.activeSketch->firstPoint; p; p = p->next) {
             if (p->sel.selected) {
                 ptCount++;
@@ -234,7 +234,7 @@ bool _sc_anySelectedInSketch(sk_Sketch* sketch) {
     return false;
 }
 
-bool scc_sketchEnterMove(_sc_CommandArgs args) {
+bool scc_sketchMove(_sc_CommandArgs args) {
     if (args.firstFrame) {
         return !_sc_anySelectedInSketch(args.activeSketch);  // cancels if nothing selected
     }
@@ -243,7 +243,7 @@ bool scc_sketchEnterMove(_sc_CommandArgs args) {
     return false;
 }
 
-bool scc_sketchEnterRotate(_sc_CommandArgs args) {
+bool scc_sketchRotate(_sc_CommandArgs args) {
     if (args.firstFrame) {
         return !_sc_anySelectedInSketch(args.activeSketch);  // cancels if nothing selected
     }
@@ -252,34 +252,49 @@ bool scc_sketchEnterRotate(_sc_CommandArgs args) {
     return false;
 }
 
-bool _scc_timelineDelete() {
-    SNZ_ASSERT(false, "this shit DO NOT WORK!!");
+// FIXME: rename this and move it to tl.h, same with sketch version
+static bool _sc_anySelectedInTimeline(tl_Op* firstOp) {
+    for (tl_Op* o = firstOp; o; o = o->next) {
+        if (o->ui.sel.selected) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool scc_timelineDelete(_sc_CommandArgs args) {
+    SNZ_ASSERT(args.timelineFirstOp || !args.timelineFirstOp, "AHH");
+    SNZ_ASSERT(false, "NOT IMPLEMENTED BUT DO THAT PLEASE"); // FIXME: this
     return true;
 }
 
-bool _scc_timelineEnterMove() {
-    printf("in timeline tried to move but fuck you\n");
-    return true;
+bool scc_timelineMove(_sc_CommandArgs args) {
+    if (args.firstFrame) {
+        return !_sc_anySelectedInTimeline(args.timelineFirstOp);
+    }
+    return false;
 }
 
-bool _scc_timelineEnterRotate() {
-    printf("in timeline tried to rotate but fuck you\n");
-    return true;
+bool scc_timelineRotate(_sc_CommandArgs args) {
+    if (args.firstFrame) {
+        return !_sc_anySelectedInTimeline(args.timelineFirstOp);
+    }
+    return false;
 }
 
 void sc_init(PoolAlloc* pool) {
     _sc_commandPool = pool;
 
     _sc_commandInit("delete", "X", SDLK_x, KMOD_NONE, SC_VIEW_SCENE, _scc_sketchDelete);
-    _sc_commandInit("line", "B", SDLK_b, KMOD_NONE, SC_VIEW_SCENE, scc_sketchEnterLineMode);
-    _sc_commandInit("move", "G", SDLK_g, KMOD_NONE, SC_VIEW_SCENE, scc_sketchEnterMove);
-    _sc_commandInit("rotate", "R", SDLK_r, KMOD_NONE, SC_VIEW_SCENE, scc_sketchEnterRotate);
+    _sc_commandInit("line", "B", SDLK_b, KMOD_NONE, SC_VIEW_SCENE, scc_sketchLineMode);
+    _sc_commandInit("move", "G", SDLK_g, KMOD_NONE, SC_VIEW_SCENE, scc_sketchMove);
+    _sc_commandInit("rotate", "R", SDLK_r, KMOD_NONE, SC_VIEW_SCENE, scc_sketchRotate);
     _sc_commandInit("distance", "D", SDLK_d, KMOD_NONE, SC_VIEW_SCENE, _scc_sketchAddDistanceConstraint);
     _sc_commandInit("angle", "A", SDLK_a, KMOD_NONE, SC_VIEW_SCENE, _scc_sketchAddAngleConstraint);
 
-    _sc_commandInit("delete", "X", SDLK_x, KMOD_NONE, SC_VIEW_TIMELINE, _scc_timelineDelete);
-    _sc_commandInit("move", "G", SDLK_g, KMOD_NONE, SC_VIEW_TIMELINE, _scc_timelineEnterMove);
-    _sc_commandInit("rotate", "R", SDLK_r, KMOD_NONE, SC_VIEW_TIMELINE, _scc_timelineEnterRotate);
+    _sc_commandInit("delete", "X", SDLK_x, KMOD_NONE, SC_VIEW_TIMELINE, scc_timelineDelete);
+    _sc_commandInit("move", "G", SDLK_g, KMOD_NONE, SC_VIEW_TIMELINE, scc_timelineMove);
+    _sc_commandInit("rotate", "R", SDLK_r, KMOD_NONE, SC_VIEW_TIMELINE, scc_timelineRotate);
 
     _sc_commandInit("goto shortcuts", "C", SDLK_c, KMOD_LSHIFT, SC_VIEW_ALL, _scc_goToShortcuts);
     _sc_commandInit("goto docs", "D", SDLK_d, KMOD_LSHIFT, SC_VIEW_ALL, _scc_goToDocs);
@@ -289,7 +304,7 @@ void sc_init(PoolAlloc* pool) {
 }
 
 // immediately sets the active cmd to null, so make sure you don't trample shit
-// FIXME: this is bad but so is making a buffer system
+// FIXME: this is bad but making a buffer system is a pain and kinda bloated for smth so simple
 void sc_cancelActiveCommand() {
     _sc_activeCommand = NULL;
 }
