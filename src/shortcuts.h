@@ -25,7 +25,7 @@ typedef struct {
 typedef struct {
     snz_Arena* scratch;
     sk_Sketch* activeSketch;
-    tl_Op* timelineFirstOp;
+    tl_Timeline* timeline;
     sc_View* currentView;  // read/write
     bool firstFrame;
 } _sc_CommandArgs;
@@ -213,6 +213,7 @@ bool scc_sketchLineMode(_sc_CommandArgs args) {
     return false;
 }
 
+// FIXME: rename this and move it to sketches2.h
 bool _sc_anySelectedInSketch(sk_Sketch* sketch) {
     for (sk_Point* p = sketch->firstPoint; p; p = p->next) {
         if (p->sel.selected) {
@@ -252,19 +253,9 @@ bool scc_sketchRotate(_sc_CommandArgs args) {
     return false;
 }
 
-// FIXME: rename this and move it to tl.h, same with sketch version
-static bool _sc_anySelectedInTimeline(tl_Op* firstOp) {
-    for (tl_Op* o = firstOp; o; o = o->next) {
-        if (o->ui.sel.selected) {
-            return true;
-        }
-    }
-    return false;
-}
-
 // FIXME: do a deeper dive on use after frees when nodes are deleted? are there any retained refs?
 bool scc_timelineDelete(_sc_CommandArgs args) {
-    for (tl_Op* op = args.timelineFirstOp; op; op = op->next) {
+    for (tl_Op* op = args.timeline->firstOp; op; op = op->next) {
         if (op->ui.sel.selected) {
             op->markedForDeletion = true;
         }
@@ -274,16 +265,24 @@ bool scc_timelineDelete(_sc_CommandArgs args) {
 
 bool scc_timelineMove(_sc_CommandArgs args) {
     if (args.firstFrame) {
-        return !_sc_anySelectedInTimeline(args.timelineFirstOp);
+        return !tl_timelineAnySelected(args.timeline);
     }
     return false;
 }
 
 bool scc_timelineRotate(_sc_CommandArgs args) {
     if (args.firstFrame) {
-        return !_sc_anySelectedInTimeline(args.timelineFirstOp);
+        return !tl_timelineAnySelected(args.timeline);
     }
     return false;
+}
+
+bool scc_timelineAddGeoImport(_sc_CommandArgs args) {
+    *args.currentView = SC_VIEW_TIMELINE;
+    tl_timelineDeselectAll(args.timeline);
+    tl_Op* newOp = tl_timelinePushGeoImport(args.timeline, HMM_V2(0, 0), "testing/intersection.stl");
+    newOp->ui.sel.selected = true;
+    return true;
 }
 
 void sc_init(PoolAlloc* pool) {
@@ -299,12 +298,13 @@ void sc_init(PoolAlloc* pool) {
     _sc_commandInit("delete", "X", SDLK_x, KMOD_NONE, SC_VIEW_TIMELINE, scc_timelineDelete);
     _sc_commandInit("move", "G", SDLK_g, KMOD_NONE, SC_VIEW_TIMELINE, scc_timelineMove);
     _sc_commandInit("rotate", "R", SDLK_r, KMOD_NONE, SC_VIEW_TIMELINE, scc_timelineRotate);
+    _sc_commandInit("import geometry", "I", SDLK_i, KMOD_NONE, SC_VIEW_TIMELINE | SC_VIEW_SCENE, scc_timelineAddGeoImport);
 
-    _sc_commandInit("goto shortcuts", "C", SDLK_c, KMOD_LSHIFT, SC_VIEW_ALL, _scc_goToShortcuts);
-    _sc_commandInit("goto docs", "D", SDLK_d, KMOD_LSHIFT, SC_VIEW_ALL, _scc_goToDocs);
     _sc_commandInit("goto main scene", "W", SDLK_w, KMOD_LSHIFT, SC_VIEW_ALL, _scc_goToMainScene);
-    _sc_commandInit("goto settings", "S", SDLK_s, KMOD_LSHIFT, SC_VIEW_ALL, _scc_goToSettings);
     _sc_commandInit("goto timeline", "T", SDLK_t, KMOD_LSHIFT, SC_VIEW_ALL, _scc_goToTimeline);
+    _sc_commandInit("goto settings", "S", SDLK_s, KMOD_LSHIFT, SC_VIEW_ALL, _scc_goToSettings);
+    _sc_commandInit("goto docs", "D", SDLK_d, KMOD_LSHIFT, SC_VIEW_ALL, _scc_goToDocs);
+    _sc_commandInit("goto shortcuts", "C", SDLK_c, KMOD_LSHIFT, SC_VIEW_ALL, _scc_goToShortcuts);
 }
 
 // immediately sets the active cmd to null, so make sure you don't trample shit
@@ -343,14 +343,14 @@ static void _sc_buildCommandShortcutBox(_sc_Command* cmd, HMM_Vec4 textColor) {
     snzu_boxSetSizeFitChildren();
 }
 
-void sc_updateAndBuildHintWindow(sk_Sketch* activeSketch, tl_Op* tlFirstOp, sc_View* outCurrentView, snz_Arena* scratch, bool targetOpen) {
+void sc_updateAndBuildHintWindow(sk_Sketch* activeSketch, tl_Timeline* timeline, sc_View* outCurrentView, snz_Arena* scratch, bool targetOpen) {
     snzu_boxNew("updatesParent");
     snzu_boxFillParent();
 
     _sc_CommandArgs args = (_sc_CommandArgs){
         .scratch = scratch,
         .activeSketch = activeSketch,
-        .timelineFirstOp = tlFirstOp,
+        .timeline = timeline,
         .currentView = outCurrentView,
         .firstFrame = false,
     };

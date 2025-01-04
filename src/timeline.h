@@ -8,6 +8,7 @@
 typedef enum {
     TL_OPK_SKETCH,
     TL_OPK_COMMENT,
+    TL_OPK_GEO_IMPORT,
 } tl_OpKind;
 
 typedef struct {
@@ -17,6 +18,11 @@ typedef struct {
 typedef struct {
     const char* text;
 } tl_OpComment;
+
+typedef struct {
+    const char* path;
+    geo_Mesh mesh;
+} tl_OpGeoImport;
 
 typedef struct tl_Op tl_Op;
 struct tl_Op {
@@ -31,48 +37,93 @@ struct tl_Op {
 
     tl_OpKind kind;
     union {
-        tl_OpComment comment;
+        tl_OpComment comment; // FIXME: factor out to it's own construct
         tl_OpSketch sketch;
+        tl_OpGeoImport geoImport;
     } val;
 };
 
-// does not push to a list
-tl_Op tl_opSketchInit(HMM_Vec2 pos, sk_Sketch sketch) {
-    tl_Op out = (tl_Op){
-        .ui.pos = pos,
-        .kind = TL_OPK_SKETCH,
-        .val.sketch.sketch = sketch,
+typedef struct {
+    tl_Op* firstOp;
+    tl_Op* activeOp;
+    HMM_Vec2 camPos;
+    float camHeight;
+    snz_Arena* arena;
+} tl_Timeline;
+
+tl_Timeline tl_timelineInit(snz_Arena* arena) {
+    tl_Timeline out = {
+        .arena = arena,
+        .camHeight = 1000,
+        .camPos = HMM_V2(0, 0),
     };
     return out;
 }
 
-void tl_deselectAll(tl_Op* firstOp) {
-    for (tl_Op* op = firstOp; op; op = op->next) {
+tl_Op* tl_timelinePushSketch(tl_Timeline* tl, HMM_Vec2 pos, sk_Sketch sketch) {
+    tl_Op* out = SNZ_ARENA_PUSH(tl->arena, tl_Op);
+    *out = (tl_Op){
+        .ui.pos = pos,
+        .kind = TL_OPK_SKETCH,
+        .val.sketch.sketch = sketch,
+        .next = tl->firstOp,
+    };
+    tl->firstOp = out;
+    return out;
+}
+
+tl_Op* tl_timelinePushComment(tl_Timeline* tl, HMM_Vec2 pos, const char* text) {
+    tl_Op* out = SNZ_ARENA_PUSH(tl->arena, tl_Op);
+    *out = (tl_Op){
+        .ui.pos = pos,
+        .kind = TL_OPK_COMMENT,
+        .val.comment.text = text,
+        .next = tl->firstOp,
+    };
+    tl->firstOp = out;
+    return out;
+}
+
+tl_Op* tl_timelinePushGeoImport(tl_Timeline* tl, HMM_Vec2 pos, const char* path) {
+    tl_Op* out = SNZ_ARENA_PUSH(tl->arena, tl_Op);
+    *out = (tl_Op){
+        .ui.pos = pos,
+        .kind = TL_OPK_GEO_IMPORT,
+        .val.geoImport.path = path,
+        .next = tl->firstOp,
+    };
+    // FIXME: make the geo now :) thanks
+    tl->firstOp = out;
+    return out;
+}
+
+void tl_timelineDeselectAll(tl_Timeline* tl) {
+    for (tl_Op* op = tl->firstOp; op; op = op->next) {
         op->ui.sel.selected = false;
     }
 }
 
-tl_Op tl_opCommentInit(HMM_Vec2 pos, const char* text) {
-    tl_Op out = (tl_Op){
-        .ui.pos = pos,
-        .kind = TL_OPK_COMMENT,
-        .val.comment.text = text,
-    };
-    return out;
-}
-
 // FIXME: pool so that these get reused at some point instead of leaked
-void tl_clearOpsMarkedForDelete(tl_Op** firstOp) {
+void tl_timelineClearOpsMarkedForDelete(tl_Timeline* timeline) {
     tl_Op* prev = NULL;
-    for (tl_Op* op = *firstOp; op; op = op->next) {
+    for (tl_Op* op = timeline->firstOp; op; op = op->next) {
         if (op->markedForDeletion) {
             if (prev) {
                 prev->next = op->next;
             } else {
-                *firstOp = op->next;
+                timeline->firstOp = op->next;
             }
         } else {
             prev = op;
         }
     }
+}
+
+static bool tl_timelineAnySelected(tl_Timeline* tl) {
+    for (tl_Op* o = tl->firstOp; o; o = o->next) {
+        if (o->ui.sel.selected) {
+            return true;
+        }
+    }
+    return false;
 }
