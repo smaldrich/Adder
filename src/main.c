@@ -404,6 +404,7 @@ void main_frame(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screen
                         }
                         spinAngles->Y += 0.1 * dt;
                         spinAngles->Z += 0.1 * dt;
+                        spinAngles->X += 0.1 * dt;
 
                         float orbitDistance = 5;
 

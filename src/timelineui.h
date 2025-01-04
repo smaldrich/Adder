@@ -104,10 +104,10 @@ void tl_build(tl_Op* operations, snz_Arena* scratch, HMM_Vec2 panelSize, HMM_Vec
         }
 
         if (inRotateOrMoveMode) {
+            // this works because we are setting fallthrough on every node when a tool is active
             if (inter->mouseActions[SNZU_MB_LEFT] == SNZU_ACT_DOWN) {
                 sc_cancelActiveCommand();
                 tl_deselectAll(operations);
-                // FIXME: BREAKS IF ENDING ON TOP OF A NODE BC THE EVENT DOESN'T GET SENT TO THE PANEL
             }
 
             // FIXME: probaby should build diffs into snzu_inter cause this is appearing a lot
@@ -165,7 +165,11 @@ void tl_build(tl_Op* operations, snz_Arena* scratch, HMM_Vec2 panelSize, HMM_Vec
 
         for (tl_Op* op = operations; op; op = op->next) {
             snzu_boxNew(snz_arenaFormatStr(scratch, "%p", op));
-            snzu_boxSetInteractionOutput(&op->ui.inter, SNZU_IF_HOVER | SNZU_IF_MOUSE_BUTTONS);
+            uint64_t flags = SNZU_IF_HOVER | SNZU_IF_MOUSE_BUTTONS;
+            if (inRotateOrMoveMode) {
+                flags |= SNZU_IF_ALLOW_EVENT_FALLTHROUGH;
+            }
+            snzu_boxSetInteractionOutput(&op->ui.inter, flags);
 
             const char* labelStr = NULL;
             if (op->kind == TL_OPK_COMMENT) {
