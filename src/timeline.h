@@ -21,6 +21,7 @@ typedef struct {
 typedef struct tl_Op tl_Op;
 struct tl_Op {
     tl_Op* next;
+    bool markedForDeletion;
 
     struct {
         HMM_Vec2 pos;
@@ -58,4 +59,20 @@ tl_Op tl_opCommentInit(HMM_Vec2 pos, const char* text) {
         .val.comment.text = text,
     };
     return out;
+}
+
+// FIXME: pool so that these get reused at some point instead of leaked
+void tl_clearOpsMarkedForDelete(tl_Op** firstOp) {
+    tl_Op* prev = NULL;
+    for (tl_Op* op = *firstOp; op; op = op->next) {
+        if (op->markedForDeletion) {
+            if (prev) {
+                prev->next = op->next;
+            } else {
+                *firstOp = op->next;
+            }
+        } else {
+            prev = op;
+        }
+    }
 }

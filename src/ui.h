@@ -555,6 +555,7 @@ void ui_selectionRegionUpdate(ui_SelectionRegion* region, snzu_Action regionMous
         region->dragOrigin = mousePos;
     }
 
+    // FIXME: trigger on !down or dragging??
     if (regionMouseAction == SNZU_ACT_UP || !allowDragging || !snzu_isNothingFocused()) {
         region->dragging = false;
     }

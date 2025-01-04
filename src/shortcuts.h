@@ -262,9 +262,13 @@ static bool _sc_anySelectedInTimeline(tl_Op* firstOp) {
     return false;
 }
 
+// FIXME: do a deeper dive on use after frees when nodes are deleted? are there any retained refs?
 bool scc_timelineDelete(_sc_CommandArgs args) {
-    SNZ_ASSERT(args.timelineFirstOp || !args.timelineFirstOp, "AHH");
-    SNZ_ASSERT(false, "NOT IMPLEMENTED BUT DO THAT PLEASE"); // FIXME: this
+    for (tl_Op* op = args.timelineFirstOp; op; op = op->next) {
+        if (op->ui.sel.selected) {
+            op->markedForDeletion = true;
+        }
+    }
     return true;
 }
 

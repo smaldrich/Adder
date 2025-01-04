@@ -43,7 +43,7 @@ struct sk_Point {
     bool solved;
     bool markedForDelete;
 
-    bool inDragZone;  // FIXME: remove this
+    bool inDragZone;
     float scaleFactor;
     ui_SelectionState sel;
 };

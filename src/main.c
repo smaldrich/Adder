@@ -292,6 +292,8 @@ void main_frame(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screen
     snzu_instanceSelect(&main_uiInstance);
     snzu_frameStart(scratch, screenSize, dt);
 
+    tl_clearOpsMarkedForDelete(&main_tlFirstOp);
+
     sk_sketchClearElementsMarkedForDelete(&main_sketch);
     sk_sketchSolve(&main_sketch);
 
