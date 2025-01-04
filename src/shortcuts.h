@@ -282,6 +282,7 @@ bool scc_timelineAddGeoImport(_sc_CommandArgs args) {
     tl_timelineDeselectAll(args.timeline);
     tl_Op* newOp = tl_timelinePushGeoImport(args.timeline, HMM_V2(0, 0), "testing/intersection.stl");
     newOp->ui.sel.selected = true;
+    newOp->ui.sel.selectionAnim = 1;
     return true;
 }
 

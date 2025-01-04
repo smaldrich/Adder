@@ -395,26 +395,31 @@ void main_frame(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screen
                     sku_endFrameForUIInstance(inputs, main_sketchAlign, vp, cameraPos, mouseDir);
                 } else if (main_currentView == SC_VIEW_TIMELINE) {
                     {
-                        HMM_Vec3* const spinAngles = SNZU_USE_MEM(HMM_Vec3, "preview spin");
-                        if (snzu_useMemIsPrevNew()) {
-                            spinAngles->X = HMM_AngleDeg(-45);
-                        }
-                        spinAngles->Y += 0.1 * dt;
-                        spinAngles->Z += 0.1 * dt;
-                        spinAngles->X += 0.1 * dt;
 
+                        HMM_Mat4 model = HMM_M4D(1.0f);
+
+                        HMM_Mat4 view = HMM_M4D(1.0f);
                         float orbitDistance = 5;
+                        view = HMM_Mul(HMM_Translate(HMM_V3(0, 0, orbitDistance)), view);
 
-                        HMM_Mat4 view = HMM_Translate(HMM_V3(0, 0, orbitDistance));
-                        view = HMM_InvGeneral(view);
+                        {
+                            HMM_Mat4* rotated = &view;
+                            if (!main_settings.timelinePreviewSpinBackground) {
+                                rotated = &model;
+                            }
+
+                            HMM_Vec3* const spinAngles = SNZU_USE_MEM(HMM_Vec3, "preview spin");
+                            spinAngles->Y += 0.1 * dt;
+                            spinAngles->Z += 0.1 * dt;
+                            *rotated = HMM_Mul(HMM_Rotate_RH(spinAngles->X, HMM_V3(1, 0, 0)), *rotated);
+                            *rotated = HMM_Mul(HMM_Rotate_RH(spinAngles->Y, HMM_V3(0, 1, 0)), *rotated);
+                        }
+
                         float aspect = (float)w / (float)h;
                         HMM_Mat4 proj = HMM_Perspective_RH_NO(HMM_AngleDeg(90), aspect, 0.001, 100000);
 
-                        HMM_Mat4 model = HMM_M4D(1.0f);
-                        model = HMM_Mul(HMM_Rotate_RH(spinAngles->Z, HMM_V3(0, 0, 1)), model);
-                        model = HMM_Mul(HMM_Rotate_RH(spinAngles->X, HMM_V3(1, 0, 0)), model);
-                        model = HMM_Mul(HMM_Rotate_RH(spinAngles->Y, HMM_V3(0, 1, 0)), model);
                         // FIXME: use center of mass of the body, use max extents as well
+                        view = HMM_InvGeneral(view);
                         HMM_Mat4 vp = HMM_MulM4(proj, view);
 
                         // FIXME: this if is fragile bc in more than one plcae and also unintuitive

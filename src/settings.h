@@ -7,6 +7,7 @@ typedef struct {
     bool skybox;
     bool hintWindowAlwaysOpen;
     bool leftBarAlwaysOpen;
+    bool timelinePreviewSpinBackground;
 } set_Settings;
 // NOTE: this is not meant to be a global anywhere, pass specific settings as flags down from wherever this
 // is being persisted betw frames.
@@ -18,6 +19,7 @@ set_Settings set_settingsDefault() {
         .musicMode = true,
         .leftBarAlwaysOpen = true,
         .hintWindowAlwaysOpen = true,
+        .timelinePreviewSpinBackground = true,
     };
     return out;
 }
@@ -37,6 +39,7 @@ void set_build(set_Settings* settings) {
         ui_switch("sky box", &settings->skybox);
         ui_switch("keep cheat sheet open", &settings->hintWindowAlwaysOpen);
         ui_switch("keep left bar open", &settings->leftBarAlwaysOpen);
+        ui_switch("spin the background in timeline preview", &settings->timelinePreviewSpinBackground);
     }
     // FIXME: UI variable for gap here (?)
     snzu_boxOrderChildrenInRowRecurse(10, SNZU_AX_Y);
