@@ -356,6 +356,9 @@ void main_frame(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screen
                     if (ui_buttonWithHighlight(main_currentView == SC_VIEW_SHORTCUTS, "shortcuts")) {
                         main_currentView = SC_VIEW_SHORTCUTS;
                     }
+                    if (ui_buttonWithHighlight(false, "quit")) {
+                        snz_quit();
+                    }
                 }
                 snzu_boxOrderChildrenInRowRecurseAlignEnd(5, SNZU_AX_Y);
             }  // end padding

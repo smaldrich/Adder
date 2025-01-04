@@ -1744,6 +1744,11 @@ void snzu_boxHighlightByAnim(float* anim, HMM_Vec4 baseColor, float diff) {
 typedef void (*snz_InitFunc)(snz_Arena* scratch, SDL_Window* window);
 typedef void (*snz_FrameFunc)(float dt, snz_Arena* frameArena, snzu_Input frameInputs, HMM_Vec2 screenSize);
 
+static bool _snz_shouldQuit = false;
+void snz_quit() {
+    _snz_shouldQuit = true;
+}
+
 void snz_main(const char* windowTitle, snz_InitFunc initFunc, snz_FrameFunc frameFunc) {
     SDL_Window* window = NULL;
     {
@@ -1767,9 +1772,8 @@ void snz_main(const char* windowTitle, snz_InitFunc initFunc, snz_FrameFunc fram
     initFunc(&frameArena, window);
     snz_arenaClear(&frameArena);
 
-    bool quit = false;
     float prevTime = 0.0;
-    while (!quit) {
+    while (!_snz_shouldQuit) {
         float time = (float)SDL_GetTicks64() / 1000;
         float dt = time - prevTime;
         prevTime = time;
@@ -1783,7 +1787,7 @@ void snz_main(const char* windowTitle, snz_InitFunc initFunc, snz_FrameFunc fram
         SDL_Event e;
         while (SDL_PollEvent(&e)) {
             if (e.type == SDL_QUIT) {
-                quit = true;
+                _snz_shouldQuit = true;
             } else if (e.type == SDL_MOUSEWHEEL) {
                 uiInputs.mouseScrollY = e.wheel.preciseY;
             } else if (e.type == SDL_KEYDOWN) {
