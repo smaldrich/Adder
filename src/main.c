@@ -51,7 +51,7 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
 
     {  // FIXME: move to snz
         SDL_Surface* s = SDL_LoadBMP("res/textures/icon.bmp");
-        char buf[1000] = {0};
+        char buf[1000] = { 0 };
         const char* err = SDL_GetErrorMsg(buf, 1000);
         printf("%s", err);
         SNZ_ASSERT(s != NULL, "icon load failed.");
@@ -425,7 +425,7 @@ void main_frame(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screen
                         // FIXME: debug wireframe
                         ren3d_drawMesh(&main_mesh.renderMesh, vp, model, HMM_V4(1, 1, 1, 1), HMM_V3(-1, -1, -1), ui_lightAmbient);
                     }
-                    HMM_Mat4 vp = {0};
+                    HMM_Mat4 vp = { 0 };
                     snzu_Input inputCopy = inputs;
                     tl_build(main_tlFirstOp, scratch, rightPanelSize, inter->mousePosLocal, &inputCopy.mousePos, &vp);
                     snzu_frameDrawAndGenInteractions(inputCopy, vp);
