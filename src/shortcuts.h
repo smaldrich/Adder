@@ -5,6 +5,7 @@
 #include "sketches2.h"
 #include "snooze.h"
 #include "ui.h"
+#include "timeline.h"
 
 typedef enum {
     SC_VIEW_NONE = 0,
@@ -24,6 +25,7 @@ typedef struct {
 typedef struct {
     snz_Arena* scratch;
     sk_Sketch* activeSketch;
+    tl_Op* timelineFirstOp;
     sc_View* currentView;  // read/write
     bool firstFrame;
 } _sc_CommandArgs;
@@ -90,7 +92,7 @@ bool _scc_goToTimeline(_sc_CommandArgs args) {
     return true;
 }
 
-bool _scc_delete(_sc_CommandArgs args) {
+bool _scc_sketchDelete(_sc_CommandArgs args) {
     for (sk_Point* p = args.activeSketch->firstPoint; p; p = p->next) {
         if (p->sel.selected) {
             p->markedForDelete = true;
@@ -109,7 +111,7 @@ bool _scc_delete(_sc_CommandArgs args) {
     return true;
 }
 
-bool _scc_distanceConstraint(_sc_CommandArgs args) {
+bool _scc_sketchAddDistanceConstraint(_sc_CommandArgs args) {
     int selectedCount = 0;
     sk_Line* firstLine = NULL;
 
@@ -132,7 +134,7 @@ bool _scc_distanceConstraint(_sc_CommandArgs args) {
     return true;
 }
 
-bool _scc_angleConstraint(_sc_CommandArgs args) {
+bool _scc_sketchAddAngleConstraint(_sc_CommandArgs args) {
     int selectedCount = 0;
     sk_Line* lines[2] = { NULL, NULL };
     for (sk_Line* line = args.activeSketch->firstLine; line; line = line->next) {
@@ -188,7 +190,7 @@ bool _scc_angleConstraint(_sc_CommandArgs args) {
     return true;
 }
 
-bool scc_line(_sc_CommandArgs args) {
+bool scc_sketchEnterLineMode(_sc_CommandArgs args) {
     if (args.firstFrame) {  // creating a line between two selected pts
         int ptCount = 0;
         sk_Point* pts[2] = { 0 };
@@ -232,7 +234,7 @@ bool _sc_anySelectedInSketch(sk_Sketch* sketch) {
     return false;
 }
 
-bool scc_move(_sc_CommandArgs args) {
+bool scc_sketchEnterMove(_sc_CommandArgs args) {
     if (args.firstFrame) {
         return !_sc_anySelectedInSketch(args.activeSketch);  // cancels if nothing selected
     }
@@ -241,24 +243,43 @@ bool scc_move(_sc_CommandArgs args) {
     return false;
 }
 
-bool scc_rotate(_sc_CommandArgs args) {
+bool scc_sketchEnterRotate(_sc_CommandArgs args) {
     if (args.firstFrame) {
         return !_sc_anySelectedInSketch(args.activeSketch);  // cancels if nothing selected
     }
 
     // bulk of logic in sketchui.h
     return false;
+}
+
+bool _scc_timelineDelete() {
+    SNZ_ASSERT(false, "this shit DO NOT WORK!!");
+    return true;
+}
+
+bool _scc_timelineEnterMove() {
+    printf("in timeline tried to move but fuck you\n");
+    return true;
+}
+
+bool _scc_timelineEnterRotate() {
+    printf("in timeline tried to rotate but fuck you\n");
+    return true;
 }
 
 void sc_init(PoolAlloc* pool) {
     _sc_commandPool = pool;
 
-    _sc_commandInit("delete", "X", SDLK_x, KMOD_NONE, SC_VIEW_SCENE, _scc_delete);
-    _sc_commandInit("line", "B", SDLK_b, KMOD_NONE, SC_VIEW_SCENE, scc_line);
-    _sc_commandInit("move", "G", SDLK_g, KMOD_NONE, SC_VIEW_SCENE, scc_move);
-    _sc_commandInit("rotate", "R", SDLK_r, KMOD_NONE, SC_VIEW_SCENE, scc_rotate);
-    _sc_commandInit("distance", "D", SDLK_d, KMOD_NONE, SC_VIEW_SCENE, _scc_distanceConstraint);
-    _sc_commandInit("angle", "A", SDLK_a, KMOD_NONE, SC_VIEW_SCENE, _scc_angleConstraint);
+    _sc_commandInit("delete", "X", SDLK_x, KMOD_NONE, SC_VIEW_SCENE, _scc_sketchDelete);
+    _sc_commandInit("line", "B", SDLK_b, KMOD_NONE, SC_VIEW_SCENE, scc_sketchEnterLineMode);
+    _sc_commandInit("move", "G", SDLK_g, KMOD_NONE, SC_VIEW_SCENE, scc_sketchEnterMove);
+    _sc_commandInit("rotate", "R", SDLK_r, KMOD_NONE, SC_VIEW_SCENE, scc_sketchEnterRotate);
+    _sc_commandInit("distance", "D", SDLK_d, KMOD_NONE, SC_VIEW_SCENE, _scc_sketchAddDistanceConstraint);
+    _sc_commandInit("angle", "A", SDLK_a, KMOD_NONE, SC_VIEW_SCENE, _scc_sketchAddAngleConstraint);
+
+    _sc_commandInit("delete", "X", SDLK_x, KMOD_NONE, SC_VIEW_TIMELINE, _scc_timelineDelete);
+    _sc_commandInit("move", "G", SDLK_g, KMOD_NONE, SC_VIEW_TIMELINE, _scc_timelineEnterMove);
+    _sc_commandInit("rotate", "R", SDLK_r, KMOD_NONE, SC_VIEW_TIMELINE, _scc_timelineEnterRotate);
 
     _sc_commandInit("goto shortcuts", "C", SDLK_c, KMOD_LSHIFT, SC_VIEW_ALL, _scc_goToShortcuts);
     _sc_commandInit("goto docs", "D", SDLK_d, KMOD_LSHIFT, SC_VIEW_ALL, _scc_goToDocs);
@@ -303,13 +324,14 @@ static void _sc_buildCommandShortcutBox(_sc_Command* cmd, HMM_Vec4 textColor) {
     snzu_boxSetSizeFitChildren();
 }
 
-void sc_updateAndBuildHintWindow(sk_Sketch* activeSketch, sc_View* outCurrentView, snz_Arena* scratch, bool targetOpen) {
+void sc_updateAndBuildHintWindow(sk_Sketch* activeSketch, tl_Op* tlFirstOp, sc_View* outCurrentView, snz_Arena* scratch, bool targetOpen) {
     snzu_boxNew("updatesParent");
     snzu_boxFillParent();
 
     _sc_CommandArgs args = (_sc_CommandArgs){
         .scratch = scratch,
         .activeSketch = activeSketch,
+        .timelineFirstOp = tlFirstOp,
         .currentView = outCurrentView,
         .firstFrame = false,
     };

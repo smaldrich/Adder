@@ -1,3 +1,5 @@
+#pragma once
+
 #include "snooze.h"
 #include "geometry.h"
 #include "ui.h"
