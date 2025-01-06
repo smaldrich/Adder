@@ -267,16 +267,14 @@ void main_sceneBuild(
         scene->orbitDistance += panelInter->mouseScrollY * scene->orbitDistance * 0.05;
     }
 
-    { // generate VP / mouse dir
+    { // generate VP / camera pos / mouse dir
         HMM_Mat4 view = HMM_Translate(HMM_V3(0, 0, scene->orbitDistance));
         view = HMM_MulM4(HMM_Rotate_RH(scene->orbitAngle.X, HMM_V3(1, 0, 0)), view);
         view = HMM_MulM4(HMM_Rotate_RH(scene->orbitAngle.Y, HMM_V3(0, 1, 0)), view);
         view = HMM_MulM4(geo_alignToM4(scene->orbitOrigin), view);
-        view = HMM_InvGeneral(view);
-
         float aspect = panelSize.X / panelSize.Y;
         HMM_Mat4 proj = HMM_Perspective_RH_NO(HMM_AngleDeg(90), aspect, 0.001, 100000);
-        HMM_Mat4 vp = HMM_MulM4(proj, view);
+        HMM_Mat4 vp = HMM_MulM4(proj, HMM_InvGeneral(view));
 
         HMM_Vec3 cameraPos = HMM_MulM4V4(view, HMM_V4(0, 0, 0, 1)).XYZ;
         *outCamPos = cameraPos;
