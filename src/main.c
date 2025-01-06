@@ -70,6 +70,8 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
     }
 
     {
+        geo_stlFileToBSPTriList("testing/intersection.stl");
+
         // geo_BSPTriList* bspTris = NULL;
         // geo_MeshFace* faces = NULL;
         // {

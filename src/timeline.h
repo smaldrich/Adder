@@ -94,6 +94,10 @@ tl_Op* tl_timelinePushGeoImport(tl_Timeline* tl, HMM_Vec2 pos, const char* path)
         .val.geoImport.path = path,
         .next = tl->firstOp,
     };
+
+    out->val.geoImport.mesh = (geo_Mesh){
+        .
+    };
     // FIXME: make the geo now :) thanks
     tl->firstOp = out;
     return out;
