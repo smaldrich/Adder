@@ -230,42 +230,42 @@ void geo_BSPTriListToSTLFile(const geo_BSPTriList* list, const char* path) {
     fclose(f);
 }
 
-void geo_stlFileToBSPTriList(const char* path) {
-    HMM_Vec3 vert = HMM_V3(0, 0, 0);
-    FILE* f = fopen(path, "r");
-    char* solid = NULL;
-    char* object = NULL;
-    fscanf(f, "%s%s", solid, object);
+// FIXME: this
+// void geo_stlFileToBSPTriList(const char* path) {
+//     FILE* f = fopen(path, "r");
+//     char* solid = NULL;
+//     char* object = NULL;
+//     fscanf(f, "%s%s", solid, object);
 
-    while (true) {
-        char* facet = NULL;
-        char* normalStr = NULL;
-        HMM_Vec3 normal = HMM_V3(0, 0, 0);
-        fscanf(f, "%s%s%f%f%f", &facet, &normalStr, &normal.X, &normal.Y, &normal.Z);
+//     while (true) {
+//         char* facet = NULL;
+//         char* normalStr = NULL;
+//         HMM_Vec3 normal = HMM_V3(0, 0, 0);
+//         fscanf(f, "%s%s%f%f%f", &facet, &normalStr, &normal.X, &normal.Y, &normal.Z);
 
-        char* outer = NULL;
-        char* loop = NULL;
-        fscanf(f, "%s%s", &outer, &loop);
+//         char* outer = NULL;
+//         char* loop = NULL;
+//         fscanf(f, "%s%s", &outer, &loop);
 
-        for (int i = 0; i < 3; i++) {
-            HMM_Vec3 data = HMM_V3(0, 0, 0);
-            char* vertex = NULL;
-            fscanf(f, "%s%f%f%f", &vertex, &data.X, &data.Y, &data.Z);
-        }
+//         for (int i = 0; i < 3; i++) {
+//             HMM_Vec3 data = HMM_V3(0, 0, 0);
+//             char* vertex = NULL;
+//             fscanf(f, "%s%f%f%f", &vertex, &data.X, &data.Y, &data.Z);
+//         }
 
-        char* endloop = NULL;
-        fscanf(f, "%s", endloop); // endloop
+//         char* endloop = NULL;
+//         fscanf(f, "%s", endloop); // endloop
 
-        char* endfacet = NULL;
-        fscanf(f, "%s", endfacet); // endfacet
-    }
+//         char* endfacet = NULL;
+//         fscanf(f, "%s", endfacet); // endfacet
+//     }
 
-    char* endsolid = NULL;
-    char* objectEnd = NULL;
-    fscanf(f, "%s%s", &endsolid, &objectEnd);
+//     char* endsolid = NULL;
+//     char* objectEnd = NULL;
+//     fscanf(f, "%s%s", &endsolid, &objectEnd);
 
-    fclose(f);
-}
+//     fclose(f);
+// }
 
 geo_PlaneRelation _geo_triClassify(geo_Tri tri, HMM_Vec3 planeNormal, HMM_Vec3 planeStart) {
     geo_PlaneRelation finalRel = 0;

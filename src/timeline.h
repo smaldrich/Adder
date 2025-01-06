@@ -86,18 +86,16 @@ tl_Op* tl_timelinePushComment(tl_Timeline* tl, HMM_Vec2 pos, const char* text) {
     return out;
 }
 
-tl_Op* tl_timelinePushGeoImport(tl_Timeline* tl, HMM_Vec2 pos, const char* path) {
+// FIXME: make take a path (?) (might need to be some file embed ref instead but eh)
+tl_Op* tl_timelinePushGeoImport(tl_Timeline* tl, HMM_Vec2 pos, geo_Mesh mesh) {
     tl_Op* out = SNZ_ARENA_PUSH(tl->arena, tl_Op);
     *out = (tl_Op){
         .ui.pos = pos,
         .kind = TL_OPK_GEO_IMPORT,
-        .val.geoImport.path = path,
         .next = tl->firstOp,
+        .val.geoImport.mesh = mesh,
     };
 
-    out->val.geoImport.mesh = (geo_Mesh){
-        .
-    };
     // FIXME: make the geo now :) thanks
     tl->firstOp = out;
     return out;
