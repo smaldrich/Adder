@@ -94,6 +94,45 @@ bool geo_v3Equal(HMM_Vec3 a, HMM_Vec3 b) {
     return geo_floatEqual(a.X, b.X) && geo_floatEqual(a.Y, b.Y) && geo_floatEqual(a.Z, b.Z);
 }
 
+typedef struct {
+    HMM_Vec3 startPt;
+    HMM_Vec3 startNormal;
+    HMM_Vec3 startVertical;
+
+    HMM_Vec3 endPt;
+    HMM_Vec3 endNormal;
+    HMM_Vec3 endVertical;
+} geo_Align;
+
+static float _geo_angleBetweenV3(HMM_Vec3 a, HMM_Vec3 b) {
+    return acosf(HMM_Dot(a, b) / (HMM_Len(a) * HMM_Len(b)));
+}
+
+HMM_Quat geo_alignToQuat(geo_Align a) {
+    HMM_Vec3 normalCross = HMM_Cross(a.startNormal, a.endNormal);
+    float normalAngle = _geo_angleBetweenV3(a.startNormal, a.endNormal);
+    HMM_Quat planeRotate = HMM_QFromAxisAngle_RH(normalCross, normalAngle);
+    if (geo_floatEqual(normalAngle, 0)) {
+        planeRotate = HMM_QFromAxisAngle_RH(HMM_V3(0, 0, 1), 0);
+    }
+
+    HMM_Vec3 postRotateVertical = HMM_MulM4V4(HMM_QToM4(planeRotate), HMM_V4(a.startVertical.X, a.startVertical.Y, a.startVertical.Z, 1)).XYZ;
+    // stolen: https://stackoverflow.com/questions/5188561/signed-angle-between-two-3d-vectors-with-same-origin-within-the-same-plane
+    // tysm internet
+    float y = HMM_Dot(HMM_Cross(postRotateVertical, a.endVertical), a.endNormal);
+    float x = HMM_Dot(postRotateVertical, a.endVertical);
+    float postRotateAngle = atan2(y, x);
+    HMM_Quat postRotate = HMM_QFromAxisAngle_RH(a.endNormal, postRotateAngle);
+
+    return HMM_MulQ(postRotate, planeRotate);
+}
+
+HMM_Mat4 geo_alignToM4(geo_Align a) {
+    HMM_Quat q = geo_alignToQuat(a);
+    HMM_Mat4 translate = HMM_Translate(HMM_Sub(a.endPt, a.startPt));
+    return HMM_Mul(translate, HMM_QToM4(q));
+}
+
 // puts it in the range of -180 to +180, in rads
 float geo_normalizeAngle(float a) {
     while (a > HMM_AngleDeg(180)) {

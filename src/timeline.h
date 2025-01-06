@@ -13,6 +13,7 @@ typedef enum {
 
 typedef struct {
     sk_Sketch sketch;
+    geo_Align align;
 } tl_OpSketch;
 
 typedef struct {
@@ -60,12 +61,13 @@ tl_Timeline tl_timelineInit(snz_Arena* arena) {
     return out;
 }
 
-tl_Op* tl_timelinePushSketch(tl_Timeline* tl, HMM_Vec2 pos, sk_Sketch sketch) {
+tl_Op* tl_timelinePushSketch(tl_Timeline* tl, HMM_Vec2 pos, sk_Sketch sketch, geo_Align align) {
     tl_Op* out = SNZ_ARENA_PUSH(tl->arena, tl_Op);
     *out = (tl_Op){
         .ui.pos = pos,
         .kind = TL_OPK_SKETCH,
         .val.sketch.sketch = sketch,
+        .val.sketch.align = align,
         .next = tl->firstOp,
     };
     tl->firstOp = out;

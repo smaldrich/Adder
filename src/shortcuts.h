@@ -405,7 +405,10 @@ void sc_updateAndBuildHintWindow(sk_Sketch* activeSketch, tl_Timeline* timeline,
 
             if (kp.key == SDLK_ESCAPE || !snzu_isNothingFocused()) {
                 _sc_activeCommand = NULL;
-                sk_sketchDeselectAll(args.activeSketch);
+                if (args.activeSketch) {
+                    sk_sketchDeselectAll(args.activeSketch);
+                }
+                tl_timelineDeselectAll(args.timeline);
             }
         }
     }  // command handling
@@ -427,7 +430,11 @@ void sc_updateAndBuildHintWindow(sk_Sketch* activeSketch, tl_Timeline* timeline,
             bool done = _sc_activeCommand->func(args);
             if (invalidated || done) {
                 _sc_activeCommand = NULL;
-                sk_sketchDeselectAll(args.activeSketch);
+
+                if (args.activeSketch) {
+                    sk_sketchDeselectAll(args.activeSketch);
+                }
+                tl_timelineDeselectAll(args.timeline);
             }
         }
 

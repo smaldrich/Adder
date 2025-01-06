@@ -31,45 +31,6 @@ static float _sku_gridLineGap(float area, float visibleCount) {
     return dec * powf(10, (float)exp);
 }
 
-typedef struct {
-    HMM_Vec3 startPt;
-    HMM_Vec3 startNormal;
-    HMM_Vec3 startVertical;
-
-    HMM_Vec3 endPt;
-    HMM_Vec3 endNormal;
-    HMM_Vec3 endVertical;
-} sku_Align;  // FIXME: move to geom
-
-static float _sku_angleBetweenV3(HMM_Vec3 a, HMM_Vec3 b) {
-    return acosf(HMM_Dot(a, b) / (HMM_Len(a) * HMM_Len(b)));
-}
-
-HMM_Quat sku_alignToQuat(sku_Align a) {
-    HMM_Vec3 normalCross = HMM_Cross(a.startNormal, a.endNormal);
-    float normalAngle = _sku_angleBetweenV3(a.startNormal, a.endNormal);
-    HMM_Quat planeRotate = HMM_QFromAxisAngle_RH(normalCross, normalAngle);
-    if (geo_floatEqual(normalAngle, 0)) {
-        planeRotate = HMM_QFromAxisAngle_RH(HMM_V3(0, 0, 1), 0);
-    }
-
-    HMM_Vec3 postRotateVertical = HMM_MulM4V4(HMM_QToM4(planeRotate), HMM_V4(a.startVertical.X, a.startVertical.Y, a.startVertical.Z, 1)).XYZ;
-    // stolen: https://stackoverflow.com/questions/5188561/signed-angle-between-two-3d-vectors-with-same-origin-within-the-same-plane
-    // tysm internet
-    float y = HMM_Dot(HMM_Cross(postRotateVertical, a.endVertical), a.endNormal);
-    float x = HMM_Dot(postRotateVertical, a.endVertical);
-    float postRotateAngle = atan2(y, x);
-    HMM_Quat postRotate = HMM_QFromAxisAngle_RH(a.endNormal, postRotateAngle);
-
-    return HMM_MulQ(postRotate, planeRotate);
-}
-
-HMM_Mat4 sku_alignToM4(sku_Align a) {
-    HMM_Quat q = sku_alignToQuat(a);
-    HMM_Mat4 translate = HMM_Translate(HMM_Sub(a.endPt, a.startPt));
-    return HMM_Mul(translate, HMM_QToM4(q));
-}
-
 static HMM_Vec3 _sku_mulM4V3(HMM_Mat4 m, HMM_Vec3 v) {
     return HMM_Mul(m, HMM_V4(v.X, v.Y, v.Z, 1)).XYZ;
 }
@@ -483,7 +444,7 @@ static void _sku_draw(sk_Sketch* sketch, snzu_Interaction* inter, HMM_Mat4 model
 
 // FIXME: separate instance means that focus and clipping doesn't work right :(
 // factored out because the logic to get the mouse pos is a little verbose for main_
-void sku_endFrameForUIInstance(snzu_Input input, sku_Align align, HMM_Mat4 vp, HMM_Vec3 cameraPos, HMM_Vec3 mouseDir) {
+void sku_endFrameForUIInstance(snzu_Input input, geo_Align align, HMM_Mat4 vp, HMM_Vec3 cameraPos, HMM_Vec3 mouseDir) {
     float t = 0;
     bool hit = geo_planeLineIntersection(align.endPt, align.endNormal, cameraPos, mouseDir, &t);
     HMM_Vec3 point = HMM_Add(cameraPos, HMM_Mul(mouseDir, t));
@@ -496,7 +457,7 @@ void sku_endFrameForUIInstance(snzu_Input input, sku_Align align, HMM_Mat4 vp, H
     float y = HMM_Dot(point, align.endVertical);
     input.mousePos = HMM_V2(x, -y);  // flip from sketch space to UI space here
 
-    HMM_Mat4 sketchMVP = HMM_Mul(vp, sku_alignToM4(align));
+    HMM_Mat4 sketchMVP = HMM_Mul(vp, geo_alignToM4(align));
     HMM_Mat4 uiMVP = HMM_Mul(sketchMVP, HMM_Scale(HMM_V3(1, -1, 1)));
 
     glDisable(GL_DEPTH_TEST);
@@ -506,7 +467,7 @@ void sku_endFrameForUIInstance(snzu_Input input, sku_Align align, HMM_Mat4 vp, H
 
 // FIXME: sketch element selection persists too much
 void sku_drawAndBuildSketch(
-    sk_Sketch* sketch, sku_Align align,
+    sk_Sketch* sketch, geo_Align align,
     HMM_Mat4 vp, HMM_Vec3 cameraPos,
     float sound,
     snz_Arena* scratch) {
@@ -514,7 +475,7 @@ void sku_drawAndBuildSketch(
     // work with down positive coords. It works out if we invert the data it gets fed along with the
     // projection matrix. Very gross but there isn't an obvious better way. Adding a vertical toggle makes
     // many things, notably including build code, much more unwieldy
-    HMM_Mat4 model = sku_alignToM4(align);
+    HMM_Mat4 model = geo_alignToM4(align);
     HMM_Mat4 sketchMVP = HMM_Mul(vp, model);
     HMM_Mat4 uiMVP = HMM_Mul(sketchMVP, HMM_Scale(HMM_V3(1, -1, 1)));
 
