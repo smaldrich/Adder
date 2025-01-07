@@ -100,6 +100,7 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
             .firstFace = faces,
         };
         geo_BSPTriListToFaceTris(&main_pool, &mesh);
+        geo_meshGenerateEdges(&mesh, &main_meshArena);
 
         tl_timelinePushGeoImport(&main_timeline, HMM_V2(0, 0), mesh);
     }  // end mesh for testing
@@ -448,6 +449,7 @@ void main_frame(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screen
                                 &op->val.geoImport.mesh.renderMesh,
                                 vp, HMM_M4D(1.0f),
                                 HMM_V4(1, 1, 1, 1), HMM_V3(-1, -1, -1), ui_lightAmbient);
+                            geo_meshDrawEdges(&op->val.geoImport.mesh, vp);
                             geo_buildHoverAndSelectionMesh(&op->val.geoImport.mesh, vp, cameraPos, mouseDir, scratch);
                             snzu_frameDrawAndGenInteractions(inputs, HMM_M4D(1.0f));
                         } else if (op->kind == TL_OPK_SKETCH) {

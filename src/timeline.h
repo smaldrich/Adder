@@ -96,7 +96,6 @@ tl_Op* tl_timelinePushGeoImport(tl_Timeline* tl, HMM_Vec2 pos, geo_Mesh mesh) {
         .val.geoImport.mesh = mesh,
     };
 
-    // FIXME: make the geo now :) thanks
     tl->firstOp = out;
     return out;
 }
