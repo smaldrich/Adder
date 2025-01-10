@@ -467,7 +467,8 @@ void sc_updateAndBuildHintWindow(sk_Sketch* activeSketch, tl_Op* tlFirstOp, sc_V
                         snzu_boxSetSizeFromStartAx(SNZU_AX_Y, snzu_boxGetSize().Y + 10);
                     } else {
                         snzu_boxNew("filterBox");
-                        snzu_boxSetSizeFromStartAx(SNZU_AX_Y, ui_labelFont.renderedSize + 2 * 8);
+                        float padding = 8;
+                        snzu_boxSetSizeFromStartAx(SNZU_AX_Y, ui_labelFont.renderedSize + 2 * padding);
                         snzu_boxSetSizeMarginFromParentAx(0, SNZU_AX_X);
 
                         ui_TextArea* const text = SNZU_USE_MEM(ui_TextArea, "filter");
@@ -478,14 +479,18 @@ void sc_updateAndBuildHintWindow(sk_Sketch* activeSketch, tl_Op* tlFirstOp, sc_V
                         ui_textArea(text,
                             &ui_labelFont,
                             ui_labelFont.renderedSize,
+                            padding,
                             ui_colorText,
                             false, false);
+
+                        float* const focusedAnim = SNZU_USE_MEM(float, "focusanim");
+                        snzu_easeExp(focusedAnim, snzu_boxFocused(), 15);
 
                         snzu_boxScope() {
                             snzu_boxNew("lower border");
                             snzu_boxFillParent();
                             snzu_boxSetSizeFromEndAx(SNZU_AX_Y, ui_borderThickness);
-                            snzu_boxSetColor(ui_colorText);
+                            snzu_boxSetColor(HMM_Lerp(ui_colorText, *focusedAnim, ui_colorAccent));
                         }
 
                         snzu_boxNew("spacer");

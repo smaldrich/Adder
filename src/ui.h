@@ -357,7 +357,7 @@ void ui_textAreaSetStr(ui_TextArea* area, const char* str, uint64_t len) {
 // use ui_textAreaInit before passing in a textArea struct
 // text is expected to be usememd
 // also expects a container box to be selected in the ui inst
-void ui_textArea(ui_TextArea* const text, const snzr_Font* font, float textHeight, HMM_Vec4 textColor, bool hugText, bool setFocused) {
+void ui_textArea(ui_TextArea* const text, const snzr_Font* font, float textHeight, float padding, HMM_Vec4 textColor, bool hugText, bool setFocused) {
     /*
     FEATURES:
     [X] selection zones
@@ -377,7 +377,6 @@ void ui_textArea(ui_TextArea* const text, const snzr_Font* font, float textHeigh
 
     _snzu_Box* container = snzu_getSelectedBox();
     // snzu_boxClipChildren();
-    float padding = 0.1 * textHeight;
 
     text->font = font;
     _ui_textAreaAssertValid(text);
@@ -522,7 +521,7 @@ void ui_textArea(ui_TextArea* const text, const snzr_Font* font, float textHeigh
             float cursorStartX = (snzr_strSize(text->font, text->chars, text->cursorPos, textHeight).X) + padding;
             snzu_boxFillParent();
             snzu_boxSetStartAx(container->start.X + cursorStartX, SNZU_AX_X);
-            snzu_boxSetSizeFromStartAx(SNZU_AX_X, padding);
+            snzu_boxSetSizeFromStartAx(SNZU_AX_X, 0.1 * textHeight);
             snzu_boxSetColor(ui_colorText);
         }
     }  // end inners

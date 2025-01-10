@@ -288,7 +288,7 @@ static void _sku_buildConstraint(sk_Constraint* c, float sound, HMM_Mat4 model, 
     ui_textArea(
         &c->uiInfo.textArea,
         &ui_titleFont,
-        drawnHeight, c->uiInfo.drawnColor,
+        drawnHeight, 0.1 * drawnHeight, c->uiInfo.drawnColor,
         true,
         c->uiInfo.shouldStartFocus);
     c->uiInfo.shouldStartFocus = false;
