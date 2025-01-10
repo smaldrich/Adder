@@ -465,6 +465,31 @@ void sc_updateAndBuildHintWindow(sk_Sketch* activeSketch, tl_Op* tlFirstOp, sc_V
                         snzu_boxOrderChildrenInRowRecurse(4, SNZU_AX_Y);
                         snzu_boxSetSizeFitChildren();
                         snzu_boxSetSizeFromStartAx(SNZU_AX_Y, snzu_boxGetSize().Y + 10);
+                    } else {
+                        snzu_boxNew("filterBox");
+                        snzu_boxSetSizeFromStartAx(SNZU_AX_Y, ui_labelFont.renderedSize + 2 * 8);
+                        snzu_boxSetSizeMarginFromParentAx(0, SNZU_AX_X);
+
+                        ui_TextArea* const text = SNZU_USE_MEM(ui_TextArea, "filter");
+                        if (snzu_useMemIsPrevNew()) {
+                            ui_textAreaInit(text, NULL);
+                        }
+
+                        ui_textArea(text,
+                            &ui_labelFont,
+                            ui_labelFont.renderedSize,
+                            ui_colorText,
+                            false, false);
+
+                        snzu_boxScope() {
+                            snzu_boxNew("lower border");
+                            snzu_boxFillParent();
+                            snzu_boxSetSizeFromEndAx(SNZU_AX_Y, ui_borderThickness);
+                            snzu_boxSetColor(ui_colorText);
+                        }
+
+                        snzu_boxNew("spacer");
+                        snzu_boxSetSizeFromStart(HMM_V2(0, 12));
                     }
 
                     for (int i = 0; i < _sc_commandCount; i++) {

@@ -285,7 +285,12 @@ static void _sku_buildConstraint(sk_Constraint* c, float sound, HMM_Mat4 model, 
     snzu_boxSetStart(textTopLeft);
 
     // FIXME: this can be clicked while in line mode and it is not correct
-    ui_textArea(&c->uiInfo.textArea, &ui_titleFont, drawnHeight, c->uiInfo.drawnColor, c->uiInfo.shouldStartFocus);
+    ui_textArea(
+        &c->uiInfo.textArea,
+        &ui_titleFont,
+        drawnHeight, c->uiInfo.drawnColor,
+        true,
+        c->uiInfo.shouldStartFocus);
     c->uiInfo.shouldStartFocus = false;
 
     float val = atof(c->uiInfo.textArea.chars);

@@ -356,7 +356,8 @@ void ui_textAreaSetStr(ui_TextArea* area, const char* str, uint64_t len) {
 // charCount and chars are read/write vars
 // use ui_textAreaInit before passing in a textArea struct
 // text is expected to be usememd
-void ui_textArea(ui_TextArea* const text, const snzr_Font* font, float textHeight, HMM_Vec4 textColor, bool setFocused) {
+// also expects a container box to be selected in the ui inst
+void ui_textArea(ui_TextArea* const text, const snzr_Font* font, float textHeight, HMM_Vec4 textColor, bool hugText, bool setFocused) {
     /*
     FEATURES:
     [X] selection zones
@@ -486,9 +487,11 @@ void ui_textArea(ui_TextArea* const text, const snzr_Font* font, float textHeigh
 
     _ui_textAreaAssertValid(text);
 
-    HMM_Vec2 size = snzr_strSize(text->font, text->chars, text->charCount, textHeight);
-    size = HMM_Add(size, HMM_Mul(HMM_V2(padding, padding), 2.0f));
-    snzu_boxSetSizeFromStart(size);
+    if (hugText) {
+        HMM_Vec2 size = snzr_strSize(text->font, text->chars, text->charCount, textHeight);
+        size = HMM_Add(size, HMM_Mul(HMM_V2(padding, padding), 2.0f));
+        snzu_boxSetSizeFromStart(size);
+    }
 
     snzu_boxScope() {
         if (focused) {
