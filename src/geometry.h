@@ -817,41 +817,6 @@ void geo_buildHoverAndSelectionMesh(geo_Mesh* mesh, HMM_Mat4 vp, HMM_Vec3 camera
     }  // end hovered drawing
 }
 
-// SOA formatting in terms of the data for this comp would be great, but a giant pain in the ass to write out
-// or maybe thats the OO poison in my blood
-// FIXME: also this solution is very bad asymptotically
-bool geo_trisAdjacent(geo_Tri a, geo_Tri b, int* outEdgeA) {
-    *outEdgeA = -1;  // default return
-
-    for (int i = 0; i < 3; i++) {
-        HMM_Vec3 aNext = a.elems[(i + 1) % 3];
-        HMM_Vec3 aCurrent = a.elems[i];
-        HMM_Vec3 aNormal = HMM_Norm(HMM_Sub(aNext, aCurrent));
-
-        for (int j = 0; j < 3; j++) {
-            HMM_Vec3 bNext = b.elems[(j + 1) % 3];
-            HMM_Vec3 bCurrent = b.elems[j];
-            HMM_Vec3 bNormal = HMM_Norm(HMM_Sub(bNext, bCurrent));
-
-            if (!geo_v3Equal(bNormal, aNormal) && !geo_v3Equal(HMM_Sub(HMM_V3(0, 0, 0), bNormal), aNormal)) {
-                continue;
-            }
-
-            float dot = HMM_Dot(HMM_Sub(bCurrent, aCurrent), aNormal);
-            if (geo_floatZero(HMM_Len(HMM_Sub(bCurrent, aCurrent)))) {
-                dot = 1;
-            }
-            if (!(geo_floatEqual(dot, 1) || geo_floatEqual(dot, -1))) {
-                continue;
-            }
-            *outEdgeA = i;
-            return true;
-        }  // end tri b loop
-    }  // end tri a loop
-
-    return false;
-}
-
 void geo_meshDrawEdges(const geo_Mesh* mesh, HMM_Mat4 vp) {
     for (geo_MeshEdge* edge = mesh->firstEdge; edge; edge = edge->next) {
         for (int i = 0; i < edge->segments.count; i++) {
@@ -871,6 +836,13 @@ typedef struct {
 } _geo_MeshEdgeSegmentPair;
 
 SNZ_SLICE(_geo_MeshEdgeSegmentPair);
+
+typedef struct {
+    geo_MeshFace a;
+    geo_MeshFace b;
+} _geo_MeshFacePair;
+
+SNZ_SLICE(_geo_MeshFacePair);
 
 // clips A to B
 static bool _geo_segmentPairAdjacent(geo_MeshEdgeSegment a, geo_MeshEdgeSegment b, geo_MeshEdgeSegment* outClipped) {
@@ -918,48 +890,74 @@ static bool _geo_segmentPairAdjacent(geo_MeshEdgeSegment a, geo_MeshEdgeSegment 
 
     *outClipped = (geo_MeshEdgeSegment){
         .a = HMM_Add(a.a, HMM_Mul(aDir, overlapA)),
-        .a = HMM_Add(a.a, HMM_Mul(aDir, overlapB)),
+        .b = HMM_Add(a.a, HMM_Mul(aDir, overlapB)),
     };
     return true;
 }
 
+// expects valid face tris on the mesh
+// no issue if out and scratch are the same arena
 void geo_meshGenerateEdges(geo_Mesh* mesh, snz_Arena* out, snz_Arena* scratch) {
+    SNZ_ARENA_ARR_BEGIN(scratch, _geo_MeshFacePair); // FIXME: wasting a lot of space here storing next ptrs (GOD I WISH SUBSTRUCTS EXISTED AHHH)
     for (geo_MeshFace* faceA = mesh->firstFace; faceA; faceA = faceA->next) {
         for (geo_MeshFace* faceB = faceA->next; faceB; faceB = faceB->next) {
-            SNZ_ARENA_ARR_BEGIN(scratch, _geo_MeshEdgeSegmentPair);
-            for (int aIdx = 0; aIdx < faceA->tris.count; aIdx++) {
-                for (int bIdx = 0; bIdx < faceB->tris.count; bIdx++) {
-                    geo_Tri aTri = faceA->tris.elems[aIdx];
-                    geo_Tri bTri = faceA->tris.elems[bIdx];
-
-                    for (int i = 0; i < 3; i++) {
-                        for (int j = 0; j < 3; j++) {
-                            *SNZ_ARENA_PUSH(scratch, _geo_MeshEdgeSegmentPair) = (_geo_MeshEdgeSegmentPair){
-                                .a = (geo_MeshEdgeSegment) {
-                                    .a = aTri.elems[i],
-                                    .b = aTri.elems[(i + 1) % 3],
-                                },
-                                .b = (geo_MeshEdgeSegment) {
-                                    .a = bTri.elems[j],
-                                    .b = bTri.elems[(j + 1) % 3],
-                                },
-                            };
-                        } // end 2nd tri edge loop
-                    } // end 1st tri edge loop
-                }
-            }
-            _geo_MeshEdgeSegmentPairSlice pairs = SNZ_ARENA_ARR_END(scratch, _geo_MeshEdgeSegmentPair);
-
-            for (int i = 0; i < pairs.count; i++) {
-                _geo_MeshEdgeSegmentPair pair = pairs.elems[i];
-                if ()
-            }
-        } // end face loop
-    } // end outer face loop
-
-    for (int i = 0; i < pairs.count; i++) {
-        printf("AHHH");
+            *SNZ_ARENA_PUSH(scratch, _geo_MeshFacePair) = (_geo_MeshFacePair){
+                .a = *faceA,
+                .b = *faceB,
+            };
+            // FIXME: bounding box checks to cut pair count down
+        }
     }
+    _geo_MeshFacePairSlice facePairs = SNZ_ARENA_ARR_END(scratch, _geo_MeshFacePair);
+
+    for (int pairIdx = 0; pairIdx < facePairs.count; pairIdx++) {
+        geo_MeshFace faceA = facePairs.elems[pairIdx].a;
+        geo_MeshFace faceB = facePairs.elems[pairIdx].b;
+
+        SNZ_ARENA_ARR_BEGIN(scratch, _geo_MeshEdgeSegmentPair);
+        for (int aIdx = 0; aIdx < faceA.tris.count; aIdx++) {
+            for (int bIdx = 0; bIdx < faceB.tris.count; bIdx++) {
+                geo_Tri aTri = faceA.tris.elems[aIdx];
+                geo_Tri bTri = faceA.tris.elems[bIdx];
+
+                for (int i = 0; i < 3; i++) {
+                    for (int j = 0; j < 3; j++) {
+                        *SNZ_ARENA_PUSH(scratch, _geo_MeshEdgeSegmentPair) = (_geo_MeshEdgeSegmentPair){
+                            .a = (geo_MeshEdgeSegment) {
+                                .a = aTri.elems[i],
+                                .b = aTri.elems[(i + 1) % 3],
+                            },
+                            .b = (geo_MeshEdgeSegment) {
+                                .a = bTri.elems[j],
+                                .b = bTri.elems[(j + 1) % 3],
+                            },
+                        };
+                    } // end 2nd tri edge loop
+                } // end 1st tri edge loop
+            }
+        }
+        _geo_MeshEdgeSegmentPairSlice pairs = SNZ_ARENA_ARR_END(scratch, _geo_MeshEdgeSegmentPair);
+
+        SNZ_ARENA_ARR_BEGIN(out, geo_MeshEdgeSegment);
+        for (int i = 0; i < pairs.count; i++) {
+            _geo_MeshEdgeSegmentPair pair = pairs.elems[i];
+            geo_MeshEdgeSegment s = { 0 };
+            bool adj = _geo_segmentPairAdjacent(pair.a, pair.b, &s);
+            if (adj) {
+                *SNZ_ARENA_PUSH(out, geo_MeshEdgeSegment) = s;
+            }
+        }
+        geo_MeshEdgeSegmentSlice clipped = SNZ_ARENA_ARR_END(out, geo_MeshEdgeSegment);
+
+        if (clipped.count > 0) {
+            geo_MeshEdge* edge = SNZ_ARENA_PUSH(out, geo_MeshEdge);
+            *edge = (geo_MeshEdge){
+                .segments = clipped,
+                .next = mesh->firstEdge,
+            };
+            mesh->firstEdge = edge;
+        }
+    } // end face pair loop
 }
 
 void geo_tests() {
@@ -1065,21 +1063,9 @@ void geo_tests() {
 
     {
         {
-            geo_Tri a = (geo_Tri){
-                .a = HMM_V3(0, 0, 0),
-                .b = HMM_V3(0, 1, 0),
-                .c = HMM_V3(1, 0, 0),
-            };
-
-            geo_Tri b = (geo_Tri){
-                .a = HMM_V3(0, 0, 0),
-                .b = HMM_V3(0, -1, 0),
-                .c = HMM_V3(1, 0, 0),
-            };
-
-            int outEdge = 0;
-            geo_trisAdjacent(a, b, &outEdge);
-            snz_testPrint(outEdge == 2, "tri adj 1");
+            geo_Mesh cube = geo_cube(&arena);
+            geo_BSPTriListToFaceTris(&pool, &cube);
+            geo_meshGenerateEdges(&cube, &arena, &arena);
         }
     }
 
