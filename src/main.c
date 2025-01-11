@@ -73,27 +73,27 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
         geo_BSPTriList* bspTris = NULL;
         geo_MeshFace* faces = NULL;
         geo_Mesh cubeA = geo_cube(&main_meshArena);
-        bspTris = &cubeA.bspTris;
-        faces = cubeA.firstFace;
+        // bspTris = &cubeA.bspTris;
+        // faces = cubeA.firstFace;
         {
-            // geo_Mesh cubeB = geo_cube(&main_meshArena);
-            // geo_BSPTriListTransform(&cubeB.bspTris, HMM_Rotate_RH(HMM_AngleDeg(30), HMM_V3(1, 1, 1)));
-            // geo_BSPTriListTransform(&cubeB.bspTris, HMM_Translate(HMM_V3(1, 1, 1)));
+            geo_Mesh cubeB = geo_cube(&main_meshArena);
+            geo_BSPTriListTransform(&cubeB.bspTris, HMM_Rotate_RH(HMM_AngleDeg(30), HMM_V3(1, 1, 1)));
+            geo_BSPTriListTransform(&cubeB.bspTris, HMM_Translate(HMM_V3(1, 1, 1)));
 
-            // geo_BSPNode* treeA = geo_BSPTriListToBSP(&cubeA.bspTris, &main_meshArena);
-            // geo_BSPNode* treeB = geo_BSPTriListToBSP(&cubeB.bspTris, &main_meshArena);
+            geo_BSPNode* treeA = geo_BSPTriListToBSP(&cubeA.bspTris, &main_meshArena);
+            geo_BSPNode* treeB = geo_BSPTriListToBSP(&cubeB.bspTris, &main_meshArena);
 
-            // geo_BSPTriList* aClipped = geo_BSPTriListClip(true, &cubeA.bspTris, treeB, &main_meshArena);
-            // geo_BSPTriList* bClipped = geo_BSPTriListClip(true, &cubeB.bspTris, treeA, &main_meshArena);
-            // bspTris = geo_BSPTriListJoin(aClipped, bClipped);
-            // geo_BSPTriListRecoverNonBroken(&bspTris, &main_meshArena);
+            geo_BSPTriList* aClipped = geo_BSPTriListClip(true, &cubeA.bspTris, treeB, &main_meshArena);
+            geo_BSPTriList* bClipped = geo_BSPTriListClip(true, &cubeB.bspTris, treeA, &main_meshArena);
+            bspTris = geo_BSPTriListJoin(aClipped, bClipped);
+            geo_BSPTriListRecoverNonBroken(&bspTris, &main_meshArena);
 
-            // geo_MeshFace* bCubeLastFace = cubeB.firstFace;
-            // for (; bCubeLastFace->next; bCubeLastFace = bCubeLastFace->next) {
-            // }  // FIXME: gross
-            // bCubeLastFace->next = cubeA.firstFace;
-            // this join destroys the OG cubes bc. the face list has been changed up
-            // faces = cubeB.firstFace;
+            geo_MeshFace* bCubeLastFace = cubeB.firstFace;
+            for (; bCubeLastFace->next; bCubeLastFace = bCubeLastFace->next) {
+            }  // FIXME: gross
+            bCubeLastFace->next = cubeA.firstFace;
+            // this join destroys the OG cubes bc.the face list has been changed up
+            faces = cubeB.firstFace;
         }
 
         geo_Mesh mesh = (geo_Mesh){
@@ -104,7 +104,7 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
         geo_BSPTriListToFaceTris(&main_pool, &mesh);
         geo_meshGenerateEdges(&mesh, &main_meshArena, scratch);
 
-        tl_timelinePushGeoImport(&main_timeline, HMM_V2(0, 0), mesh);
+        tl_timelinePushGeoImport(&main_timeline, HMM_V2(-200, 0), mesh);
     }  // end mesh for testing
 
     {

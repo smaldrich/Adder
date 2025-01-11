@@ -818,6 +818,32 @@ void geo_buildHoverAndSelectionMesh(geo_Mesh* mesh, HMM_Mat4 vp, HMM_Vec3 camera
 }
 
 void geo_meshDrawEdges(const geo_Mesh* mesh, HMM_Mat4 vp) {
+    glDisable(GL_DEPTH_TEST);
+
+    HMM_Vec4 colors[] = {
+        HMM_V4(206, 43, 43, 255),
+        HMM_V4(43, 171, 206, 255),
+        HMM_V4(114, 43, 206, 255),
+        HMM_V4(206, 146, 43, 255),
+        HMM_V4(43, 206, 69, 255),
+        HMM_V4(203, 43, 206, 255),
+        HMM_V4(43, 96, 206, 255),
+        HMM_V4(103, 58, 13, 255),
+        HMM_V4(190, 190, 190, 255),
+        HMM_V4(231, 169, 19, 255),
+        HMM_V4(67, 160, 89, 255),
+        HMM_V4(160, 67, 108, 255),
+        HMM_V4(190, 206, 43, 255),
+        HMM_V4(67, 102, 160, 255),
+        HMM_V4(160, 124, 67, 255),
+        HMM_V4(238, 238, 238, 255),
+    };
+    int colCount = sizeof(colors) / sizeof(*colors);
+    for (int i = 0; i < colCount; i++) {
+        colors[i] = HMM_DivV4F(colors[i], 255);
+    }
+
+    int col = 0;
     for (geo_MeshEdge* edge = mesh->firstEdge; edge; edge = edge->next) {
         for (int i = 0; i < edge->segments.count; i++) {
             geo_MeshEdgeSegment seg = edge->segments.elems[i];
@@ -825,9 +851,11 @@ void geo_meshDrawEdges(const geo_Mesh* mesh, HMM_Mat4 vp) {
                 HMM_V4(seg.a.X, seg.a.Y, seg.a.Z, 1),
                 HMM_V4(seg.b.X, seg.b.Y, seg.b.Z, 1),
             };
-            snzr_drawLine(pts, 2, ui_colorText, 10, vp);
+            snzr_drawLine(pts, 2, colors[col % colCount], 4, vp);
         }
+        col++;
     }
+    glEnable(GL_DEPTH_TEST);
 }
 
 typedef struct {
@@ -846,25 +874,25 @@ SNZ_SLICE(_geo_MeshFacePair);
 
 // clips A to B
 static bool _geo_segmentPairAdjacent(geo_MeshEdgeSegment a, geo_MeshEdgeSegment b, geo_MeshEdgeSegment* outClipped) {
-    HMM_Vec3 aDir = HMM_Sub(a.b, a.a);
-    HMM_Vec3 bDir = HMM_Sub(b.b, b.a);
+    HMM_Vec3 aDir = HMM_Norm(HMM_Sub(a.b, a.a));
+    HMM_Vec3 bDir = HMM_Norm(HMM_Sub(b.b, b.a));
 
     if (!geo_v3Equal(bDir, aDir) && !geo_v3Equal(HMM_Sub(HMM_V3(0, 0, 0), bDir), aDir)) {
         return false;
     }
 
-    float dot = HMM_Dot(HMM_Sub(b.a, a.a), aDir);
-    if (!geo_floatZero(HMM_LenSqr(HMM_Sub(b.a, a.a)))) {
+    float dot = HMM_Dot(HMM_Norm(HMM_Sub(b.a, a.a)), aDir);
+    if (geo_floatZero(HMM_LenSqr(HMM_Sub(b.a, a.a)))) {
         dot = 1;
     }
     if (!(geo_floatEqual(dot, 1) || geo_floatEqual(dot, -1))) {
         return false;
     }
 
-    float aaProj = HMM_Dot(a.a, aDir);
-    float abProj = HMM_Dot(a.b, aDir);
-    float baProj = HMM_Dot(b.a, aDir);
-    float bbProj = HMM_Dot(b.b, aDir);
+    float aaProj = 0; // would end up as a.a - a.a, aka 0
+    float abProj = HMM_Dot(HMM_Sub(a.b, a.a), aDir);
+    float baProj = HMM_Dot(HMM_Sub(b.a, a.a), aDir);
+    float bbProj = HMM_Dot(HMM_Sub(b.b, a.a), aDir);
 
     float aMin = SNZ_MIN(aaProj, abProj);
     float bMax = SNZ_MAX(baProj, bbProj);
@@ -911,18 +939,19 @@ void geo_meshGenerateEdges(geo_Mesh* mesh, snz_Arena* out, snz_Arena* scratch) {
     _geo_MeshFacePairSlice facePairs = SNZ_ARENA_ARR_END(scratch, _geo_MeshFacePair);
 
     for (int pairIdx = 0; pairIdx < facePairs.count; pairIdx++) {
-        geo_MeshFace faceA = facePairs.elems[pairIdx].a;
-        geo_MeshFace faceB = facePairs.elems[pairIdx].b;
+        _geo_MeshFacePair p = facePairs.elems[pairIdx];
+        geo_MeshFace faceA = p.a;
+        geo_MeshFace faceB = p.b;
 
         SNZ_ARENA_ARR_BEGIN(scratch, _geo_MeshEdgeSegmentPair);
         for (int aIdx = 0; aIdx < faceA.tris.count; aIdx++) {
             for (int bIdx = 0; bIdx < faceB.tris.count; bIdx++) {
                 geo_Tri aTri = faceA.tris.elems[aIdx];
-                geo_Tri bTri = faceA.tris.elems[bIdx];
+                geo_Tri bTri = faceB.tris.elems[bIdx];
 
                 for (int i = 0; i < 3; i++) {
                     for (int j = 0; j < 3; j++) {
-                        *SNZ_ARENA_PUSH(scratch, _geo_MeshEdgeSegmentPair) = (_geo_MeshEdgeSegmentPair){
+                        _geo_MeshEdgeSegmentPair pair = (_geo_MeshEdgeSegmentPair){
                             .a = (geo_MeshEdgeSegment) {
                                 .a = aTri.elems[i],
                                 .b = aTri.elems[(i + 1) % 3],
@@ -932,6 +961,16 @@ void geo_meshGenerateEdges(geo_Mesh* mesh, snz_Arena* out, snz_Arena* scratch) {
                                 .b = bTri.elems[(j + 1) % 3],
                             },
                         };
+                        *SNZ_ARENA_PUSH(scratch, _geo_MeshEdgeSegmentPair) = pair;
+
+                        // const char* path = snz_arenaFormatStr(out, "testing/facePair%d_%d.stl", pairIdx, scratch->arrModeElemCount - 1);
+                        // geo_BSPTriList l = { 0 };
+                        // geo_BSPTriListPushNew(out, &l, pair.a.a, pair.a.b, HMM_V3(0, 0, 0), NULL);
+                        // geo_BSPTriListPushNew(out, &l, pair.b.a, pair.b.b, HMM_V3(0, 0, 0), NULL);
+
+                        // geo_BSPTriListPushNew(out, &l, aTri.a, aTri.b, aTri.c, NULL);
+                        // geo_BSPTriListPushNew(out, &l, bTri.a, bTri.b, bTri.c, NULL);
+                        // geo_BSPTriListToSTLFile(&l, path);
                     } // end 2nd tri edge loop
                 } // end 1st tri edge loop
             }
@@ -945,6 +984,7 @@ void geo_meshGenerateEdges(geo_Mesh* mesh, snz_Arena* out, snz_Arena* scratch) {
             bool adj = _geo_segmentPairAdjacent(pair.a, pair.b, &s);
             if (adj) {
                 *SNZ_ARENA_PUSH(out, geo_MeshEdgeSegment) = s;
+                // printf("pair %d popped.\n", i);
             }
         }
         geo_MeshEdgeSegmentSlice clipped = SNZ_ARENA_ARR_END(out, geo_MeshEdgeSegment);
@@ -1059,14 +1099,6 @@ void geo_tests() {
         geo_BSPTriList* final = geo_BSPTriListJoin(aClipped, bClipped);
         geo_BSPTriListRecoverNonBroken(&final, &arena);
         geo_BSPTriListToSTLFile(final, "testing/intersection.stl");
-    }
-
-    {
-        {
-            geo_Mesh cube = geo_cube(&arena);
-            geo_BSPTriListToFaceTris(&pool, &cube);
-            geo_meshGenerateEdges(&cube, &arena, &arena);
-        }
     }
 
     snz_arenaDeinit(&arena);
