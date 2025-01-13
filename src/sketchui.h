@@ -355,7 +355,7 @@ static bool _sku_AABBContainsPt(HMM_Vec2 boxStart, HMM_Vec2 boxEnd, HMM_Vec2 pt)
 }
 
 // FIXME: factor out inter, only pass mouse pos
-static void _sku_draw(sk_Sketch* sketch, snzu_Interaction* inter, HMM_Mat4 model, HMM_Mat4 sketchMVP, HMM_Mat4 uiMVP, HMM_Vec3 cameraPos, snz_Arena* scratch, float sound) {
+static void _sku_draw(sk_Sketch* sketch, snzu_Interaction* inter, HMM_Mat4 model, HMM_Mat4 sketchMVP, HMM_Mat4 uiMVP, HMM_Vec3 cameraPos, snz_Arena* scratch, float sound, HMM_Vec2 resolution) {
     {  // grid around the cursor
         HMM_Vec3 mousePos = HMM_V3(inter->mousePosGlobal.X, -inter->mousePosGlobal.Y, 0);
         float scaleFactor = HMM_LenV3(HMM_Sub(_sku_mulM4V3(model, mousePos), cameraPos));
@@ -411,13 +411,15 @@ static void _sku_draw(sk_Sketch* sketch, snzu_Interaction* inter, HMM_Mat4 model
     for (sk_Point* p = sketch->firstPoint; p; p = p->next) {
         HMM_Vec4 color = HMM_LerpV4(ui_colorText, p->sel.selectionAnim, ui_colorAccent);
         float sizeAnim = p->sel.hoverAnim + p->sel.selectionAnim;
-        float size = HMM_Lerp(0.0f, sizeAnim, .007f * p->scaleFactor);
-        snzr_drawRect(
-            HMM_Sub(p->pos, HMM_V2(size, size)), HMM_Add(p->pos, HMM_V2(size, size)),
-            HMM_V2(-INFINITY, -INFINITY), HMM_V2(INFINITY, INFINITY),
-            color, 0, 0, HMM_V4(0, 0, 0, 0),
-            sketchMVP, *ui_sketchPointTexture);
-        // FIXME: sphere
+        float size = HMM_Lerp(ui_cornerHalfSize, sizeAnim, ui_cornerHoveredHalfSize);
+        ren3d_drawBillboard(
+            sketchMVP,
+            resolution,
+            *ui_cornerTexture,
+            color,
+            HMM_V3(p->pos.X, p->pos.Y, 0),
+            HMM_V2(size, size));
+
         if (p == sketch->originPt) {
             // FIXME: bad when we move back to origin angle
             bool flip = sketch->originPt == sketch->originLine->p2;
@@ -469,7 +471,7 @@ void sku_endFrameForUIInstance(snzu_Input input, geo_Align align, HMM_Mat4 vp, H
 void sku_drawAndBuildSketch(
     sk_Sketch* sketch, geo_Align align,
     HMM_Mat4 vp, HMM_Vec3 cameraPos,
-    float sound,
+    float sound, HMM_Vec2 resolution,
     snz_Arena* scratch) {
     // We are inverting the y axis because the UI library is built internally in a lot of places to
     // work with down positive coords. It works out if we invert the data it gets fed along with the
@@ -777,7 +779,8 @@ void sku_drawAndBuildSketch(
         model, sketchMVP, uiMVP,
         cameraPos,
         scratch,
-        sound);
+        sound,
+        resolution);
 
     snzu_boxExit();  // exit main parent
 

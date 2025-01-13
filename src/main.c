@@ -103,6 +103,7 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
         };
         geo_BSPTriListToFaceTris(&main_pool, &mesh);
         geo_meshGenerateEdges(&mesh, &main_meshArena, scratch);
+        geo_meshGenerateCorners(&mesh, &main_meshArena, scratch);
 
         tl_timelinePushGeoImport(&main_timeline, HMM_V2(-200, 0), mesh);
     }  // end mesh for testing
@@ -447,18 +448,20 @@ void main_frame(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screen
 
 
                         if (op->kind == TL_OPK_GEO_IMPORT) {
+                            geo_Mesh* mesh = &op->val.geoImport.mesh;
                             // FIXME: debug wireframe
                             ren3d_drawMesh(
-                                &op->val.geoImport.mesh.renderMesh,
+                                &mesh->renderMesh,
                                 vp, HMM_M4D(1.0f),
                                 HMM_V4(1, 1, 1, 1), HMM_V3(-1, -1, -1), ui_lightAmbient);
-                            geo_meshDrawEdges(&op->val.geoImport.mesh, vp);
+                            geo_meshDrawEdges(mesh, vp);
+                            geo_meshDrawCorners(mesh, HMM_V2(w, h), vp);
                             geo_buildHoverAndSelectionMesh(&op->val.geoImport.mesh, vp, cameraPos, mouseDir, scratch);
                             snzu_frameDrawAndGenInteractions(inputs, HMM_M4D(1.0f));
                         } else if (op->kind == TL_OPK_SKETCH) {
                             tl_OpSketch* opSketch = &op->val.sketch;
                             float sound = main_getSmoothedSound();
-                            sku_drawAndBuildSketch(&opSketch->sketch, opSketch->align, vp, cameraPos, sound, scratch);
+                            sku_drawAndBuildSketch(&opSketch->sketch, opSketch->align, vp, cameraPos, sound, HMM_V2(w, h), scratch);
                             sku_endFrameForUIInstance(inputs, opSketch->align, vp, cameraPos, mouseDir);
                         }
                         // FIXME: don't check for kinds because that isn't how this is supposed to work

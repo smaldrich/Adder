@@ -838,13 +838,14 @@ void geo_meshDrawEdges(const geo_Mesh* mesh, HMM_Mat4 vp) {
     }
 }
 
-void geo_meshDrawCorners(const geo_Mesh* mesh, HMM_Mat4 vp) {
+void geo_meshDrawCorners(const geo_Mesh* mesh, HMM_Vec2 screenSize, HMM_Mat4 vp) {
     for (int i = 0; i < mesh->corners.count; i++) {
         ren3d_drawBillboard(
-            vp,
-            *ui_sketchPointTexture,
+            vp, screenSize,
+            *ui_cornerTexture,
+            ui_colorText,
             mesh->corners.elems[i].pos,
-            HMM_V2(25, 25));
+            HMM_V2(ui_cornerHoveredHalfSize, ui_cornerHoveredHalfSize));
     }
 }
 
@@ -1007,7 +1008,7 @@ static bool _geo_meshEdgeSegmentsAdjacent(geo_MeshEdgeSegment a, geo_MeshEdgeSeg
     return false;
 }
 
-void geo_generateCorners(geo_Mesh* mesh, snz_Arena* out, snz_Arena* scratch) {
+void geo_meshGenerateCorners(geo_Mesh* mesh, snz_Arena* out, snz_Arena* scratch) {
     SNZ_ARENA_ARR_BEGIN(scratch, _geo_MeshEdgeSegmentPair);
     // FIXME: i am so sorry (add a bounding box optimization)
     for (geo_MeshEdge* edge = mesh->firstEdge; edge; edge = edge->next) {

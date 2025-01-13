@@ -199,7 +199,7 @@ void ren3d_drawSkybox(HMM_Mat4 vp, snzr_Texture skyTex) {
     snzr_callGLFnOrError(glDrawArrays(GL_TRIANGLES, 0, _ren3d_skyboxMesh.vertCount));
 }
 
-void ren3d_drawBillboard(HMM_Mat4 vp, snzr_Texture tex, HMM_Vec3 position, HMM_Vec2 halfSize) {
+void ren3d_drawBillboard(HMM_Mat4 vp, HMM_Vec2 screenSize, snzr_Texture tex, HMM_Vec4 color, HMM_Vec3 position, HMM_Vec2 halfSize) {
     snzr_callGLFnOrError(glUseProgram(_ren3d_billboardShaderId));
 
     int loc = glGetUniformLocation(_ren3d_billboardShaderId, "uVP");
@@ -210,6 +210,12 @@ void ren3d_drawBillboard(HMM_Mat4 vp, snzr_Texture tex, HMM_Vec3 position, HMM_V
 
     loc = glGetUniformLocation(_ren3d_billboardShaderId, "uHalfSize");
     snzr_callGLFnOrError(glUniform2f(loc, halfSize.X, halfSize.Y));
+
+    loc = glGetUniformLocation(_ren3d_billboardShaderId, "uResolution");
+    snzr_callGLFnOrError(glUniform2f(loc, screenSize.X, screenSize.Y));
+
+    loc = glGetUniformLocation(_ren3d_billboardShaderId, "uColor");
+    snzr_callGLFnOrError(glUniform4f(loc, color.X, color.Y, color.Z, color.W));
 
     loc = glGetUniformLocation(_ren3d_billboardShaderId, "uTexture");
     glUniform1i(loc, 0);

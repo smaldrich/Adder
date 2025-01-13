@@ -28,7 +28,10 @@ snzr_Texture* ui_skyBox = NULL;  // may be null, indicates drawing background co
 snzr_Texture* ui_lightSky = NULL;
 snzr_Texture* ui_darkSky = NULL;
 
-snzr_Texture* ui_sketchPointTexture = NULL;
+snzr_Texture* ui_cornerTexture = NULL;
+float ui_cornerHalfSize = 0;
+float ui_cornerHoveredHalfSize = 8;
+
 snzr_Texture* ui_shiftTexture = NULL;
 
 void ui_setThemeLight() {
@@ -79,7 +82,7 @@ void ui_init(snz_Arena* fontArena, snz_Arena* scratch) {
     // ui_darkSky = NULL;
     ui_lightSky = _ui_texFromFile("res/textures/Untitled.png", fontArena);
 
-    ui_sketchPointTexture = _ui_texFromFile("res/textures/circle.png", fontArena);
+    ui_cornerTexture = _ui_texFromFile("res/textures/circle.png", fontArena);
     ui_shiftTexture = _ui_texFromFile("res/textures/shiftIcon.png", fontArena);
 
     ui_setThemeDark();
