@@ -68,11 +68,19 @@ struct geo_MeshEdge {
 };
 
 typedef struct {
+    HMM_Vec3 pos;
+} geo_MeshCorner;
+
+SNZ_SLICE(geo_MeshCorner);
+
+typedef struct {
     ren3d_Mesh renderMesh;
     geo_BSPTriList bspTris;
     geo_BSPNode* bspTree;
     geo_MeshFace* firstFace;
+
     geo_MeshEdge* firstEdge;
+    geo_MeshCornerSlice corners;
 } geo_Mesh;
 
 typedef enum {
@@ -818,32 +826,6 @@ void geo_buildHoverAndSelectionMesh(geo_Mesh* mesh, HMM_Mat4 vp, HMM_Vec3 camera
 }
 
 void geo_meshDrawEdges(const geo_Mesh* mesh, HMM_Mat4 vp) {
-    glDisable(GL_DEPTH_TEST);
-
-    HMM_Vec4 colors[] = {
-        HMM_V4(206, 43, 43, 255),
-        HMM_V4(43, 171, 206, 255),
-        HMM_V4(114, 43, 206, 255),
-        HMM_V4(206, 146, 43, 255),
-        HMM_V4(43, 206, 69, 255),
-        HMM_V4(203, 43, 206, 255),
-        HMM_V4(43, 96, 206, 255),
-        HMM_V4(103, 58, 13, 255),
-        HMM_V4(190, 190, 190, 255),
-        HMM_V4(231, 169, 19, 255),
-        HMM_V4(67, 160, 89, 255),
-        HMM_V4(160, 67, 108, 255),
-        HMM_V4(190, 206, 43, 255),
-        HMM_V4(67, 102, 160, 255),
-        HMM_V4(160, 124, 67, 255),
-        HMM_V4(238, 238, 238, 255),
-    };
-    int colCount = sizeof(colors) / sizeof(*colors);
-    for (int i = 0; i < colCount; i++) {
-        colors[i] = HMM_DivV4F(colors[i], 255);
-    }
-
-    int col = 0;
     for (geo_MeshEdge* edge = mesh->firstEdge; edge; edge = edge->next) {
         for (int i = 0; i < edge->segments.count; i++) {
             geo_MeshEdgeSegment seg = edge->segments.elems[i];
@@ -851,11 +833,19 @@ void geo_meshDrawEdges(const geo_Mesh* mesh, HMM_Mat4 vp) {
                 HMM_V4(seg.a.X, seg.a.Y, seg.a.Z, 1),
                 HMM_V4(seg.b.X, seg.b.Y, seg.b.Z, 1),
             };
-            snzr_drawLine(pts, 2, colors[col % colCount], 4, vp);
+            snzr_drawLine(pts, 2, ui_colorText, 2, vp);
         }
-        col++;
     }
-    glEnable(GL_DEPTH_TEST);
+}
+
+void geo_meshDrawCorners(const geo_Mesh* mesh, HMM_Mat4 vp) {
+    for (int i = 0; i < mesh->corners.count; i++) {
+        ren3d_drawBillboard(
+            vp,
+            *ui_sketchPointTexture,
+            mesh->corners.elems[i].pos,
+            HMM_V2(25, 25));
+    }
 }
 
 typedef struct {
@@ -998,6 +988,53 @@ void geo_meshGenerateEdges(geo_Mesh* mesh, snz_Arena* out, snz_Arena* scratch) {
             mesh->firstEdge = edge;
         }
     } // end face pair loop
+}
+
+static bool _geo_meshEdgeSegmentsAdjacent(geo_MeshEdgeSegment a, geo_MeshEdgeSegment b, HMM_Vec3* outPt) {
+    if (geo_v3Equal(a.a, b.a)) {
+        *outPt = a.a;
+        return true;
+    } else if (geo_v3Equal(a.b, b.b)) {
+        *outPt = a.b;
+        return true;
+    } else if (geo_v3Equal(a.a, b.b)) {
+        *outPt = a.a;
+        return true;
+    } else if (geo_v3Equal(a.b, b.a)) {
+        *outPt = a.b;
+        return true;
+    }
+    return false;
+}
+
+void geo_generateCorners(geo_Mesh* mesh, snz_Arena* out, snz_Arena* scratch) {
+    SNZ_ARENA_ARR_BEGIN(scratch, _geo_MeshEdgeSegmentPair);
+    // FIXME: i am so sorry (add a bounding box optimization)
+    for (geo_MeshEdge* edge = mesh->firstEdge; edge; edge = edge->next) {
+        for (geo_MeshEdge* other = edge->next; other; other = other->next) {
+            for (int i = 0; i < edge->segments.count; i++) {
+                for (int j = 0; j < other->segments.count; j++) {
+                    *SNZ_ARENA_PUSH(scratch, _geo_MeshEdgeSegmentPair) = (_geo_MeshEdgeSegmentPair){
+                        .a = edge->segments.elems[i],
+                        .b = other->segments.elems[i],
+                    };
+                }
+            }
+        }
+    }
+    _geo_MeshEdgeSegmentPairSlice pairs = SNZ_ARENA_ARR_END(scratch, _geo_MeshEdgeSegmentPair);
+
+    SNZ_ARENA_ARR_BEGIN(out, geo_MeshCorner);
+    for (int i = 0; i < pairs.count; i++) {
+        _geo_MeshEdgeSegmentPair p = pairs.elems[i];
+        HMM_Vec3 pt = { 0 };
+        if (_geo_meshEdgeSegmentsAdjacent(p.a, p.b, &pt)) {
+            *SNZ_ARENA_PUSH(out, geo_MeshCorner) = (geo_MeshCorner){
+                .pos = pt,
+            };
+        }
+    }
+    mesh->corners = SNZ_ARENA_ARR_END(out, geo_MeshCorner);
 }
 
 void geo_tests() {

@@ -65,6 +65,7 @@ void ren3d_meshDeinit(ren3d_Mesh* mesh) {
 
 static uint32_t _ren3d_shaderId;
 static uint32_t _ren3d_skyboxShaderId;
+static uint32_t _ren3d_billboardShaderId;
 static ren3d_Mesh _ren3d_skyboxMesh;
 
 void ren3d_init(snz_Arena* scratch) {
@@ -78,6 +79,12 @@ void ren3d_init(snz_Arena* scratch) {
         const char* vertSrc = _ren3d_loadFileToStr("res/shaders/skybox.vert", scratch);
         const char* fragSrc = _ren3d_loadFileToStr("res/shaders/skybox.frag", scratch);
         _ren3d_skyboxShaderId = snzr_shaderInit(vertSrc, fragSrc, scratch);
+    }
+
+    {
+        const char* vertSrc = _ren3d_loadFileToStr("res/shaders/billboard.vert", scratch);
+        const char* fragSrc = _ren3d_loadFileToStr("res/shaders/billboard.frag", scratch);
+        _ren3d_billboardShaderId = snzr_shaderInit(vertSrc, fragSrc, scratch);
     }
 
     {
@@ -190,4 +197,24 @@ void ren3d_drawSkybox(HMM_Mat4 vp, snzr_Texture skyTex) {
     snzr_callGLFnOrError(glBindVertexArray(_ren3d_skyboxMesh.vaId));
     snzr_callGLFnOrError(glBindBuffer(GL_ARRAY_BUFFER, _ren3d_skyboxMesh.vertexBufferId));
     snzr_callGLFnOrError(glDrawArrays(GL_TRIANGLES, 0, _ren3d_skyboxMesh.vertCount));
+}
+
+void ren3d_drawBillboard(HMM_Mat4 vp, snzr_Texture tex, HMM_Vec3 position, HMM_Vec2 halfSize) {
+    snzr_callGLFnOrError(glUseProgram(_ren3d_billboardShaderId));
+
+    int loc = glGetUniformLocation(_ren3d_billboardShaderId, "uVP");
+    snzr_callGLFnOrError(glUniformMatrix4fv(loc, 1, false, (float*)&vp));
+
+    loc = glGetUniformLocation(_ren3d_billboardShaderId, "uPos");
+    snzr_callGLFnOrError(glUniform3f(loc, position.X, position.Y, position.Z));
+
+    loc = glGetUniformLocation(_ren3d_billboardShaderId, "uHalfSize");
+    snzr_callGLFnOrError(glUniform2f(loc, halfSize.X, halfSize.Y));
+
+    loc = glGetUniformLocation(_ren3d_billboardShaderId, "uTexture");
+    glUniform1i(loc, 0);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, tex.glId);
+
+    snzr_callGLFnOrError(glDrawArrays(GL_TRIANGLES, 0, 6));
 }
