@@ -35,8 +35,6 @@ static HMM_Vec3 _sku_mulM4V3(HMM_Mat4 m, HMM_Vec3 v) {
     return HMM_Mul(m, HMM_V4(v.X, v.Y, v.Z, 1)).XYZ;
 }
 
-#define SKU_LINE_THICKNESS 2.0f
-#define SKU_LINE_HOVERED_THICKNESS 5.0f
 #define SKU_CONSTRAINT_THICKNESS 4.0f
 #define SKU_CONSTRAINT_HOVERED_THICKNESS 7.0f
 #define SKU_LABEL_SIZE 0.04f
@@ -403,7 +401,7 @@ static void _sku_draw(sk_Sketch* sketch, snzu_Interaction* inter, HMM_Mat4 model
         HMM_Vec4 points[2] = { 0 };
         points[0].XY = l->p1->pos;
         points[1].XY = l->p2->pos;
-        float thickness = HMM_Lerp(2.0f, l->sel.hoverAnim, 5.0f);
+        float thickness = HMM_Lerp(ui_lineThickness, l->sel.hoverAnim, ui_lineHoveredThickness);
         HMM_Vec4 color = HMM_LerpV4(ui_colorText, l->sel.selectionAnim, ui_colorAccent);
         snzr_drawLine(points, 2, color, thickness, sketchMVP);
     }
@@ -770,7 +768,7 @@ void sku_drawAndBuildSketch(
         HMM_Vec4 pts[2] = { 0 };
         pts[0].XY = lineSrcPoint->pos;
         pts[1].XY = mousePos;
-        snzr_drawLine(pts, 2, ui_colorTransparentAccent, SKU_LINE_HOVERED_THICKNESS, sketchMVP);
+        snzr_drawLine(pts, 2, ui_colorTransparentAccent, ui_lineHoveredThickness, sketchMVP);
     }
 
     _sku_draw(

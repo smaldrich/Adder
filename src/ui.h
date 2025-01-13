@@ -32,6 +32,9 @@ snzr_Texture* ui_cornerTexture = NULL;
 float ui_cornerHalfSize = 0;
 float ui_cornerHoveredHalfSize = 8;
 
+float ui_lineThickness = 2.0f;
+float ui_lineHoveredThickness = 5.0f;
+
 snzr_Texture* ui_shiftTexture = NULL;
 
 void ui_setThemeLight() {

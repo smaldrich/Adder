@@ -454,7 +454,7 @@ void main_frame(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screen
                                 &mesh->renderMesh,
                                 vp, HMM_M4D(1.0f),
                                 HMM_V4(1, 1, 1, 1), HMM_V3(-1, -1, -1), ui_lightAmbient);
-                            geo_meshDrawEdges(mesh, vp);
+                            geo_meshDrawEdges(mesh, cameraPos, vp);
                             geo_meshDrawCorners(mesh, HMM_V2(w, h), vp);
                             geo_buildHoverAndSelectionMesh(&op->val.geoImport.mesh, vp, cameraPos, mouseDir, scratch);
                             snzu_frameDrawAndGenInteractions(inputs, HMM_M4D(1.0f));

@@ -825,7 +825,7 @@ void geo_buildHoverAndSelectionMesh(geo_Mesh* mesh, HMM_Mat4 vp, HMM_Vec3 camera
     }  // end hovered drawing
 }
 
-void geo_meshDrawEdges(const geo_Mesh* mesh, HMM_Mat4 vp) {
+void geo_meshDrawEdges(const geo_Mesh* mesh, HMM_Vec3 cameraPos, HMM_Mat4 vp) {
     for (geo_MeshEdge* edge = mesh->firstEdge; edge; edge = edge->next) {
         for (int i = 0; i < edge->segments.count; i++) {
             geo_MeshEdgeSegment seg = edge->segments.elems[i];
@@ -833,7 +833,14 @@ void geo_meshDrawEdges(const geo_Mesh* mesh, HMM_Mat4 vp) {
                 HMM_V4(seg.a.X, seg.a.Y, seg.a.Z, 1),
                 HMM_V4(seg.b.X, seg.b.Y, seg.b.Z, 1),
             };
-            snzr_drawLine(pts, 2, ui_colorText, 2, vp);
+
+            for (int i = 0; i < 2; i++) {
+                float scaleFactor = HMM_Len(HMM_Sub(cameraPos, pts[i].XYZ)) * 0.01;
+                HMM_Vec3 offset = HMM_Mul(HMM_Norm(HMM_Sub(cameraPos, pts[i].XYZ)), scaleFactor);
+                pts[i].XYZ = HMM_Add(pts[i].XYZ, offset);
+            }
+
+            snzr_drawLine(pts, 2, ui_colorText, 3, vp);
         }
     }
 }
