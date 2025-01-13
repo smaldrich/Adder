@@ -806,7 +806,7 @@ void geo_buildHoverAndSelectionMesh(geo_Mesh* mesh, HMM_Mat4 vp, HMM_Vec3 camera
             geo_Tri t = closestHovered->tris.elems[i];
             HMM_Vec3 normal = geo_triNormal(t);
             float scaleFactor = HMM_SqrtF(closestHoveredDist);
-            HMM_Vec3 offset = HMM_Mul(normal, scaleFactor * -0.01f * *selectionAnim);
+            HMM_Vec3 offset = HMM_Mul(normal, scaleFactor * 0.02f * *selectionAnim);
             for (int j = 0; j < 3; j++) {
                 verts[i * 3 + j] = (ren3d_Vert){
                     .pos = HMM_Add(t.elems[j], offset),
@@ -852,7 +852,7 @@ void geo_meshDrawCorners(const geo_Mesh* mesh, HMM_Vec2 screenSize, HMM_Mat4 vp)
             *ui_cornerTexture,
             ui_colorText,
             mesh->corners.elems[i].pos,
-            HMM_V2(ui_cornerHoveredHalfSize, ui_cornerHoveredHalfSize));
+            HMM_V2(ui_cornerHalfSize, ui_cornerHalfSize));
     }
 }
 

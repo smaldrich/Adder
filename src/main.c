@@ -403,6 +403,8 @@ void main_frame(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screen
         snzu_boxClipChildren(true);
         // FIXME: some hint in the lower left corner that this menu exists
 
+        float soundVal = main_getSmoothedSound();
+
         snzu_boxNew("rightPanel");
         snzu_boxFillParent();
         snzu_boxSetSizeFromEndAx(SNZU_AX_X, rightPanelSize.X);  // FIXME: set size remaining util fn
@@ -460,8 +462,7 @@ void main_frame(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screen
                             snzu_frameDrawAndGenInteractions(inputs, HMM_M4D(1.0f));
                         } else if (op->kind == TL_OPK_SKETCH) {
                             tl_OpSketch* opSketch = &op->val.sketch;
-                            float sound = main_getSmoothedSound();
-                            sku_drawAndBuildSketch(&opSketch->sketch, opSketch->align, vp, cameraPos, sound, HMM_V2(w, h), scratch);
+                            sku_drawAndBuildSketch(&opSketch->sketch, opSketch->align, vp, cameraPos, soundVal, HMM_V2(w, h), scratch);
                             sku_endFrameForUIInstance(inputs, opSketch->align, vp, cameraPos, mouseDir);
                         }
                         // FIXME: don't check for kinds because that isn't how this is supposed to work
@@ -476,7 +477,7 @@ void main_frame(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screen
                     }
                     HMM_Mat4 vp = { 0 };
                     snzu_Input inputCopy = inputs;
-                    tl_build(&main_timeline, scratch, rightPanelSize, inter->mousePosLocal, &inputCopy.mousePos, &vp);
+                    tl_build(&main_timeline, scratch, rightPanelSize, inter->mousePosLocal, soundVal, &inputCopy.mousePos, &vp);
                     snzu_frameDrawAndGenInteractions(inputCopy, vp);
                 } else {
                     SNZ_ASSERTF(false, "unreachable. view: %d", main_currentView);

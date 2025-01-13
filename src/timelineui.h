@@ -13,7 +13,7 @@ HMM_Vec2 _tl_pixelToWorldSpace(HMM_Vec2 mousePosPx, HMM_Vec2 panelSize, HMM_Mat4
 
 // returns mouse position in world space and a vp matrix to use ending the instances frame
 // mouse panel should be the input to send to the instance at the end of the frame
-void tl_build(tl_Timeline* timeline, snz_Arena* scratch, HMM_Vec2 panelSize, HMM_Vec2 mousePosInPanel, HMM_Vec2* outMousePos, HMM_Mat4* outVP) {
+void tl_build(tl_Timeline* timeline, snz_Arena* scratch, HMM_Vec2 panelSize, HMM_Vec2 mousePosInPanel, float sound, HMM_Vec2* outMousePos, HMM_Mat4* outVP) {
     snzu_boxNew("timeline");
     snzu_boxSetStart(HMM_V2(-INFINITY, -INFINITY));
     snzu_boxSetEnd(HMM_V2(INFINITY, INFINITY));
@@ -174,7 +174,7 @@ void tl_build(tl_Timeline* timeline, snz_Arena* scratch, HMM_Vec2 panelSize, HMM
             }
             HMM_Vec4 textColor = HMM_Lerp(ui_colorText, op->ui.sel.selectionAnim, ui_colorAccent);
             snzu_boxSetDisplayStr(&ui_labelFont, textColor, labelStr);
-            float radius = 60 + (10 * op->ui.sel.hoverAnim);
+            float radius = 60 + (10 * op->ui.sel.hoverAnim) + (20 * sound);
             snzu_boxSetCornerRadius(radius);
             snzu_boxSetStart(HMM_Sub(op->ui.pos, HMM_V2(radius, radius)));
             snzu_boxSetEnd(HMM_Add(op->ui.pos, HMM_V2(radius, radius)));
