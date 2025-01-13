@@ -343,6 +343,48 @@ static void _sc_buildCommandShortcutBox(_sc_Command* cmd, HMM_Vec4 textColor) {
     snzu_boxSetSizeFitChildren();
 }
 
+static int rankCommandForFilter(const char* filterStr, _sc_Command* cmd) {
+    int filterIdx = 0;
+    int cmdIdx = 0;
+    int out = 0;
+    while (filterIdx < strlen(filterStr) && cmdIdx < strlen(cmd->nameLabel)) {
+    }
+
+    return out;
+}
+
+static const _sc_Command** _sc_orderCmdsForFilter(const char* filterStr, snz_Arena* scratch) {
+    int* scores = SNZ_ARENA_PUSH_ARR(scratch, _sc_commandCount, int);
+    for (int i = 0; i < _sc_commandCount; i++) {
+        scores[i] = rankCommandForFilter(filterStr, &_sc_commands[i]);
+    }
+
+    _sc_Command** sorted = SNZ_ARENA_PUSH_ARR(scratch, _sc_commandCount, _sc_Command*);
+    for (int i = 0; i < _sc_commandCount; i++) {
+        sorted[i] = &_sc_commands[i];
+    }
+
+    // insertion sort
+    for (int i = 0; i < _sc_commandCount; i++) {
+        _sc_Command* cmd = sorted[i];
+        int score = scores[i];
+        for (int j = i; j > 0; j--) {
+            _sc_Command* other = sorted[j - 1];
+            if (score > scores[j - 1]) {
+                int tempScore = scores[j - 1];
+                scores[j - 1] = score;
+                scores[j] = tempScore;
+
+                _sc_Command* tempCmd = sorted[j - 1];
+                sorted[j - 1] = cmd;
+                sorted[j] = tempCmd;
+            }
+        }
+    }
+
+    return sorted;
+}
+
 void sc_updateAndBuildHintWindow(sk_Sketch* activeSketch, tl_Op* tlFirstOp, sc_View* outCurrentView, snz_Arena* scratch, bool targetOpen) {
     snzu_boxNew("updatesParent");
     snzu_boxFillParent();
