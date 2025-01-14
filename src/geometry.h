@@ -797,15 +797,15 @@ void geo_meshDrawCorners(const geo_Mesh* mesh, HMM_Vec2 screenSize, HMM_Mat4 vp)
     }
 }
 
-static ui_SelectionStatus* _geo_meshGenSelStatuses(geo_Mesh* mesh, geo_MeshFace* hoveredFace, snz_Arena* scratch) {
+static ui_SelectionStatus* _geo_meshGenSelStatuses(geo_Mesh* mesh, geo_MeshFace* hoveredFace, snzu_Action mouseAct, snz_Arena* scratch) {
     ui_SelectionStatus* firstStatus = NULL;
     for (geo_MeshFace* f = mesh->firstFace; f; f = f->next) {
         ui_SelectionStatus* status = SNZ_ARENA_PUSH(scratch, ui_SelectionStatus);
         *status = (ui_SelectionStatus){
             .withinDragZone = false,
-            .mouseAct = SNZU_ACT_NONE,
 
             .hovered = f == hoveredFace,
+            .mouseAct = (f == hoveredFace ? mouseAct : SNZU_ACT_NONE),
             .next = firstStatus,
             .state = &f->sel,
         };
@@ -844,36 +844,36 @@ void geo_meshBuild(geo_Mesh* mesh, HMM_Mat4 vp, HMM_Vec3 cameraPos, HMM_Vec3 mou
 
     { // sel region logic
         ui_SelectionRegion* const region = SNZU_USE_MEM(ui_SelectionRegion, "region");
-        ui_SelectionStatus* firstStatus = _geo_meshGenSelStatuses(mesh, hoveredFace, scratch);
+        ui_SelectionStatus* firstStatus = _geo_meshGenSelStatuses(mesh, hoveredFace, inter->mouseActions[SNZU_MB_LEFT], scratch);
         ui_selectionRegionUpdate(region, SNZU_ACT_NONE, HMM_V2(0, 0), inter->keyMods & KMOD_SHIFT, firstStatus, false);
         ui_selectionRegionAnimate(firstStatus);
     }
 
-    ren3d_VertSlice hoverMeshVerts = { 0 };
+    ren3d_VertSlice faceMeshVerts = { 0 };
     {
         SNZ_ARENA_ARR_BEGIN(scratch, ren3d_Vert);
         for (geo_MeshFace* f = mesh->firstFace; f; f = f->next) {
-            if (!geo_floatZero(f->sel.hoverAnim)) {
+            float sumAnim = f->sel.hoverAnim + f->sel.selectionAnim;
+            if (!geo_floatZero(sumAnim)) {
+                HMM_Vec4 color = HMM_Lerp(ui_colorTransparentPanel, f->sel.selectionAnim, ui_colorAccent);
+                color.A = HMM_Lerp(0.0f, sumAnim, color.A);
                 for (int i = 0; i < f->tris.count; i++) {
                     geo_Tri t = f->tris.elems[i];
                     HMM_Vec3 normal = geo_triNormal(t);
-
                     for (int j = 0; j < 3; j++) {
-                        float scaleFactor = HMM_Len(HMM_Sub(cameraPos, t.elems[j])) * f->sel.hoverAnim * 0.01f;
-
-                        ren3d_Vert* v = SNZ_ARENA_PUSH(scratch, ren3d_Vert);
+                        float scaleFactor = HMM_Len(HMM_Sub(cameraPos, t.elems[j])) * f->sel.hoverAnim * 0.02f;
                         HMM_Vec3 pos = HMM_Add(t.elems[j], HMM_MulV3F(normal, scaleFactor));
+                        ren3d_Vert* v = SNZ_ARENA_PUSH(scratch, ren3d_Vert);
                         *v = (ren3d_Vert){
                             .normal = normal,
                             .pos = pos,
-                            .color = ui_colorTransparentPanel,
+                            .color = color,
                         };
-                        v->color.A = HMM_Lerp(0.0f, f->sel.hoverAnim, v->color.A);
                     } // end tri pt loop
                 } // end tri loop
             }
         } // end face loop
-        hoverMeshVerts = SNZ_ARENA_ARR_END(scratch, ren3d_Vert);
+        faceMeshVerts = SNZ_ARENA_ARR_END(scratch, ren3d_Vert);
     }
 
     { // render
@@ -885,12 +885,13 @@ void geo_meshBuild(geo_Mesh* mesh, HMM_Mat4 vp, HMM_Vec3 cameraPos, HMM_Vec3 mou
         geo_meshDrawEdges(mesh, cameraPos, vp);
         geo_meshDrawCorners(mesh, panelSize, vp);
 
-        if (hoverMeshVerts.count && hoverMeshVerts.elems) {
+        if (faceMeshVerts.count && faceMeshVerts.elems) {
             HMM_Mat4 model = HMM_Translate(HMM_V3(0, 0, 0));
             glDisable(GL_DEPTH_TEST);
-            ren3d_Mesh renderMesh = ren3d_meshInit(hoverMeshVerts.elems, hoverMeshVerts.count);
-            ren3d_drawMesh(&renderMesh, vp, model, ui_colorTransparentPanel, HMM_V3(-1, -1, -1), 1);
-            ren3d_meshDeinit(&renderMesh);
+            ren3d_Mesh renderMesh = ren3d_meshInit(faceMeshVerts.elems, faceMeshVerts.count);
+            // FIXME: lighting shouldn't affect this
+            ren3d_drawMesh(&renderMesh, vp, model, HMM_V4(1, 1, 1, 1), HMM_V3(-1, -1, -1), 1);
+            ren3d_meshDeinit(&renderMesh); // FIXME: do a buffer data instead??
             glEnable(GL_DEPTH_TEST);
         }
     } // end render
