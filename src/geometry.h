@@ -26,6 +26,7 @@ typedef struct geo_MeshFace geo_MeshFace;
 struct geo_MeshFace {
     geo_MeshFace* next;
     geo_TriSlice tris;
+    ui_SelectionState sel;
 };
 
 typedef struct geo_BSPTri geo_BSPTri;
@@ -764,67 +765,6 @@ bool geo_intersectRayAndTri(HMM_Vec3 rayOrigin, HMM_Vec3 rayDir, geo_Tri tri, HM
     }
 }
 
-ren3d_Mesh _geo_hoverMesh;
-
-void geo_buildHoverAndSelectionMesh(geo_Mesh* mesh, HMM_Mat4 vp, HMM_Vec3 cameraPos, HMM_Vec3 mouseRayDir, snz_Arena* scratch) {
-    geo_MeshFace* closestHovered = NULL;
-    {  // find and draw the hovered face
-        float closestHoveredDist = INFINITY;
-
-        for (geo_MeshFace* face = mesh->firstFace; face; face = face->next) {
-            HMM_Vec3 intersection = HMM_V3(0, 0, 0);
-            // NOTE: any model transform will have to change this to adapt
-            for (int64_t i = 0; i < face->tris.count; i++) {
-                bool hovered = geo_intersectRayAndTri(cameraPos, mouseRayDir, face->tris.elems[i], &intersection);
-                if (hovered) {
-                    float dist = HMM_LenSqr(HMM_Sub(intersection, cameraPos));
-                    if (dist < closestHoveredDist) {
-                        closestHoveredDist = dist;
-                        closestHovered = face;
-                    }
-                }  // end hover check
-            }  // end face tri loop
-        }  // end face loop
-
-        if (!closestHovered) {
-            return;
-        }
-
-        float* const selectionAnim = SNZU_USE_MEM(float, "geo selection anim");
-        geo_MeshFace** const prevFace = SNZU_USE_MEM(geo_MeshFace*, "geo prevFace");
-        if (snzu_useMemIsPrevNew() || (*prevFace) != closestHovered) {
-            *selectionAnim = 0;
-        }
-        *prevFace = closestHovered;
-        snzu_easeExp(selectionAnim, true, 15);
-
-        ren3d_meshDeinit(&_geo_hoverMesh);
-
-        int64_t vertCount = closestHovered->tris.count * 3;
-        ren3d_Vert* verts = SNZ_ARENA_PUSH_ARR(scratch, vertCount, ren3d_Vert);
-        for (int64_t i = 0; i < closestHovered->tris.count; i++) {
-            geo_Tri t = closestHovered->tris.elems[i];
-            HMM_Vec3 normal = geo_triNormal(t);
-            float scaleFactor = HMM_SqrtF(closestHoveredDist);
-            HMM_Vec3 offset = HMM_Mul(normal, scaleFactor * 0.02f * *selectionAnim);
-            for (int j = 0; j < 3; j++) {
-                verts[i * 3 + j] = (ren3d_Vert){
-                    .pos = HMM_Add(t.elems[j], offset),
-                    .normal = normal,
-                };
-            };
-        }
-
-        _geo_hoverMesh = ren3d_meshInit(verts, vertCount);
-        HMM_Mat4 model = HMM_Translate(HMM_V3(0, 0, 0));
-        HMM_Vec4 color = ui_colorText;  // FIXME: not text colored
-        color.A = 0.1;                  // FIXME: ui val for this alpha
-        glDisable(GL_DEPTH_TEST);
-        ren3d_drawMesh(&_geo_hoverMesh, vp, model, color, HMM_V3(-1, -1, -1), 1);
-        glEnable(GL_DEPTH_TEST);
-    }  // end hovered drawing
-}
-
 void geo_meshDrawEdges(const geo_Mesh* mesh, HMM_Vec3 cameraPos, HMM_Mat4 vp) {
     for (geo_MeshEdge* edge = mesh->firstEdge; edge; edge = edge->next) {
         for (int i = 0; i < edge->segments.count; i++) {
@@ -854,6 +794,103 @@ void geo_meshDrawCorners(const geo_Mesh* mesh, HMM_Vec2 screenSize, HMM_Mat4 vp)
             mesh->corners.elems[i].pos,
             HMM_V2(ui_cornerHalfSize, ui_cornerHalfSize));
     }
+}
+
+static ui_SelectionStatus* _geo_meshGenSelStatuses(geo_Mesh* mesh, geo_MeshFace* hoveredFace, snz_Arena* scratch) {
+    ui_SelectionStatus* firstStatus = NULL;
+    for (geo_MeshFace* f = mesh->firstFace; f; f = f->next) {
+        ui_SelectionStatus* status = SNZ_ARENA_PUSH(scratch, ui_SelectionStatus);
+        *status = (ui_SelectionStatus){
+            .withinDragZone = false,
+            .mouseAct = SNZU_ACT_NONE,
+
+            .hovered = f == hoveredFace,
+            .next = firstStatus,
+            .state = &f->sel,
+        };
+        firstStatus = status;
+    }
+    return firstStatus;
+}
+
+// FIXME: geo_ui.h for consistency
+void geo_meshBuild(geo_Mesh* mesh, HMM_Mat4 vp, HMM_Vec3 cameraPos, HMM_Vec3 mouseDir, const snzu_Interaction* inter, HMM_Vec2 panelSize, snz_Arena* scratch) {
+    SNZ_ASSERT(cameraPos.X || !cameraPos.X, "AHH");
+    SNZ_ASSERT(mouseDir.X || !mouseDir.X, "AHH");
+
+    geo_MeshFace* hoveredFace = NULL;
+    { // finding hovered elts.
+        float minDistSquared = INFINITY;
+        geo_MeshFace* minFace = NULL;
+        for (geo_MeshFace* f = mesh->firstFace; f; f = f->next) {
+            for (int i = 0; i < f->tris.count; i++) {
+                geo_Tri t = f->tris.elems[i];
+                HMM_Vec3 pos = HMM_V3(0, 0, 0);
+                // FIXME: bounding box opt. to cull tri checks
+                if (geo_intersectRayAndTri(cameraPos, mouseDir, t, &pos)) {
+                    float distSquared = HMM_LenSqr(HMM_Sub(pos, cameraPos));
+                    if (distSquared < minDistSquared) {
+                        minDistSquared = distSquared;
+                        minFace = f;
+                        break;
+                    }
+                }
+            }
+        } // end face loop
+
+        hoveredFace = minFace;
+    } // end hover checks
+
+    { // sel region logic
+        ui_SelectionRegion* const region = SNZU_USE_MEM(ui_SelectionRegion, "region");
+        ui_SelectionStatus* firstStatus = _geo_meshGenSelStatuses(mesh, hoveredFace, scratch);
+        ui_selectionRegionUpdate(region, SNZU_ACT_NONE, HMM_V2(0, 0), inter->keyMods & KMOD_SHIFT, firstStatus, false);
+        ui_selectionRegionAnimate(firstStatus);
+    }
+
+    ren3d_VertSlice hoverMeshVerts = { 0 };
+    {
+        SNZ_ARENA_ARR_BEGIN(scratch, ren3d_Vert);
+        for (geo_MeshFace* f = mesh->firstFace; f; f = f->next) {
+            if (geo_floatGreaterEqual(f->sel.hoverAnim, 0)) {
+                for (int i = 0; i < f->tris.count; i++) {
+                    geo_Tri t = f->tris.elems[i];
+                    HMM_Vec3 normal = geo_triNormal(t);
+
+                    for (int j = 0; j < 3; j++) {
+                        float scaleFactor = HMM_Len(HMM_Sub(cameraPos, t.elems[j])) * f->sel.hoverAnim * 0.01f;
+
+                        ren3d_Vert* v = SNZ_ARENA_PUSH(scratch, ren3d_Vert);
+                        HMM_Vec3 pos = HMM_Add(t.elems[j], HMM_MulV3F(normal, scaleFactor));
+                        *v = (ren3d_Vert){
+                            .normal = normal,
+                            .pos = pos,
+                        };
+                    } // end tri pt loop
+                } // end tri loop
+            }
+        } // end face loop
+        hoverMeshVerts = SNZ_ARENA_ARR_END(scratch, ren3d_Vert);
+    }
+
+    { // render
+        // FIXME: debug wireframe
+        ren3d_drawMesh(
+            &mesh->renderMesh,
+            vp, HMM_M4D(1.0f),
+            HMM_V4(1, 1, 1, 1), HMM_V3(-1, -1, -1), ui_lightAmbient);
+        geo_meshDrawEdges(mesh, cameraPos, vp);
+        geo_meshDrawCorners(mesh, panelSize, vp);
+
+        if (hoverMeshVerts.count && hoverMeshVerts.elems) {
+            HMM_Mat4 model = HMM_Translate(HMM_V3(0, 0, 0));
+            glDisable(GL_DEPTH_TEST);
+            ren3d_Mesh renderMesh = ren3d_meshInit(hoverMeshVerts.elems, hoverMeshVerts.count);
+            ren3d_drawMesh(&renderMesh, vp, model, ui_colorTransparentPanel, HMM_V3(-1, -1, -1), 1);
+            ren3d_meshDeinit(&renderMesh);
+            glEnable(GL_DEPTH_TEST);
+        }
+    } // end render
 }
 
 typedef struct {
