@@ -855,8 +855,10 @@ void geo_meshBuild(geo_Mesh* mesh, HMM_Mat4 vp, HMM_Vec3 cameraPos, HMM_Vec3 mou
         for (geo_MeshFace* f = mesh->firstFace; f; f = f->next) {
             float sumAnim = f->sel.hoverAnim + f->sel.selectionAnim;
             if (!geo_floatZero(sumAnim)) {
-                HMM_Vec4 color = HMM_Lerp(ui_colorTransparentPanel, f->sel.selectionAnim, ui_colorAccent);
-                color.A = HMM_Lerp(0.0f, sumAnim, color.A);
+                HMM_Vec4 targetColor = ui_colorAccent;
+                targetColor.A = 0.8;
+                HMM_Vec4 color = HMM_Lerp(ui_colorTransparentPanel, f->sel.selectionAnim, targetColor);
+                color.A = HMM_Lerp(0.0f, SNZ_MIN(sumAnim, 1), color.A);
                 for (int i = 0; i < f->tris.count; i++) {
                     geo_Tri t = f->tris.elems[i];
                     HMM_Vec3 normal = geo_triNormal(t);
