@@ -766,6 +766,40 @@ bool geo_intersectRayAndTri(HMM_Vec3 rayOrigin, HMM_Vec3 rayDir, geo_Tri tri, HM
     }
 }
 
+// thank u internet: https://math.stackexchange.com/questions/846054/closest-points-on-two-line-segments
+// out t is closest position along the ray, return val is the distance between.
+static float _geo_distBetweenLineAndSegment(HMM_Vec3 p1, HMM_Vec3 d1, HMM_Vec3 la, HMM_Vec3 lb, float* outT) {
+    HMM_Vec3 d2 = HMM_Sub(lb, la);
+    HMM_Vec3 d21 = HMM_Sub(la, p1);
+
+    float v22 = HMM_Dot(d2, d2);
+    float v11 = HMM_Dot(d1, d1);
+    float v21 = HMM_Dot(d2, d1);
+    float v21_1 = HMM_Dot(d21, d1);
+    float v21_2 = HMM_Dot(d21, d2);
+    float denom = v21 * v21 - v22 * v11;
+
+    float s = 0;
+    // float t = 0;
+    if (geo_floatZero(denom)) {
+        // float s = 0;
+        // float t = (v11 * s - v21_1) / v21;
+    } else {
+        s = (v21_2 * v21 - v22 * v21_1) / denom;
+        // float t = (-v21_1 * v21 + v11 * v21_2) / denom;
+
+        s = SNZ_MAX(s, 0); // no upper bound bc line 1 is the ray
+        // t = SNZ_MAX(SNZ_MIN(t, 1), 0);
+    }
+
+    *outT = s;
+    HMM_Vec3 cross = HMM_Cross(d2, d1);
+    if (geo_v3Equal(cross, HMM_V3(0, 0, 0))) {
+        cross = HMM_Cross(d1, HMM_Cross(d21, d1)); // works in the case where lines are parallel
+    }
+    return HMM_Dot(cross, d21);
+}
+
 void geo_meshDrawEdges(const geo_Mesh* mesh, HMM_Vec3 cameraPos, HMM_Mat4 vp) {
     for (geo_MeshEdge* edge = mesh->firstEdge; edge; edge = edge->next) {
         for (int i = 0; i < edge->segments.count; i++) {
@@ -884,8 +918,6 @@ void geo_meshBuild(geo_Mesh* mesh, HMM_Mat4 vp, HMM_Vec3 cameraPos, HMM_Vec3 mou
             &mesh->renderMesh,
             vp, HMM_M4D(1.0f),
             HMM_V4(1, 1, 1, 1), HMM_V3(-1, -1, -1), ui_lightAmbient);
-        geo_meshDrawEdges(mesh, cameraPos, vp);
-        geo_meshDrawCorners(mesh, panelSize, vp);
 
         if (faceMeshVerts.count && faceMeshVerts.elems) {
             HMM_Mat4 model = HMM_Translate(HMM_V3(0, 0, 0));
@@ -896,6 +928,9 @@ void geo_meshBuild(geo_Mesh* mesh, HMM_Mat4 vp, HMM_Vec3 cameraPos, HMM_Vec3 mou
             ren3d_meshDeinit(&renderMesh); // FIXME: do a buffer data instead??
             glEnable(GL_DEPTH_TEST);
         }
+
+        geo_meshDrawEdges(mesh, cameraPos, vp);
+        geo_meshDrawCorners(mesh, panelSize, vp);
     } // end render
 }
 
@@ -1187,6 +1222,22 @@ void geo_tests() {
         geo_BSPTriList* final = geo_BSPTriListJoin(aClipped, bClipped);
         geo_BSPTriListRecoverNonBroken(&final, &arena);
         geo_BSPTriListToSTLFile(final, "testing/intersection.stl");
+    }
+
+    {
+        float t = 0;
+        float dist = _geo_distBetweenLineAndSegment(
+            HMM_V3(0, 0, 0), HMM_V3(0, 1, 0),
+            HMM_V3(0, 0, 1), HMM_V3(1, 0, 1),
+            &t);
+        snz_testPrint(geo_floatEqual(dist, 1) && geo_floatEqual(t, 0), "line & segment dist test 1");
+
+        t = 0;
+        dist = _geo_distBetweenLineAndSegment(
+            HMM_V3(0, 0, 0), HMM_V3(1, 0, 0),
+            HMM_V3(0, 0, 1), HMM_V3(1, 0, 1),
+            &t);
+        snz_testPrint(geo_floatEqual(dist, 1), "line & segment dist test 2");
     }
 
     snz_arenaDeinit(&arena);
