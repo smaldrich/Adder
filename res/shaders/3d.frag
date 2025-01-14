@@ -4,6 +4,7 @@ out vec4 color;
 
 in vec4 gl_FragCoord;
 in vec3 vNormal;
+in vec4 vColor;
 
 uniform vec4 uColor;
 
@@ -22,5 +23,5 @@ void main()
     float diff = clamp(dot(-normal, lightDir), 0.0, 1.0);
     vec3 diffuse = uLightColor * 0.15 * diff;
 
-    color = vec4(diffuse + ambient, 1.0) * uColor;
+    color = vec4(diffuse + ambient, 1.0) * vColor * uColor;
 };

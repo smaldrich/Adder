@@ -648,6 +648,7 @@ ren3d_Mesh geo_BSPTriListToRenderMesh(geo_BSPTriList list, snz_Arena* scratch) {
             *SNZ_ARENA_PUSH(scratch, ren3d_Vert) = (ren3d_Vert){
                 .pos = tri->tri.elems[i],
                 .normal = triNormal,
+                .color = HMM_V4(1, 1, 1, 1),
             };
         }
     }
@@ -852,7 +853,7 @@ void geo_meshBuild(geo_Mesh* mesh, HMM_Mat4 vp, HMM_Vec3 cameraPos, HMM_Vec3 mou
     {
         SNZ_ARENA_ARR_BEGIN(scratch, ren3d_Vert);
         for (geo_MeshFace* f = mesh->firstFace; f; f = f->next) {
-            if (geo_floatGreaterEqual(f->sel.hoverAnim, 0)) {
+            if (!geo_floatZero(f->sel.hoverAnim)) {
                 for (int i = 0; i < f->tris.count; i++) {
                     geo_Tri t = f->tris.elems[i];
                     HMM_Vec3 normal = geo_triNormal(t);
@@ -865,7 +866,9 @@ void geo_meshBuild(geo_Mesh* mesh, HMM_Mat4 vp, HMM_Vec3 cameraPos, HMM_Vec3 mou
                         *v = (ren3d_Vert){
                             .normal = normal,
                             .pos = pos,
+                            .color = ui_colorTransparentPanel,
                         };
+                        v->color.A = HMM_Lerp(0.0f, f->sel.hoverAnim, v->color.A);
                     } // end tri pt loop
                 } // end tri loop
             }

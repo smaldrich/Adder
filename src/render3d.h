@@ -20,6 +20,7 @@ static char* _ren3d_loadFileToStr(const char* path, snz_Arena* scratch) {
 }
 
 typedef struct {
+    HMM_Vec4 color;
     HMM_Vec3 pos;
     HMM_Vec3 normal;
 } ren3d_Vert;
@@ -48,10 +49,12 @@ ren3d_Mesh ren3d_meshInit(ren3d_Vert* verts, uint64_t vertCount) {
     uint64_t vertSize = sizeof(ren3d_Vert);
     glBufferData(GL_ARRAY_BUFFER, vertCount * vertSize, verts, GL_STATIC_DRAW);
 
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, vertSize, (void*)(0));  // position
+    glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, vertSize, NULL);  // color
     glEnableVertexAttribArray(0);
-    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, vertSize, (void*)(sizeof(HMM_Vec3)));  // normals
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, vertSize, (void*)sizeof(HMM_Vec4));  // position
     glEnableVertexAttribArray(1);
+    glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, vertSize, (void*)(sizeof(HMM_Vec3) + sizeof(HMM_Vec4)));  // normals
+    glEnableVertexAttribArray(2);
 
     glBindVertexArray(0);
     return out;
