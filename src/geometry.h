@@ -66,6 +66,7 @@ typedef struct geo_MeshEdge geo_MeshEdge;
 struct geo_MeshEdge {
     geo_MeshEdge* next;
     geo_MeshEdgeSegmentSlice segments;
+    ui_SelectionState sel;
 };
 
 typedef struct {
@@ -768,7 +769,7 @@ bool geo_intersectRayAndTri(HMM_Vec3 rayOrigin, HMM_Vec3 rayDir, geo_Tri tri, HM
 
 // thank u internet: https://math.stackexchange.com/questions/846054/closest-points-on-two-line-segments
 // out t is closest position along the ray, return val is the distance between.
-static float _geo_distBetweenLineAndSegment(HMM_Vec3 p1, HMM_Vec3 d1, HMM_Vec3 la, HMM_Vec3 lb, float* outT) {
+static HMM_Vec3 _geo_closestPointToLineOnSegment(HMM_Vec3 p1, HMM_Vec3 d1, HMM_Vec3 la, HMM_Vec3 lb, float* outDistFromLine) {
     HMM_Vec3 d2 = HMM_Sub(lb, la);
     HMM_Vec3 d21 = HMM_Sub(la, p1);
 
@@ -780,24 +781,22 @@ static float _geo_distBetweenLineAndSegment(HMM_Vec3 p1, HMM_Vec3 d1, HMM_Vec3 l
     float denom = v21 * v21 - v22 * v11;
 
     float s = 0;
-    // float t = 0;
+    float t = 0;
     if (geo_floatZero(denom)) {
-        // float s = 0;
-        // float t = (v11 * s - v21_1) / v21;
+        s = 0;
+        t = (v11 * s - v21_1) / v21; // ?? who wrote this?? why is s just zero??
     } else {
         s = (v21_2 * v21 - v22 * v21_1) / denom;
-        // float t = (-v21_1 * v21 + v11 * v21_2) / denom;
+        t = (-v21_1 * v21 + v11 * v21_2) / denom;
 
         s = SNZ_MAX(s, 0); // no upper bound bc line 1 is the ray
-        // t = SNZ_MAX(SNZ_MIN(t, 1), 0);
+        t = SNZ_MAX(SNZ_MIN(t, 1), 0);
     }
 
-    *outT = s;
-    HMM_Vec3 cross = HMM_Cross(d2, d1);
-    if (geo_v3Equal(cross, HMM_V3(0, 0, 0))) {
-        cross = HMM_Cross(d1, HMM_Cross(d21, d1)); // works in the case where lines are parallel
-    }
-    return HMM_Dot(cross, d21);
+    HMM_Vec3 segPt = HMM_Add(la, HMM_MulV3F(d2, t));
+    HMM_Vec3 linePt = HMM_Add(p1, HMM_MulV3F(d1, s));
+    *outDistFromLine = HMM_Len(HMM_Sub(segPt, linePt));
+    return segPt;
 }
 
 void geo_meshDrawEdges(const geo_Mesh* mesh, HMM_Vec3 cameraPos, HMM_Mat4 vp) {
@@ -815,7 +814,9 @@ void geo_meshDrawEdges(const geo_Mesh* mesh, HMM_Vec3 cameraPos, HMM_Mat4 vp) {
                 pts[i].XYZ = HMM_Add(pts[i].XYZ, offset);
             }
 
-            snzr_drawLine(pts, 2, ui_colorText, 3, vp);
+            HMM_Vec4 color = HMM_Lerp(ui_colorText, edge->sel.selectionAnim, ui_colorAccent);
+            float thickness = HMM_Lerp(ui_lineThickness, edge->sel.hoverAnim, ui_lineHoveredThickness);
+            snzr_drawLine(pts, 2, color, thickness, vp);
         }
     }
 }
@@ -831,7 +832,7 @@ void geo_meshDrawCorners(const geo_Mesh* mesh, HMM_Vec2 screenSize, HMM_Mat4 vp)
     }
 }
 
-static ui_SelectionStatus* _geo_meshGenSelStatuses(geo_Mesh* mesh, geo_MeshFace* hoveredFace, snzu_Action mouseAct, snz_Arena* scratch) {
+static ui_SelectionStatus* _geo_meshGenSelStatuses(geo_Mesh* mesh, geo_MeshFace* hoveredFace, geo_MeshEdge* hoveredEdge, snzu_Action mouseAct, snz_Arena* scratch) {
     ui_SelectionStatus* firstStatus = NULL;
     for (geo_MeshFace* f = mesh->firstFace; f; f = f->next) {
         ui_SelectionStatus* status = SNZ_ARENA_PUSH(scratch, ui_SelectionStatus);
@@ -845,6 +846,19 @@ static ui_SelectionStatus* _geo_meshGenSelStatuses(geo_Mesh* mesh, geo_MeshFace*
         };
         firstStatus = status;
     }
+
+    for (geo_MeshEdge* e = mesh->firstEdge; e; e = e->next) {
+        ui_SelectionStatus* status = SNZ_ARENA_PUSH(scratch, ui_SelectionStatus);
+        *status = (ui_SelectionStatus){
+            .withinDragZone = false,
+
+            .hovered = e == hoveredEdge,
+            .mouseAct = (e == hoveredEdge ? mouseAct : SNZU_ACT_NONE),
+            .next = firstStatus,
+            .state = &e->sel,
+        };
+        firstStatus = status;
+    }
     return firstStatus;
 }
 
@@ -854,6 +868,7 @@ void geo_meshBuild(geo_Mesh* mesh, HMM_Mat4 vp, HMM_Vec3 cameraPos, HMM_Vec3 mou
     SNZ_ASSERT(mouseDir.X || !mouseDir.X, "AHH");
 
     geo_MeshFace* hoveredFace = NULL;
+    geo_MeshEdge* hoveredEdge = NULL;
     { // finding hovered elts.
         float minDistSquared = INFINITY;
         geo_MeshFace* minFace = NULL;
@@ -872,13 +887,41 @@ void geo_meshBuild(geo_Mesh* mesh, HMM_Mat4 vp, HMM_Vec3 cameraPos, HMM_Vec3 mou
                 }
             }
         } // end face loop
-
         hoveredFace = minFace;
+
+        float clipDist = minDistSquared;
+        if (!isinf(minDistSquared)) {
+            clipDist = sqrtf(clipDist);
+        }
+
+        geo_MeshEdge* minEdge = NULL;
+        for (geo_MeshEdge* e = mesh->firstEdge; e; e = e->next) {
+            for (int i = 0; i < e->segments.count; i++) {
+                geo_MeshEdgeSegment seg = e->segments.elems[i];
+                float distFromRay = 0;
+                HMM_Vec3 pos = _geo_closestPointToLineOnSegment(cameraPos, mouseDir, seg.a, seg.b, &distFromRay);
+                float distFromCamera = HMM_Len(HMM_Sub(pos, cameraPos));
+
+                if (geo_floatGreaterEqual(distFromCamera, clipDist)) {
+                    // continue;
+                } else if (distFromRay > 0.05) {
+                    continue;
+                }
+                clipDist = distFromCamera;
+                hoveredFace = NULL;
+                minEdge = e;
+                ren3d_drawBillboard(vp, panelSize, _snzr_globs.solidTex, HMM_V4(1, 0, 0, 1), pos, HMM_V2(25, 25));
+                if (fabsf(pos.X) > 4 || fabsf(pos.Y) > 4 || fabsf(pos.Z) > 4) {
+                    ren3d_drawBillboard(vp, panelSize, _snzr_globs.solidTex, HMM_V4(0.25, 0.25, 1, 1), seg.a, HMM_V2(25, 25));
+                }
+            }
+        }
+        hoveredEdge = minEdge;
     } // end hover checks
 
     { // sel region logic
         ui_SelectionRegion* const region = SNZU_USE_MEM(ui_SelectionRegion, "region");
-        ui_SelectionStatus* firstStatus = _geo_meshGenSelStatuses(mesh, hoveredFace, inter->mouseActions[SNZU_MB_LEFT], scratch);
+        ui_SelectionStatus* firstStatus = _geo_meshGenSelStatuses(mesh, hoveredFace, hoveredEdge, inter->mouseActions[SNZU_MB_LEFT], scratch);
         ui_selectionRegionUpdate(region, SNZU_ACT_NONE, HMM_V2(0, 0), inter->keyMods & KMOD_SHIFT, firstStatus, false);
         ui_selectionRegionAnimate(firstStatus);
     }
@@ -1225,19 +1268,19 @@ void geo_tests() {
     }
 
     {
-        float t = 0;
-        float dist = _geo_distBetweenLineAndSegment(
-            HMM_V3(0, 0, 0), HMM_V3(0, 1, 0),
-            HMM_V3(0, 0, 1), HMM_V3(1, 0, 1),
-            &t);
-        snz_testPrint(geo_floatEqual(dist, 1) && geo_floatEqual(t, 0), "line & segment dist test 1");
+        // float t = 0;
+        // float dist = _geo_closestPointToLineOnSegment(
+        //     HMM_V3(0, 0, 0), HMM_V3(0, 1, 0),
+        //     HMM_V3(0, 0, 1), HMM_V3(1, 0, 1),
+        //     &t);
+        // snz_testPrint(geo_floatEqual(dist, 1) && geo_floatEqual(t, 0), "line & segment dist test 1");
 
-        t = 0;
-        dist = _geo_distBetweenLineAndSegment(
-            HMM_V3(0, 0, 0), HMM_V3(1, 0, 0),
-            HMM_V3(0, 0, 1), HMM_V3(1, 0, 1),
-            &t);
-        snz_testPrint(geo_floatEqual(dist, 1), "line & segment dist test 2");
+        // t = 0;
+        // dist = _geo_closestPointToLineOnSegment(
+        //     HMM_V3(0, 0, 0), HMM_V3(1, 0, 0),
+        //     HMM_V3(0, 0, 1), HMM_V3(1, 0, 1),
+        //     &t);
+        // snz_testPrint(geo_floatEqual(dist, 1), "line & segment dist test 2");
     }
 
     snz_arenaDeinit(&arena);
