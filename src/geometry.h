@@ -768,35 +768,29 @@ bool geo_intersectRayAndTri(HMM_Vec3 rayOrigin, HMM_Vec3 rayDir, geo_Tri tri, HM
 }
 
 // thank u internet: https://math.stackexchange.com/questions/846054/closest-points-on-two-line-segments
-// out t is closest position along the ray, return val is the distance between.
-static HMM_Vec3 _geo_closestPointToLineOnSegment(HMM_Vec3 p1, HMM_Vec3 d1, HMM_Vec3 la, HMM_Vec3 lb, float* outDistFromLine) {
-    HMM_Vec3 d2 = HMM_Sub(lb, la);
-    HMM_Vec3 d21 = HMM_Sub(la, p1);
+static HMM_Vec3 _geo_closestPointToLineOnSegment(HMM_Vec3 l1a, HMM_Vec3 l1b, HMM_Vec3 l2a, HMM_Vec3 l2b, float* outDistFromLine) {
+    HMM_Vec3 _21 = HMM_Sub(l1b, l1a);
+    HMM_Vec3 _43 = HMM_Sub(l2b, l2a);
+    HMM_Vec3 _31 = HMM_Sub(l2a, l1a);
 
-    float v22 = HMM_Dot(d2, d2);
-    float v11 = HMM_Dot(d1, d1);
-    float v21 = HMM_Dot(d2, d1);
-    float v21_1 = HMM_Dot(d21, d1);
-    float v21_2 = HMM_Dot(d21, d2);
-    float denom = v21 * v21 - v22 * v11;
+    float r1 = HMM_LenSqr(_21);
+    float r2 = HMM_LenSqr(_43);
 
-    float s = 0;
-    float t = 0;
-    if (geo_floatZero(denom)) {
-        s = 0;
-        t = (v11 * s - v21_1) / v21; // ?? who wrote this?? why is s just zero??
-    } else {
-        s = (v21_2 * v21 - v22 * v21_1) / denom;
-        t = (-v21_1 * v21 + v11 * v21_2) / denom;
+    float d4321 = HMM_Dot(_21, _43);
+    float d3121 = HMM_Dot(_31, _21);
+    float d4331 = HMM_Dot(_43, _31);
 
-        s = SNZ_MAX(s, 0); // no upper bound bc line 1 is the ray
-        t = SNZ_MAX(SNZ_MIN(t, 1), 0);
-    }
+    float denominator = powf(d4321, 2.0f) - (r1 * r2);
+    float s = (d4321 * d4331 - r2 * d3121) / denominator;
+    float t = (r1 * d4331 - d4321 * d3121) / denominator;
 
-    HMM_Vec3 segPt = HMM_Add(la, HMM_MulV3F(d2, t));
-    HMM_Vec3 linePt = HMM_Add(p1, HMM_MulV3F(d1, s));
-    *outDistFromLine = HMM_Len(HMM_Sub(segPt, linePt));
-    return segPt;
+    t = SNZ_MIN(SNZ_MAX(0, t), 1);
+
+    HMM_Vec3 p1 = HMM_Add(l1a, HMM_MulV3F(_21, s)); // is norming here correct?
+    HMM_Vec3 p2 = HMM_Add(l2a, HMM_MulV3F(_43, t)); // is norming here correct?
+
+    *outDistFromLine = HMM_Len(HMM_Sub(p2, p1));
+    return p2;
 }
 
 void geo_meshDrawEdges(const geo_Mesh* mesh, HMM_Vec3 cameraPos, HMM_Mat4 vp) {
@@ -897,22 +891,25 @@ void geo_meshBuild(geo_Mesh* mesh, HMM_Mat4 vp, HMM_Vec3 cameraPos, HMM_Vec3 mou
         geo_MeshEdge* minEdge = NULL;
         for (geo_MeshEdge* e = mesh->firstEdge; e; e = e->next) {
             for (int i = 0; i < e->segments.count; i++) {
-                geo_MeshEdgeSegment seg = e->segments.elems[i];
-                float distFromRay = 0;
-                HMM_Vec3 pos = _geo_closestPointToLineOnSegment(cameraPos, mouseDir, seg.a, seg.b, &distFromRay);
-                float distFromCamera = HMM_Len(HMM_Sub(pos, cameraPos));
+                if (i == 0 && e == mesh->firstEdge) {
+                    geo_MeshEdgeSegment seg = e->segments.elems[i];
+                    float distFromRay = 0;
+                    HMM_Vec3 pos = _geo_closestPointToLineOnSegment(cameraPos, HMM_Add(cameraPos, mouseDir), seg.a, seg.b, &distFromRay);
+                    printf("%f, %f, %f\n", pos.X, pos.Y, pos.Z);
+                    // float distFromCamera = HMM_Len(HMM_Sub(pos, cameraPos));
 
-                if (geo_floatGreaterEqual(distFromCamera, clipDist)) {
-                    // continue;
-                } else if (distFromRay > 0.05) {
-                    continue;
-                }
-                clipDist = distFromCamera;
-                hoveredFace = NULL;
-                minEdge = e;
-                ren3d_drawBillboard(vp, panelSize, _snzr_globs.solidTex, HMM_V4(1, 0, 0, 1), pos, HMM_V2(25, 25));
-                if (fabsf(pos.X) > 4 || fabsf(pos.Y) > 4 || fabsf(pos.Z) > 4) {
-                    ren3d_drawBillboard(vp, panelSize, _snzr_globs.solidTex, HMM_V4(0.25, 0.25, 1, 1), seg.a, HMM_V2(25, 25));
+                    // if (geo_floatGreaterEqual(distFromCamera, clipDist)) {
+                    //     // continue;
+                    // } else if (distFromRay > 0.05) {
+                    //     continue;
+                    // }
+                    // clipDist = distFromCamera;
+                    // hoveredFace = NULL;
+                    // minEdge = e;
+                    ren3d_drawBillboard(vp, panelSize, _snzr_globs.solidTex, HMM_V4(1, 0, 0, 1), pos, HMM_V2(25, 25));
+                    // if (fabsf(pos.X) > 4 || fabsf(pos.Y) > 4 || fabsf(pos.Z) > 4) {
+                    // ren3d_drawBillboard(vp, panelSize, _snzr_globs.solidTex, HMM_V4(0.25, 0.25, 1, 1), seg.a, HMM_V2(25, 25));
+                    // }
                 }
             }
         }
