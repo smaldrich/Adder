@@ -768,7 +768,10 @@ bool geo_intersectRayAndTri(HMM_Vec3 rayOrigin, HMM_Vec3 rayDir, geo_Tri tri, HM
 }
 
 // thank u internet: https://math.stackexchange.com/questions/846054/closest-points-on-two-line-segments
+// FIXME: probably smarter to do the collision detection in screen space instead
 static HMM_Vec3 _geo_closestPointToLineOnSegment(HMM_Vec3 l1a, HMM_Vec3 l1b, HMM_Vec3 l2a, HMM_Vec3 l2b, float* outDistFromLine) {
+    SNZ_ASSERTF(!geo_v3Equal(l2a, l2b), "Segment w/ zero length: A: %f,%f,%f", l2a.X, l2a.Y, l2a.Z);
+
     HMM_Vec3 _21 = HMM_Sub(l1b, l1a);
     HMM_Vec3 _43 = HMM_Sub(l2b, l2a);
     HMM_Vec3 _31 = HMM_Sub(l2a, l1a);
@@ -781,16 +784,18 @@ static HMM_Vec3 _geo_closestPointToLineOnSegment(HMM_Vec3 l1a, HMM_Vec3 l1b, HMM
     float d4331 = HMM_Dot(_43, _31);
 
     float denominator = powf(d4321, 2.0f) - (r1 * r2);
+    SNZ_ASSERT(!geo_floatZero(denominator), "denom 0.");
     float s = (d4321 * d4331 - r2 * d3121) / denominator;
     float t = (r1 * d4331 - d4321 * d3121) / denominator;
 
     t = SNZ_MIN(SNZ_MAX(0, t), 1);
-    s = SNZ_MAX(0, t);
+    s = SNZ_MAX(0, s);
 
     HMM_Vec3 p1 = HMM_Add(l1a, HMM_MulV3F(_21, s)); // is norming here correct?
     HMM_Vec3 p2 = HMM_Add(l2a, HMM_MulV3F(_43, t)); // is norming here correct?
 
-    *outDistFromLine = HMM_Len(HMM_Sub(p2, p1));
+    float x = HMM_Len(HMM_Sub(p2, p1));
+    *outDistFromLine = x;
     return p2;
 }
 
@@ -890,24 +895,32 @@ void geo_meshBuild(geo_Mesh* mesh, HMM_Mat4 vp, HMM_Vec3 cameraPos, HMM_Vec3 mou
         }
 
         geo_MeshEdge* minEdge = NULL;
+        int eIdx = 0;
         for (geo_MeshEdge* e = mesh->firstEdge; e; e = e->next) {
             for (int i = 0; i < e->segments.count; i++) {
-                if (i != 0 || e != mesh->firstEdge) { continue; }
+                // if (i != 0 || e != mesh->firstEdge) { continue; }
 
                 geo_MeshEdgeSegment seg = e->segments.elems[i];
                 float distFromRay = 0;
                 HMM_Vec3 pos = _geo_closestPointToLineOnSegment(cameraPos, HMM_Add(cameraPos, mouseDir), seg.a, seg.b, &distFromRay);
                 float distFromCamera = HMM_Len(HMM_Sub(pos, cameraPos));
 
-                // if (!geo_floatLessEqual(distFromCamera, clipDist)) {
-                //     continue;
-                if (distFromRay > 0.2) {
+                // ren3d_drawBillboard(vp, panelSize, _snzr_globs.solidTex, HMM_V4(distFromRay, 0, 0, 1), pos, HMM_V2(25, 25));
+
+                float size = 0.02 * distFromCamera;
+                if (distFromRay > size) {
+                    // printf("%f\n", distFromRay);
+                    continue;
+                } else if (distFromCamera > clipDist + size) {
+                    // printf(snz_arenaFormatStr(scratch, "seg %d failed cause of clip dist %f\n", i, distFromCamera));
                     continue;
                 }
                 clipDist = distFromCamera;
                 hoveredFace = NULL;
                 minEdge = e;
+                printf("%d\n", eIdx);
             }
+            eIdx++;
         }
         hoveredEdge = minEdge;
     } // end hover checks
