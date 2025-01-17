@@ -785,6 +785,7 @@ static HMM_Vec3 _geo_closestPointToLineOnSegment(HMM_Vec3 l1a, HMM_Vec3 l1b, HMM
     float t = (r1 * d4331 - d4321 * d3121) / denominator;
 
     t = SNZ_MIN(SNZ_MAX(0, t), 1);
+    s = SNZ_MAX(0, t);
 
     HMM_Vec3 p1 = HMM_Add(l1a, HMM_MulV3F(_21, s)); // is norming here correct?
     HMM_Vec3 p2 = HMM_Add(l2a, HMM_MulV3F(_43, t)); // is norming here correct?
@@ -891,26 +892,21 @@ void geo_meshBuild(geo_Mesh* mesh, HMM_Mat4 vp, HMM_Vec3 cameraPos, HMM_Vec3 mou
         geo_MeshEdge* minEdge = NULL;
         for (geo_MeshEdge* e = mesh->firstEdge; e; e = e->next) {
             for (int i = 0; i < e->segments.count; i++) {
-                if (i == 0 && e == mesh->firstEdge) {
-                    geo_MeshEdgeSegment seg = e->segments.elems[i];
-                    float distFromRay = 0;
-                    HMM_Vec3 pos = _geo_closestPointToLineOnSegment(cameraPos, HMM_Add(cameraPos, mouseDir), seg.a, seg.b, &distFromRay);
-                    printf("%f, %f, %f\n", pos.X, pos.Y, pos.Z);
-                    // float distFromCamera = HMM_Len(HMM_Sub(pos, cameraPos));
+                if (i != 0 || e != mesh->firstEdge) { continue; }
 
-                    // if (geo_floatGreaterEqual(distFromCamera, clipDist)) {
-                    //     // continue;
-                    // } else if (distFromRay > 0.05) {
-                    //     continue;
-                    // }
-                    // clipDist = distFromCamera;
-                    // hoveredFace = NULL;
-                    // minEdge = e;
-                    ren3d_drawBillboard(vp, panelSize, _snzr_globs.solidTex, HMM_V4(1, 0, 0, 1), pos, HMM_V2(25, 25));
-                    // if (fabsf(pos.X) > 4 || fabsf(pos.Y) > 4 || fabsf(pos.Z) > 4) {
-                    // ren3d_drawBillboard(vp, panelSize, _snzr_globs.solidTex, HMM_V4(0.25, 0.25, 1, 1), seg.a, HMM_V2(25, 25));
-                    // }
+                geo_MeshEdgeSegment seg = e->segments.elems[i];
+                float distFromRay = 0;
+                HMM_Vec3 pos = _geo_closestPointToLineOnSegment(cameraPos, HMM_Add(cameraPos, mouseDir), seg.a, seg.b, &distFromRay);
+                float distFromCamera = HMM_Len(HMM_Sub(pos, cameraPos));
+
+                // if (!geo_floatLessEqual(distFromCamera, clipDist)) {
+                //     continue;
+                if (distFromRay > 0.2) {
+                    continue;
                 }
+                clipDist = distFromCamera;
+                hoveredFace = NULL;
+                minEdge = e;
             }
         }
         hoveredEdge = minEdge;
