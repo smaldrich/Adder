@@ -784,9 +784,10 @@ static HMM_Vec3 _geo_closestPointToLineOnSegment(HMM_Vec3 l1a, HMM_Vec3 l1b, HMM
     float d4331 = HMM_Dot(_43, _31);
 
     float denominator = powf(d4321, 2.0f) - (r1 * r2);
-    SNZ_ASSERT(!geo_floatZero(denominator), "denom 0.");
     float s = (d4321 * d4331 - r2 * d3121) / denominator;
     float t = (r1 * d4331 - d4321 * d3121) / denominator;
+
+    // FIXME: handle case with inf denom correctly
 
     t = SNZ_MIN(SNZ_MAX(0, t), 1);
     s = SNZ_MAX(0, s);
@@ -895,32 +896,23 @@ void geo_meshBuild(geo_Mesh* mesh, HMM_Mat4 vp, HMM_Vec3 cameraPos, HMM_Vec3 mou
         }
 
         geo_MeshEdge* minEdge = NULL;
-        int eIdx = 0;
         for (geo_MeshEdge* e = mesh->firstEdge; e; e = e->next) {
             for (int i = 0; i < e->segments.count; i++) {
-                // if (i != 0 || e != mesh->firstEdge) { continue; }
-
                 geo_MeshEdgeSegment seg = e->segments.elems[i];
                 float distFromRay = 0;
                 HMM_Vec3 pos = _geo_closestPointToLineOnSegment(cameraPos, HMM_Add(cameraPos, mouseDir), seg.a, seg.b, &distFromRay);
                 float distFromCamera = HMM_Len(HMM_Sub(pos, cameraPos));
 
-                // ren3d_drawBillboard(vp, panelSize, _snzr_globs.solidTex, HMM_V4(distFromRay, 0, 0, 1), pos, HMM_V2(25, 25));
-
                 float size = 0.02 * distFromCamera;
                 if (distFromRay > size) {
-                    // printf("%f\n", distFromRay);
                     continue;
                 } else if (distFromCamera > clipDist + size) {
-                    // printf(snz_arenaFormatStr(scratch, "seg %d failed cause of clip dist %f\n", i, distFromCamera));
                     continue;
                 }
                 clipDist = distFromCamera;
                 hoveredFace = NULL;
                 minEdge = e;
-                printf("%d\n", eIdx);
             }
-            eIdx++;
         }
         hoveredEdge = minEdge;
     } // end hover checks
@@ -1041,6 +1033,11 @@ static bool _geo_segmentPairAdjacent(geo_MeshEdgeSegment a, geo_MeshEdgeSegment 
         overlapB = bMax;
     }
 
+    // FIXME: I have no idea if this is the behvaior that it should be, but it seems right enough to not want zero len edges??
+    if (geo_floatEqual(overlapA, overlapB)) {
+        return false;
+    }
+
     *outClipped = (geo_MeshEdgeSegment){
         .a = HMM_Add(a.a, HMM_Mul(aDir, overlapA)),
         .b = HMM_Add(a.a, HMM_Mul(aDir, overlapB)),
@@ -1109,6 +1106,7 @@ void geo_meshGenerateEdges(geo_Mesh* mesh, snz_Arena* out, snz_Arena* scratch) {
             bool adj = _geo_segmentPairAdjacent(pair.a, pair.b, &s);
             if (adj) {
                 *SNZ_ARENA_PUSH(out, geo_MeshEdgeSegment) = s;
+                SNZ_ASSERTF(!geo_v3Equal(s.a, s.b), "Edge gen with 0 len. %f,%f,%f", s.a.X, s.a.Y, s.a.Z);
                 // printf("pair %d popped.\n", i);
             }
         }
