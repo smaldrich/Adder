@@ -71,6 +71,7 @@ struct geo_MeshEdge {
 
 typedef struct {
     HMM_Vec3 pos;
+    ui_SelectionState sel;
 } geo_MeshCorner;
 
 SNZ_SLICE(geo_MeshCorner);
@@ -800,40 +801,14 @@ static HMM_Vec3 _geo_closestPointToLineOnSegment(HMM_Vec3 l1a, HMM_Vec3 l1b, HMM
     return p2;
 }
 
-void geo_meshDrawEdges(const geo_Mesh* mesh, HMM_Vec3 cameraPos, HMM_Mat4 vp) {
-    for (geo_MeshEdge* edge = mesh->firstEdge; edge; edge = edge->next) {
-        for (int i = 0; i < edge->segments.count; i++) {
-            geo_MeshEdgeSegment seg = edge->segments.elems[i];
-            HMM_Vec4 pts[2] = {
-                HMM_V4(seg.a.X, seg.a.Y, seg.a.Z, 1),
-                HMM_V4(seg.b.X, seg.b.Y, seg.b.Z, 1),
-            };
-
-            for (int i = 0; i < 2; i++) {
-                float scaleFactor = HMM_Len(HMM_Sub(cameraPos, pts[i].XYZ)) * 0.01;
-                HMM_Vec3 offset = HMM_Mul(HMM_Norm(HMM_Sub(cameraPos, pts[i].XYZ)), scaleFactor);
-                pts[i].XYZ = HMM_Add(pts[i].XYZ, offset);
-            }
-
-            HMM_Vec4 color = HMM_Lerp(ui_colorText, edge->sel.selectionAnim, ui_colorAccent);
-            float thickness = HMM_Lerp(ui_lineThickness, edge->sel.hoverAnim, ui_lineHoveredThickness);
-            snzr_drawLine(pts, 2, color, thickness, vp);
-        }
-    }
+static float _geo_distanceToPointFromLine(HMM_Vec3 lineA, HMM_Vec3 lineDir, HMM_Vec3 pt) {
+    HMM_Vec3 diff = HMM_Sub(pt, lineA);
+    HMM_Vec3 dir = HMM_Cross(diff, lineDir);
+    dir = HMM_Cross(lineDir, dir);
+    return HMM_Dot(diff, dir);
 }
 
-void geo_meshDrawCorners(const geo_Mesh* mesh, HMM_Vec2 screenSize, HMM_Mat4 vp) {
-    for (int i = 0; i < mesh->corners.count; i++) {
-        ren3d_drawBillboard(
-            vp, screenSize,
-            *ui_cornerTexture,
-            ui_colorText,
-            mesh->corners.elems[i].pos,
-            HMM_V2(ui_cornerHalfSize, ui_cornerHalfSize));
-    }
-}
-
-static ui_SelectionStatus* _geo_meshGenSelStatuses(geo_Mesh* mesh, geo_MeshFace* hoveredFace, geo_MeshEdge* hoveredEdge, snzu_Action mouseAct, snz_Arena* scratch) {
+static ui_SelectionStatus* _geo_meshGenSelStatuses(geo_Mesh* mesh, geo_MeshFace* hoveredFace, geo_MeshEdge* hoveredEdge, geo_MeshCorner* hoveredCorner, snzu_Action mouseAct, snz_Arena* scratch) {
     ui_SelectionStatus* firstStatus = NULL;
     for (geo_MeshFace* f = mesh->firstFace; f; f = f->next) {
         ui_SelectionStatus* status = SNZ_ARENA_PUSH(scratch, ui_SelectionStatus);
@@ -860,6 +835,20 @@ static ui_SelectionStatus* _geo_meshGenSelStatuses(geo_Mesh* mesh, geo_MeshFace*
         };
         firstStatus = status;
     }
+
+    for (int i = 0; i < mesh->corners.count; i++) {
+        geo_MeshCorner* c = &mesh->corners.elems[i];
+        ui_SelectionStatus* status = SNZ_ARENA_PUSH(scratch, ui_SelectionStatus);
+        *status = (ui_SelectionStatus){
+            .withinDragZone = false,
+
+            .hovered = c == hoveredCorner,
+            .mouseAct = (c == hoveredCorner ? mouseAct : SNZU_ACT_NONE),
+            .next = firstStatus,
+            .state = &c->sel,
+        };
+        firstStatus = status;
+    }
     return firstStatus;
 }
 
@@ -870,6 +859,7 @@ void geo_meshBuild(geo_Mesh* mesh, HMM_Mat4 vp, HMM_Vec3 cameraPos, HMM_Vec3 mou
 
     geo_MeshFace* hoveredFace = NULL;
     geo_MeshEdge* hoveredEdge = NULL;
+    geo_MeshCorner* hoveredCorner = NULL;
     { // finding hovered elts.
         float minDistSquared = INFINITY;
         geo_MeshFace* minFace = NULL;
@@ -888,7 +878,6 @@ void geo_meshBuild(geo_Mesh* mesh, HMM_Mat4 vp, HMM_Vec3 cameraPos, HMM_Vec3 mou
                 }
             }
         } // end face loop
-        hoveredFace = minFace;
 
         float clipDist = minDistSquared;
         if (!isinf(minDistSquared)) {
@@ -910,16 +899,36 @@ void geo_meshBuild(geo_Mesh* mesh, HMM_Mat4 vp, HMM_Vec3 cameraPos, HMM_Vec3 mou
                     continue;
                 }
                 clipDist = distFromCamera;
-                hoveredFace = NULL;
+                minFace = NULL;
                 minEdge = e;
             }
         }
+
+        geo_MeshCorner* minCorner = NULL;
+        for (int i = 0; i < mesh->corners.count; i++) {
+            geo_MeshCorner* c = &mesh->corners.elems[i];
+            float dist = _geo_distanceToPointFromLine(cameraPos, mouseDir, c->pos);
+            float distFromCamera = HMM_Len(HMM_Sub(c->pos, cameraPos));
+            float size = 0.005 * distFromCamera;
+            if (dist > size) {
+                continue;
+            } else if (distFromCamera > clipDist + size) {
+                continue;
+            }
+            clipDist = dist;
+            minEdge = NULL;
+            minFace = NULL;
+            minCorner = c;
+        }
+
+        hoveredCorner = minCorner;
         hoveredEdge = minEdge;
+        hoveredFace = minFace;
     } // end hover checks
 
     { // sel region logic
         ui_SelectionRegion* const region = SNZU_USE_MEM(ui_SelectionRegion, "region");
-        ui_SelectionStatus* firstStatus = _geo_meshGenSelStatuses(mesh, hoveredFace, hoveredEdge, inter->mouseActions[SNZU_MB_LEFT], scratch);
+        ui_SelectionStatus* firstStatus = _geo_meshGenSelStatuses(mesh, hoveredFace, hoveredEdge, hoveredCorner, inter->mouseActions[SNZU_MB_LEFT], scratch);
         ui_selectionRegionUpdate(region, SNZU_ACT_NONE, HMM_V2(0, 0), inter->keyMods & KMOD_SHIFT, firstStatus, false);
         ui_selectionRegionAnimate(firstStatus);
     }
@@ -952,7 +961,6 @@ void geo_meshBuild(geo_Mesh* mesh, HMM_Mat4 vp, HMM_Vec3 cameraPos, HMM_Vec3 mou
         } // end face loop
         faceMeshVerts = SNZ_ARENA_ARR_END(scratch, ren3d_Vert);
     }
-
     { // render
         // FIXME: debug wireframe
         ren3d_drawMesh(
@@ -970,8 +978,39 @@ void geo_meshBuild(geo_Mesh* mesh, HMM_Mat4 vp, HMM_Vec3 cameraPos, HMM_Vec3 mou
             glEnable(GL_DEPTH_TEST);
         }
 
-        geo_meshDrawEdges(mesh, cameraPos, vp);
-        geo_meshDrawCorners(mesh, panelSize, vp);
+        for (geo_MeshEdge* edge = mesh->firstEdge; edge; edge = edge->next) {
+            for (int i = 0; i < edge->segments.count; i++) {
+                geo_MeshEdgeSegment seg = edge->segments.elems[i];
+                HMM_Vec4 pts[2] = {
+                    HMM_V4(seg.a.X, seg.a.Y, seg.a.Z, 1),
+                    HMM_V4(seg.b.X, seg.b.Y, seg.b.Z, 1),
+                };
+
+                for (int i = 0; i < 2; i++) {
+                    float scaleFactor = HMM_Len(HMM_Sub(cameraPos, pts[i].XYZ)) * 0.01;
+                    HMM_Vec3 offset = HMM_Mul(HMM_Norm(HMM_Sub(cameraPos, pts[i].XYZ)), scaleFactor);
+                    pts[i].XYZ = HMM_Add(pts[i].XYZ, offset);
+                }
+
+                HMM_Vec4 color = HMM_Lerp(ui_colorText, edge->sel.selectionAnim, ui_colorAccent);
+                float thickness = HMM_Lerp(ui_lineThickness, edge->sel.hoverAnim, ui_lineHoveredThickness);
+                snzr_drawLine(pts, 2, color, thickness, vp);
+            }
+        }
+
+        for (int i = 0; i < mesh->corners.count; i++) {
+            geo_MeshCorner* corner = &mesh->corners.elems[i];
+            // FIXME: ew gross
+            if (corner->sel.selected) {
+                glDisable(GL_DEPTH_TEST);
+            }
+            float size = HMM_Lerp(ui_cornerHalfSize, corner->sel.hoverAnim + corner->sel.selectionAnim, ui_cornerHoveredHalfSize);
+            HMM_Vec4 col = HMM_Lerp(ui_colorText, corner->sel.selectionAnim, ui_colorAccent);
+            ren3d_drawBillboard(vp, panelSize, *ui_cornerTexture, col, corner->pos, HMM_V2(size, size));
+            if (corner->sel.selected) {
+                glEnable(GL_DEPTH_TEST);
+            }
+        }
     } // end render
 }
 
