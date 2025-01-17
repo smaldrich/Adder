@@ -979,6 +979,10 @@ void geo_meshBuild(geo_Mesh* mesh, HMM_Mat4 vp, HMM_Vec3 cameraPos, HMM_Vec3 mou
         }
 
         for (geo_MeshEdge* edge = mesh->firstEdge; edge; edge = edge->next) {
+            // FIXME: ew gross
+            if (edge->sel.selected) {
+                glDisable(GL_DEPTH_TEST);
+            }
             for (int i = 0; i < edge->segments.count; i++) {
                 geo_MeshEdgeSegment seg = edge->segments.elems[i];
                 HMM_Vec4 pts[2] = {
@@ -995,6 +999,10 @@ void geo_meshBuild(geo_Mesh* mesh, HMM_Mat4 vp, HMM_Vec3 cameraPos, HMM_Vec3 mou
                 HMM_Vec4 color = HMM_Lerp(ui_colorText, edge->sel.selectionAnim, ui_colorAccent);
                 float thickness = HMM_Lerp(ui_lineThickness, edge->sel.hoverAnim, ui_lineHoveredThickness);
                 snzr_drawLine(pts, 2, color, thickness, vp);
+            }
+            // FIXME: ew gross
+            if (edge->sel.selected) {
+                glEnable(GL_DEPTH_TEST);
             }
         }
 
