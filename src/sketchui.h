@@ -502,9 +502,6 @@ void sku_drawAndBuildSketch(
         ui_SelectionRegion* const region = SNZU_USE_MEM(ui_SelectionRegion, "region");
         snzu_Action regionAct = inter->mouseActions[SNZU_MB_LEFT];
 
-        // used to fake mouse capture on an element within the sketch
-        ui_SelectionState** const focusedSketchElt = SNZU_USE_MEM(ui_SelectionState*, "focusedsketchelt");
-
         ui_SelectionStatus* firstStatus = NULL;
         {  // loop over all elems and make the list of selection statuses
             bool anyPointHovered = false;
@@ -601,37 +598,13 @@ void sku_drawAndBuildSketch(
             }
         }
 
-        { // update statuses for everything in the sketch + manage faking mouse capture
-            if (regionAct == SNZU_ACT_UP) {
-                *focusedSketchElt = NULL;
-            }
-
-            ui_SelectionStatus* focusedStatus = NULL;
-            for (ui_SelectionStatus* status = firstStatus; status; status = status->next) {
-                if (regionAct == SNZU_ACT_DOWN && status->hovered) {
-                    *focusedSketchElt = status->state;
-                }
-                if (*focusedSketchElt == status->state) {
-                    focusedStatus = status;
-                    break;
-                }
-            }
-
-            if (*focusedSketchElt) {
-                if (focusedStatus == NULL) {
-                    *focusedSketchElt = NULL; // may be null in the event of an elem deleted under from the user
-                } else {
-                    focusedStatus->mouseAct = regionAct;
-                    regionAct = SNZU_ACT_NONE;
-                }
-            }
-
+        { // update statuses for everything in the sketch
             if (inNonLineTool) {
                 ui_selectionRegionUpdateIgnoreMouse(region, firstStatus);
             } else {
-                ui_selectionRegionUpdate(region, regionAct, mouse, inter->keyMods & KMOD_SHIFT, firstStatus, !inLineMode);
+                ui_selectionRegionUpdate(region, firstStatus, regionAct, mouse, inter->keyMods & KMOD_SHIFT, !inLineMode, false);
             }
-            ui_selectionRegionAnimate(firstStatus);
+            ui_selectionRegionAnimate(region, firstStatus);
         }
 
         { // handle logic for each tool mode

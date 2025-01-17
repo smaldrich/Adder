@@ -553,9 +553,15 @@ typedef struct {
     HMM_Vec2 dragOrigin;
 } ui_SelectionRegion;
 
-// mouseaction should not contain data if any status has mouseaction data
-// If the inners are just using stock inters, shouldn't be an issue because they will capture mouse actions
-void ui_selectionRegionUpdate(ui_SelectionRegion* region, snzu_Action regionMouseAction, HMM_Vec2 mousePos, bool shiftPressed, ui_SelectionStatus* firstStatus, bool allowDragging) {
+// If inner elts don't capture mouse input, then statuses don't need to have a mouse act set - the regions mouse act will get put thru to them based on whether they are hovered or not
+void ui_selectionRegionUpdate(
+    ui_SelectionRegion* region,
+    ui_SelectionStatus* firstStatus,
+    snzu_Action regionMouseAction,
+    HMM_Vec2 mousePos,
+    bool shiftPressed,
+    bool allowDragging,
+    bool innerEltsCaptureMouse) {
     if (regionMouseAction == SNZU_ACT_DOWN) {
         region->dragging = true;
         region->dragOrigin = mousePos;
@@ -570,10 +576,20 @@ void ui_selectionRegionUpdate(ui_SelectionRegion* region, snzu_Action regionMous
     region->wasDragging = region->dragging;
 
     bool anyMouseDown = regionMouseAction == SNZU_ACT_DOWN;
-    for (ui_SelectionStatus* s = firstStatus; s; s = s->next) {
-        if (s->mouseAct == SNZU_ACT_DOWN) {
-            anyMouseDown = true;
-            break;
+    if (innerEltsCaptureMouse) {
+        for (ui_SelectionStatus* s = firstStatus; s; s = s->next) {
+            if (s->mouseAct == SNZU_ACT_DOWN) {
+                anyMouseDown = true;
+                break;
+            }
+        }
+    } else {
+        for (ui_SelectionStatus* s = firstStatus; s; s = s->next) {
+            if (s->hovered && regionMouseAction == SNZU_ACT_DOWN) {
+                region->dragging = false;
+                region->wasDragging = false;
+                break;
+            }
         }
     }
 
@@ -586,7 +602,13 @@ void ui_selectionRegionUpdate(ui_SelectionRegion* region, snzu_Action regionMous
             s->state->selected = true;
         }
 
-        if (s->mouseAct == SNZU_ACT_DOWN && s->hovered) {
+        bool mouseDown = s->mouseAct == SNZU_ACT_DOWN;
+        if (!innerEltsCaptureMouse) {
+            if (s->hovered && regionMouseAction == SNZU_ACT_DOWN) {
+                mouseDown = true;
+            }
+        }
+        if (mouseDown && s->hovered) {
             s->state->selected = !s->state->selected;
         } else if (anyMouseDown && !shiftPressed) {
             s->state->selected = false;
@@ -609,9 +631,9 @@ void ui_selectionRegionUpdateIgnoreMouse(ui_SelectionRegion* region, ui_Selectio
     }
 }
 
-void ui_selectionRegionAnimate(ui_SelectionStatus* firstStatus) {
+void ui_selectionRegionAnimate(ui_SelectionRegion* region, ui_SelectionStatus* firstStatus) {
     for (ui_SelectionStatus* s = firstStatus; s; s = s->next) {
-        snzu_easeExp(&s->state->hoverAnim, s->hovered, 15);
+        snzu_easeExp(&s->state->hoverAnim, s->hovered && !region->dragging, 15);
         snzu_easeExp(&s->state->selectionAnim, s->state->selected || s->state->tempSelected, 15);
     }
 }

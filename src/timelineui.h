@@ -88,15 +88,15 @@ void tl_build(tl_Timeline* timeline, snz_Arena* scratch, HMM_Vec2 panelSize, HMM
             if (!inRotateOrMoveMode) {
                 ui_selectionRegionUpdate(
                     region,
+                    firstStatus,
                     inter->mouseActions[SNZU_MB_LEFT],
                     inter->mousePosGlobal,
                     inter->keyMods & KMOD_SHIFT,
-                    firstStatus,
-                    true);
+                    true, true);
             } else {
                 ui_selectionRegionUpdateIgnoreMouse(region, firstStatus);
             }
-            ui_selectionRegionAnimate(firstStatus);
+            ui_selectionRegionAnimate(region, firstStatus);
         }
 
         if (inRotateOrMoveMode) {

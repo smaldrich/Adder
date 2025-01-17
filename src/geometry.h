@@ -808,7 +808,7 @@ static float _geo_distanceToPointFromLine(HMM_Vec3 lineA, HMM_Vec3 lineDir, HMM_
     return HMM_Dot(diff, dir);
 }
 
-static ui_SelectionStatus* _geo_meshGenSelStatuses(geo_Mesh* mesh, geo_MeshFace* hoveredFace, geo_MeshEdge* hoveredEdge, geo_MeshCorner* hoveredCorner, snzu_Action mouseAct, snz_Arena* scratch) {
+static ui_SelectionStatus* _geo_meshGenSelStatuses(geo_Mesh* mesh, geo_MeshFace* hoveredFace, geo_MeshEdge* hoveredEdge, geo_MeshCorner* hoveredCorner, snz_Arena* scratch) {
     ui_SelectionStatus* firstStatus = NULL;
     for (geo_MeshFace* f = mesh->firstFace; f; f = f->next) {
         ui_SelectionStatus* status = SNZ_ARENA_PUSH(scratch, ui_SelectionStatus);
@@ -816,7 +816,6 @@ static ui_SelectionStatus* _geo_meshGenSelStatuses(geo_Mesh* mesh, geo_MeshFace*
             .withinDragZone = false,
 
             .hovered = f == hoveredFace,
-            .mouseAct = (f == hoveredFace ? mouseAct : SNZU_ACT_NONE),
             .next = firstStatus,
             .state = &f->sel,
         };
@@ -829,7 +828,6 @@ static ui_SelectionStatus* _geo_meshGenSelStatuses(geo_Mesh* mesh, geo_MeshFace*
             .withinDragZone = false,
 
             .hovered = e == hoveredEdge,
-            .mouseAct = (e == hoveredEdge ? mouseAct : SNZU_ACT_NONE),
             .next = firstStatus,
             .state = &e->sel,
         };
@@ -843,7 +841,6 @@ static ui_SelectionStatus* _geo_meshGenSelStatuses(geo_Mesh* mesh, geo_MeshFace*
             .withinDragZone = false,
 
             .hovered = c == hoveredCorner,
-            .mouseAct = (c == hoveredCorner ? mouseAct : SNZU_ACT_NONE),
             .next = firstStatus,
             .state = &c->sel,
         };
@@ -909,7 +906,7 @@ void geo_meshBuild(geo_Mesh* mesh, HMM_Mat4 vp, HMM_Vec3 cameraPos, HMM_Vec3 mou
             geo_MeshCorner* c = &mesh->corners.elems[i];
             float dist = _geo_distanceToPointFromLine(cameraPos, mouseDir, c->pos);
             float distFromCamera = HMM_Len(HMM_Sub(c->pos, cameraPos));
-            float size = 0.005 * distFromCamera;
+            float size = 0.002 * distFromCamera;
             if (dist > size) {
                 continue;
             } else if (distFromCamera > clipDist + size) {
@@ -928,9 +925,9 @@ void geo_meshBuild(geo_Mesh* mesh, HMM_Mat4 vp, HMM_Vec3 cameraPos, HMM_Vec3 mou
 
     { // sel region logic
         ui_SelectionRegion* const region = SNZU_USE_MEM(ui_SelectionRegion, "region");
-        ui_SelectionStatus* firstStatus = _geo_meshGenSelStatuses(mesh, hoveredFace, hoveredEdge, hoveredCorner, inter->mouseActions[SNZU_MB_LEFT], scratch);
-        ui_selectionRegionUpdate(region, SNZU_ACT_NONE, HMM_V2(0, 0), inter->keyMods & KMOD_SHIFT, firstStatus, false);
-        ui_selectionRegionAnimate(firstStatus);
+        ui_SelectionStatus* firstStatus = _geo_meshGenSelStatuses(mesh, hoveredFace, hoveredEdge, hoveredCorner, scratch);
+        ui_selectionRegionUpdate(region, firstStatus, inter->mouseActions[SNZU_MB_LEFT], inter->mousePosLocal, inter->keyMods & KMOD_SHIFT, true, false);
+        ui_selectionRegionAnimate(region, firstStatus);
     }
 
     ren3d_VertSlice faceMeshVerts = { 0 };
