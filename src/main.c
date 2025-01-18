@@ -63,12 +63,7 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
 
     main_sceneFB = snzr_frameBufferInit(snzr_textureInitRBGA(500, 500, NULL));
 
-    {
-        main_timeline = tl_timelineInit(&main_tlArena);
-        tl_timelinePushComment(&main_timeline, HMM_V2(0, 200), "yooooo");
-        tl_timelinePushComment(&main_timeline, HMM_V2(200, 200), "2nd comment wow");
-    }
-
+    main_timeline = tl_timelineInit(&main_tlArena);
     {
         geo_BSPTriList* bspTris = NULL;
         geo_MeshFace* faces = NULL;
@@ -105,19 +100,10 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
         geo_meshGenerateEdges(&mesh, &main_meshArena, scratch);
         geo_meshGenerateCorners(&mesh, &main_meshArena, scratch);
 
-        tl_timelinePushGeoImport(&main_timeline, HMM_V2(-200, 0), mesh);
+        tl_timelinePushGeometry(&main_timeline, HMM_V2(-200, 0), mesh);
     }  // end mesh for testing
 
-    sk_Sketch s = sk_sketchInit(&main_sketchArena);
-    geo_Align a = (geo_Align){
-        .startPt = HMM_V3(0, 0, 0),
-        .startNormal = HMM_V3(0, 0, 1),
-        .startVertical = HMM_V3(0, 1, 0),
-        .endPt = HMM_V3(0, 0, 0),
-        .endNormal = HMM_V3(0, 0, 1),
-        .endVertical = HMM_V3(0, 1, 0),
-    };
-    tl_timelinePushSketch(&main_timeline, HMM_V2(0, 0), s, a);
+    tl_timelinePushSketch(&main_timeline, HMM_V2(0, 0), sk_sketchInit(&main_sketchArena));
 }
 
 // returns the normal of the ray starting at cameraPos
@@ -178,39 +164,12 @@ void main_drawTimelineMeshPreview(float dt, HMM_Vec2 panelSize, const ren3d_Mesh
         _snzr_globs.solidTex);
 }
 
-typedef struct {
-    HMM_Vec2 orbitAngle;
-    float orbitDistance;
-    geo_Align orbitOrigin;
-} main_Scene;
-
-// FIXME: initialize using TL op to give a not insane start
-// i.e. facing a sketch, not inside a mesh, etc.
-main_Scene main_sceneInit() {
-    main_Scene out = (main_Scene){
-        .orbitDistance = 5,
-        (geo_Align) {
-            .startNormal = HMM_V3(0, 0, 1),
-            .startPt = HMM_V3(0, 0, 0),
-            .startVertical = HMM_V3(0, 1, 0),
-            .endNormal = HMM_V3(0, 0, 1),
-            .endPt = HMM_V3(0, 0, 0),
-            .endVertical = HMM_V3(0, 1, 0),
-        },
-        // Note that the start component of this is indended to stay as what it's initialized to,
-        // the end indicates orientation/position of the camera's orbit origin
-        // normal points towards the camera when it has a angle of 0, 0
-    };
-    return out;
-}
-
 // takes care of camera logic + skybox
 void main_sceneBuild(
-    main_Scene* scene,
+    tl_Scene* scene,
     HMM_Vec2 panelSize, snzu_Interaction* panelInter,
     HMM_Vec3* outCamPos, HMM_Vec3* outMouseDir,
     HMM_Mat4* outVP) {
-    // FIXME: Look at sc
     // FIXME: automagic redo of the origin
     SNZ_ASSERT(scene, "scene shouldn't be null"); // FIXME: this is only here cause the VS formatter was being annoying, sorry
 
@@ -224,13 +183,13 @@ void main_sceneBuild(
             if (panelInter->keyMods & KMOD_SHIFT) {
                 HMM_Quat cameraRot = HMM_QFromAxisAngle_RH(HMM_V3(1, 0, 0), scene->orbitAngle.X);
                 cameraRot = HMM_MulQ(HMM_QFromAxisAngle_RH(HMM_V3(0, 1, 0), scene->orbitAngle.Y), cameraRot);
-                HMM_Quat originRot = geo_alignToQuat(scene->orbitOrigin);
+                HMM_Quat originRot = geo_alignToQuat(geo_alignZero(), scene->orbitOrigin);
 
                 HMM_Quat rotation = HMM_MulQ(originRot, cameraRot);
-                diff = HMM_MulV2F(diff, -0.001 * scene->orbitDistance);
+                diff = HMM_MulV2F(diff, -0.001 * scene->orbitDist);
                 HMM_Vec4 diffInSpace = HMM_V4(diff.X, -diff.Y, 0, 1);
                 diffInSpace = HMM_Mul(HMM_QToM4(rotation), diffInSpace);
-                scene->orbitOrigin.endPt = HMM_Add(scene->orbitOrigin.endPt, diffInSpace.XYZ);
+                scene->orbitOrigin.pt = HMM_Add(scene->orbitOrigin.pt, diffInSpace.XYZ);
             } else {
                 diff = HMM_V2(diff.Y, diff.X);  // switch so that rotations are repective to their axis
                 diff = HMM_Mul(diff, -0.006f);  // sens
@@ -245,14 +204,14 @@ void main_sceneBuild(
         }
         *lastMousePos = panelInter->mousePosGlobal;
 
-        scene->orbitDistance += panelInter->mouseScrollY * scene->orbitDistance * 0.05;
+        scene->orbitDist += panelInter->mouseScrollY * scene->orbitDist * 0.05;
     }
 
     { // generate VP / camera pos / mouse dir
-        HMM_Mat4 view = HMM_Translate(HMM_V3(0, 0, scene->orbitDistance));
+        HMM_Mat4 view = HMM_Translate(HMM_V3(0, 0, scene->orbitDist));
         view = HMM_MulM4(HMM_Rotate_RH(scene->orbitAngle.X, HMM_V3(1, 0, 0)), view);
         view = HMM_MulM4(HMM_Rotate_RH(scene->orbitAngle.Y, HMM_V3(0, 1, 0)), view);
-        view = HMM_MulM4(geo_alignToM4(scene->orbitOrigin), view);
+        view = HMM_MulM4(geo_alignToM4(geo_alignZero(), scene->orbitOrigin), view);
         float aspect = panelSize.X / panelSize.Y;
         HMM_Mat4 proj = HMM_Perspective_RH_NO(HMM_AngleDeg(90), aspect, 0.001, 100000);
         HMM_Mat4 vp = HMM_MulM4(proj, HMM_InvGeneral(view));
@@ -409,11 +368,6 @@ void main_frame(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screen
                 snzu_Interaction* inter = SNZU_USE_MEM(snzu_Interaction, "inter");
                 snzu_boxSetInteractionOutput(inter, SNZU_IF_HOVER | SNZU_IF_MOUSE_BUTTONS | SNZU_IF_MOUSE_SCROLL);
 
-                main_Scene* const scene = SNZU_USE_MEM(main_Scene, "scene");
-                if (snzu_useMemIsPrevNew()) {
-                    *scene = main_sceneInit();
-                }
-
                 snzu_instanceSelect(&main_sceneUIInstance);
                 snzu_frameStart(scratch, HMM_V2(0, 0), dt);
 
@@ -422,26 +376,28 @@ void main_frame(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screen
                     if (op) {
                         HMM_Vec3 cameraPos, mouseDir;
                         HMM_Mat4 vp;
-                        main_sceneBuild(scene, HMM_V2(w, h), inter, &cameraPos, &mouseDir, &vp);
+                        main_sceneBuild(&op->scene, HMM_V2(w, h), inter, &cameraPos, &mouseDir, &vp);
 
-
-                        if (op->kind == TL_OPK_GEO_IMPORT) {
-                            geo_meshBuild(&op->val.geoImport.mesh, vp, cameraPos, mouseDir, inter, HMM_V2(w, h), scratch);
-                            snzu_frameDrawAndGenInteractions(inputs, HMM_M4D(1.0f));
-                        } else if (op->kind == TL_OPK_SKETCH) {
-                            tl_OpSketch* opSketch = &op->val.sketch;
-                            sku_drawAndBuildSketch(&opSketch->sketch, opSketch->align, vp, cameraPos, soundVal, HMM_V2(w, h), scratch);
-                            sku_endFrameForUIInstance(inputs, opSketch->align, vp, cameraPos, mouseDir);
-                        }
                         // FIXME: don't check for kinds because that isn't how this is supposed to work
+                        if (op->kind == TL_OPK_SKETCH) {
+                            tl_OpSketch* opSketch = &op->val.sketch;
+                            geo_Align alignOfSketch = geo_alignZero();
+                            sku_drawAndBuildSketch(&opSketch->sketch, alignOfSketch, vp, cameraPos, soundVal, HMM_V2(w, h), scratch);
+                            sku_endFrameForUIInstance(inputs, alignOfSketch, vp, cameraPos, mouseDir);
+                        } else {
+                            if (op->scene.mesh) {
+                                geo_meshBuild(op->scene.mesh, vp, cameraPos, mouseDir, inter, HMM_V2(w, h), scratch);
+                                snzu_frameDrawAndGenInteractions(inputs, HMM_M4D(1.0f));
+                            }
+                        }
                     }
                 } else if (main_currentView == SC_VIEW_TIMELINE) {
                     if (main_timeline.activeOp) {
-                        if (main_timeline.activeOp->kind == TL_OPK_GEO_IMPORT) {
-                            ren3d_Mesh* mesh = &main_timeline.activeOp->val.geoImport.mesh.renderMesh;
-                            main_drawTimelineMeshPreview(dt, HMM_V2(w, h), mesh);
+                        geo_Mesh* mesh = main_timeline.activeOp->scene.mesh;
+                        if (mesh) {
+                            ren3d_Mesh* renderMesh = &mesh->renderMesh;
+                            main_drawTimelineMeshPreview(dt, HMM_V2(w, h), renderMesh);
                         }
-                        // FIXME: don't check for kinds because that isn't how this is supposed to work
                     }
                     HMM_Mat4 vp = { 0 };
                     snzu_Input inputCopy = inputs;

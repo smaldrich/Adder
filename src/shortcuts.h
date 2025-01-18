@@ -134,6 +134,7 @@ bool _scc_sketchAddDistanceConstraint(_sc_CommandArgs args) {
     return true;
 }
 
+// FIXME: this and every sketch cmd triggers and crashes if there isn't an active sketch, fix that
 bool _scc_sketchAddAngleConstraint(_sc_CommandArgs args) {
     int selectedCount = 0;
     sk_Line* lines[2] = { NULL, NULL };
@@ -277,10 +278,10 @@ bool scc_timelineRotate(_sc_CommandArgs args) {
     return false;
 }
 
-bool scc_timelineAddGeoImport(_sc_CommandArgs args) {
+bool scc_timelineAddGeometry(_sc_CommandArgs args) {
     *args.currentView = SC_VIEW_TIMELINE;
     tl_timelineDeselectAll(args.timeline);
-    tl_Op* newOp = tl_timelinePushGeoImport(args.timeline, HMM_V2(0, 0), (geo_Mesh) { 0 });
+    tl_Op* newOp = tl_timelinePushGeometry(args.timeline, HMM_V2(0, 0), (geo_Mesh) { 0 });
     // FIXME: should be on the mouse, isn't // enter move mode?
     newOp->ui.sel.selected = true;
     newOp->ui.sel.selectionAnim = 1;
@@ -290,18 +291,9 @@ bool scc_timelineAddGeoImport(_sc_CommandArgs args) {
 bool scc_timelineAddSketch(_sc_CommandArgs args) {
     *args.currentView = SC_VIEW_TIMELINE;
     tl_timelineDeselectAll(args.timeline);
-    geo_Align a = (geo_Align){
-        .startPt = HMM_V3(0, 0, 0),
-        .startNormal = HMM_V3(0, 0, 1),
-        .startVertical = HMM_V3(0, 1, 0),
-
-        .endPt = HMM_V3(0, 0, 0),
-        .endNormal = HMM_V3(0, 0, 1),
-        .endVertical = HMM_V3(0, 1, 0),
-    };
     snz_Arena* arena = SNZ_ARENA_PUSH(args.timeline->arena, snz_Arena); // FIXME: this is a memory leak without a good solution :(
     *arena = snz_arenaInit(1000000, "sketch arena");
-    tl_Op* newOp = tl_timelinePushSketch(args.timeline, HMM_V2(0, 0), sk_sketchInit(arena), a);
+    tl_Op* newOp = tl_timelinePushSketch(args.timeline, HMM_V2(0, 0), sk_sketchInit(arena));
     // FIXME: should be on the mouse, isn't // enter move mode?
     newOp->ui.sel.selected = true;
     newOp->ui.sel.selectionAnim = 1;
@@ -340,7 +332,8 @@ void sc_init(PoolAlloc* pool) {
     _sc_commandInit("delete", "X", SDLK_x, KMOD_NONE, SC_VIEW_TIMELINE, scc_timelineDelete);
     _sc_commandInit("move", "G", SDLK_g, KMOD_NONE, SC_VIEW_TIMELINE, scc_timelineMove);
     _sc_commandInit("rotate", "R", SDLK_r, KMOD_NONE, SC_VIEW_TIMELINE, scc_timelineRotate);
-    _sc_commandInit("import geometry", "I", SDLK_i, KMOD_NONE, SC_VIEW_TIMELINE | SC_VIEW_SCENE, scc_timelineAddGeoImport);
+    // FIXME: rename this and add file dialogue and add stl parsing
+    _sc_commandInit("new geomety", "I", SDLK_i, KMOD_NONE, SC_VIEW_TIMELINE | SC_VIEW_SCENE, scc_timelineAddGeometry);
     _sc_commandInit("new sketch", "S", SDLK_s, KMOD_NONE, SC_VIEW_TIMELINE | SC_VIEW_SCENE, scc_timelineAddSketch);
     _sc_commandInit("mark active", "W", SDLK_w, KMOD_NONE, SC_VIEW_TIMELINE, scc_timelineMarkActive);
 

@@ -446,18 +446,18 @@ static void _sku_draw(sk_Sketch* sketch, snzu_Interaction* inter, HMM_Mat4 model
 // factored out because the logic to get the mouse pos is a little verbose for main_
 void sku_endFrameForUIInstance(snzu_Input input, geo_Align align, HMM_Mat4 vp, HMM_Vec3 cameraPos, HMM_Vec3 mouseDir) {
     float t = 0;
-    bool hit = geo_planeLineIntersection(align.endPt, align.endNormal, cameraPos, mouseDir, &t);
+    bool hit = geo_planeLineIntersection(align.pt, align.normal, cameraPos, mouseDir, &t);
     HMM_Vec3 point = HMM_Add(cameraPos, HMM_Mul(mouseDir, t));
     if (!hit || geo_floatLessEqual(t, 0)) {
         point = HMM_V3(100000, 100000, 100000);
     }
-    point = HMM_Sub(point, align.endPt);
-    HMM_Vec3 xAxis = HMM_Cross(align.endVertical, align.endNormal);
+    point = HMM_Sub(point, align.pt);
+    HMM_Vec3 xAxis = HMM_Cross(align.vertical, align.normal);
     float x = HMM_Dot(point, xAxis);
-    float y = HMM_Dot(point, align.endVertical);
+    float y = HMM_Dot(point, align.vertical);
     input.mousePos = HMM_V2(x, -y);  // flip from sketch space to UI space here
 
-    HMM_Mat4 sketchMVP = HMM_Mul(vp, geo_alignToM4(align));
+    HMM_Mat4 sketchMVP = HMM_Mul(vp, geo_alignToM4(geo_alignZero(), align));
     HMM_Mat4 uiMVP = HMM_Mul(sketchMVP, HMM_Scale(HMM_V3(1, -1, 1)));
 
     glDisable(GL_DEPTH_TEST);
@@ -475,7 +475,7 @@ void sku_drawAndBuildSketch(
     // work with down positive coords. It works out if we invert the data it gets fed along with the
     // projection matrix. Very gross but there isn't an obvious better way. Adding a vertical toggle makes
     // many things, notably including build code, much more unwieldy
-    HMM_Mat4 model = geo_alignToM4(align);
+    HMM_Mat4 model = geo_alignToM4(geo_alignZero(), align);
     HMM_Mat4 sketchMVP = HMM_Mul(vp, model);
     HMM_Mat4 uiMVP = HMM_Mul(sketchMVP, HMM_Scale(HMM_V3(1, -1, 1)));
 

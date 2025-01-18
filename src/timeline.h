@@ -7,23 +7,34 @@
 
 typedef enum {
     TL_OPK_SKETCH,
-    TL_OPK_COMMENT,
-    TL_OPK_GEO_IMPORT,
+    TL_OPK_GEOMETRY,
 } tl_OpKind;
 
 typedef struct {
     sk_Sketch sketch;
-    geo_Align align;
 } tl_OpSketch;
 
 typedef struct {
-    const char* text;
-} tl_OpComment;
+    geo_Mesh mesh;
+} tl_OpGeometry;
 
 typedef struct {
-    const char* path;
-    geo_Mesh mesh;
-} tl_OpGeoImport;
+    geo_Align orbitOrigin;
+    HMM_Vec2 orbitAngle;
+    float orbitDist;
+
+    geo_Mesh* mesh;
+} tl_Scene;
+
+tl_Scene tl_sceneInit() {
+    // FIXME: initialize this to not be inside of geometry
+    tl_Scene out = (tl_Scene){
+        .orbitDist = 5,
+        .orbitOrigin = geo_alignZero(),
+        .mesh = NULL,
+    };
+    return out;
+}
 
 typedef struct tl_Op tl_Op;
 struct tl_Op {
@@ -38,10 +49,11 @@ struct tl_Op {
 
     tl_OpKind kind;
     union {
-        tl_OpComment comment; // FIXME: factor out to it's own construct
         tl_OpSketch sketch;
-        tl_OpGeoImport geoImport;
+        tl_OpGeometry geometry;
     } val;
+
+    tl_Scene scene;
 };
 
 typedef struct {
@@ -61,40 +73,29 @@ tl_Timeline tl_timelineInit(snz_Arena* arena) {
     return out;
 }
 
-tl_Op* tl_timelinePushSketch(tl_Timeline* tl, HMM_Vec2 pos, sk_Sketch sketch, geo_Align align) {
+tl_Op* tl_timelinePushSketch(tl_Timeline* tl, HMM_Vec2 pos, sk_Sketch sketch) {
     tl_Op* out = SNZ_ARENA_PUSH(tl->arena, tl_Op);
     *out = (tl_Op){
         .ui.pos = pos,
         .kind = TL_OPK_SKETCH,
         .val.sketch.sketch = sketch,
-        .val.sketch.align = align,
         .next = tl->firstOp,
+        .scene = tl_sceneInit(),
     };
     tl->firstOp = out;
     return out;
 }
 
-tl_Op* tl_timelinePushComment(tl_Timeline* tl, HMM_Vec2 pos, const char* text) {
+tl_Op* tl_timelinePushGeometry(tl_Timeline* tl, HMM_Vec2 pos, geo_Mesh mesh) {
     tl_Op* out = SNZ_ARENA_PUSH(tl->arena, tl_Op);
     *out = (tl_Op){
         .ui.pos = pos,
-        .kind = TL_OPK_COMMENT,
-        .val.comment.text = text,
+        .kind = TL_OPK_GEOMETRY,
         .next = tl->firstOp,
+        .val.geometry.mesh = mesh,
+        .scene = tl_sceneInit(),
     };
-    tl->firstOp = out;
-    return out;
-}
-
-// FIXME: make take a path (?) (might need to be some file embed ref instead but eh)
-tl_Op* tl_timelinePushGeoImport(tl_Timeline* tl, HMM_Vec2 pos, geo_Mesh mesh) {
-    tl_Op* out = SNZ_ARENA_PUSH(tl->arena, tl_Op);
-    *out = (tl_Op){
-        .ui.pos = pos,
-        .kind = TL_OPK_GEO_IMPORT,
-        .next = tl->firstOp,
-        .val.geoImport.mesh = mesh,
-    };
+    out->scene.mesh = &out->val.geometry.mesh;
 
     tl->firstOp = out;
     return out;

@@ -164,13 +164,14 @@ void tl_build(tl_Timeline* timeline, snz_Arena* scratch, HMM_Vec2 panelSize, HMM
             snzu_boxSetInteractionOutput(&op->ui.inter, flags);
 
             const char* labelStr = NULL;
-            if (op->kind == TL_OPK_COMMENT) {
-                labelStr = op->val.comment.text;
-            } else if (op->kind == TL_OPK_SKETCH) {
-                labelStr = "sketch";
-            } else if (op->kind == TL_OPK_GEO_IMPORT) {
+            if (op->kind == TL_OPK_SKETCH) {
                 // FIXME: put a render here
-                labelStr = snz_arenaFormatStr(scratch, "Geo from: %s", op->val.geoImport.path);
+                labelStr = "sketch";
+            } else if (op->kind == TL_OPK_GEOMETRY) {
+                // FIXME: put a render here
+                labelStr = "geometry";
+            } else {
+                SNZ_ASSERTF(false, "unreachable. kind: %d", op->kind);
             }
             HMM_Vec4 textColor = HMM_Lerp(ui_colorText, op->ui.sel.selectionAnim, ui_colorAccent);
             snzu_boxSetDisplayStr(&ui_labelFont, textColor, labelStr);
