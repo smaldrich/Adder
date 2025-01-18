@@ -130,16 +130,6 @@ typedef struct {
     snz_Arena* arena;
 } sk_Sketch;
 
-// arena is retained
-sk_Sketch sk_sketchInit(snz_Arena* arena) {
-    return (sk_Sketch) {
-        .firstPoint = NULL,
-            .firstLine = NULL,
-            .firstConstraint = NULL,
-            .arena = arena,
-    };
-}
-
 void sk_sketchSetOrigin(sk_Sketch* sketch, sk_Line* line, bool originOnP1, float angle) {
     sketch->originLine = line;
     sketch->originPt = (originOnP1 ? line->p1 : line->p2);
@@ -182,6 +172,19 @@ sk_Line* sk_sketchAddLine(sk_Sketch* sketch, sk_Point* p1, sk_Point* p2) {
         sketch->firstLine = line;
     }
     return line;
+}
+
+// arena is retained
+sk_Sketch sk_sketchInit(snz_Arena* arena) {
+    sk_Sketch out = (sk_Sketch){ .arena = arena };
+
+    // initial origin, because sketches shouldn't be empty FIXME: kinda clunky way to do it
+    sk_Point* p1 = sk_sketchAddPoint(&out, HMM_V2(0, 0));
+    sk_Point* p2 = sk_sketchAddPoint(&out, HMM_V2(1, 0));
+    sk_Line* l = sk_sketchAddLine(&out, p1, p2);
+    out.originPt = p1;
+    out.originLine = l;
+    return out;
 }
 
 // FIXME: deduplicate

@@ -287,6 +287,27 @@ bool scc_timelineAddGeoImport(_sc_CommandArgs args) {
     return true;
 }
 
+bool scc_timelineAddSketch(_sc_CommandArgs args) {
+    *args.currentView = SC_VIEW_TIMELINE;
+    tl_timelineDeselectAll(args.timeline);
+    geo_Align a = (geo_Align){
+        .startPt = HMM_V3(0, 0, 0),
+        .startNormal = HMM_V3(0, 0, 1),
+        .startVertical = HMM_V3(0, 1, 0),
+
+        .endPt = HMM_V3(0, 0, 0),
+        .endNormal = HMM_V3(0, 0, 1),
+        .endVertical = HMM_V3(0, 1, 0),
+    };
+    snz_Arena* arena = SNZ_ARENA_PUSH(args.timeline->arena, snz_Arena); // FIXME: this is a memory leak without a good solution :(
+    *arena = snz_arenaInit(1000000, "sketch arena");
+    tl_Op* newOp = tl_timelinePushSketch(args.timeline, HMM_V2(0, 0), sk_sketchInit(arena), a);
+    // FIXME: should be on the mouse, isn't // enter move mode?
+    newOp->ui.sel.selected = true;
+    newOp->ui.sel.selectionAnim = 1;
+    return true;
+}
+
 bool scc_timelineMarkActive(_sc_CommandArgs args) {
     tl_Op* selected = NULL;
     for (tl_Op* op = args.timeline->firstOp; op; op = op->next) {
@@ -320,6 +341,7 @@ void sc_init(PoolAlloc* pool) {
     _sc_commandInit("move", "G", SDLK_g, KMOD_NONE, SC_VIEW_TIMELINE, scc_timelineMove);
     _sc_commandInit("rotate", "R", SDLK_r, KMOD_NONE, SC_VIEW_TIMELINE, scc_timelineRotate);
     _sc_commandInit("import geometry", "I", SDLK_i, KMOD_NONE, SC_VIEW_TIMELINE | SC_VIEW_SCENE, scc_timelineAddGeoImport);
+    _sc_commandInit("new sketch", "S", SDLK_s, KMOD_NONE, SC_VIEW_TIMELINE | SC_VIEW_SCENE, scc_timelineAddSketch);
     _sc_commandInit("mark active", "W", SDLK_w, KMOD_NONE, SC_VIEW_TIMELINE, scc_timelineMarkActive);
 
     _sc_commandInit("goto main scene", "W", SDLK_w, KMOD_LSHIFT, SC_VIEW_ALL, _scc_goToMainScene);

@@ -108,40 +108,16 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
         tl_timelinePushGeoImport(&main_timeline, HMM_V2(-200, 0), mesh);
     }  // end mesh for testing
 
-    {
-        sk_Sketch sketch = sk_sketchInit(&main_sketchArena);
-        sk_Point* originPt = sk_sketchAddPoint(&sketch, HMM_V2(0, 0));
-        sk_Point* left = sk_sketchAddPoint(&sketch, HMM_V2(-1, -1));
-        sk_Point* right = sk_sketchAddPoint(&sketch, HMM_V2(1, 0));
-        sk_Point* up = sk_sketchAddPoint(&sketch, HMM_V2(0, 1));
-
-        sk_Line* vertical = sk_sketchAddLine(&sketch, originPt, up);
-        sk_sketchAddConstraintDistance(&sketch, vertical, 0.5);
-
-        sk_Line* leftLine = sk_sketchAddLine(&sketch, left, originPt);
-        sk_sketchAddConstraintAngle(&sketch, vertical, false, leftLine, true, HMM_AngleDeg(90));
-        sk_sketchAddConstraintDistance(&sketch, leftLine, 0.8);
-        sk_Line* rightLine = sk_sketchAddLine(&sketch, originPt, right);
-        sk_sketchAddConstraintDistance(&sketch, rightLine, 1);
-        sk_sketchAddConstraintAngle(&sketch, rightLine, false, vertical, false, HMM_AngleDeg(120));
-
-        sk_Point* other = sk_sketchAddPoint(&sketch, HMM_V2(-1, 1));
-        sk_Line* l = sk_sketchAddLine(&sketch, left, other);
-        sk_sketchAddConstraintAngle(&sketch, l, false, leftLine, false, HMM_AngleDeg(-120));
-
-        sk_sketchAddLine(&sketch, up, right);
-        sk_sketchSetOrigin(&sketch, vertical, true, HMM_AngleDeg(90));
-
-        geo_Align align = (geo_Align){
-            .startNormal = HMM_V3(0, 0, 1),
-            .startPt = HMM_V3(0, 0, 0),
-            .startVertical = HMM_V3(0, 1, 0),
-            .endNormal = HMM_V3(0, 0, 1),
-            .endPt = HMM_V3(0, 0, 0),
-            .endVertical = HMM_V3(0, 1, 0),
-        };
-        tl_timelinePushSketch(&main_timeline, HMM_V2(0, 0), sketch, align);
-    }
+    sk_Sketch s = sk_sketchInit(&main_sketchArena);
+    geo_Align a = (geo_Align){
+        .startPt = HMM_V3(0, 0, 0),
+        .startNormal = HMM_V3(0, 0, 1),
+        .startVertical = HMM_V3(0, 1, 0),
+        .endPt = HMM_V3(0, 0, 0),
+        .endNormal = HMM_V3(0, 0, 1),
+        .endVertical = HMM_V3(0, 1, 0),
+    };
+    tl_timelinePushSketch(&main_timeline, HMM_V2(0, 0), s, a);
 }
 
 // returns the normal of the ray starting at cameraPos
