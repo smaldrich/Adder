@@ -1255,8 +1255,8 @@ static void _snzu_genInteractionsForBoxAndChildren(_snzu_Box* box, uint64_t* rem
 
     bool containsMouse = false;
     HMM_Vec2 mousePos = _snzu_instance->currentInputs.mousePos;
-    if (box->clippedStart.X < mousePos.X && box->clippedEnd.X > mousePos.X) {
-        if (box->clippedStart.Y < mousePos.Y && box->clippedEnd.Y > mousePos.Y) {
+    if (box->clippedStart.X <= mousePos.X && box->clippedEnd.X > mousePos.X) {
+        if (box->clippedStart.Y <= mousePos.Y && box->clippedEnd.Y > mousePos.Y) {
             containsMouse = true;
         }
     }
@@ -1265,6 +1265,8 @@ static void _snzu_genInteractionsForBoxAndChildren(_snzu_Box* box, uint64_t* rem
     if (_snzu_instance->mouseCapturePathHash != 0) {
         captureAllowsMouseEvents = false;
         if (box->pathHash == _snzu_instance->mouseCapturePathHash) {
+            captureAllowsMouseEvents = true;
+        } else if (box->interactionMask & SNZU_IF_ALLOW_EVENT_FALLTHROUGH) {
             captureAllowsMouseEvents = true;
         }
     }

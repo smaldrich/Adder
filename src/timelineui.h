@@ -175,7 +175,7 @@ void tl_build(tl_Timeline* timeline, snz_Arena* scratch, HMM_Vec2 panelSize, HMM
             }
             HMM_Vec4 textColor = HMM_Lerp(ui_colorText, op->ui.sel.selectionAnim, ui_colorAccent);
             snzu_boxSetDisplayStr(&ui_labelFont, textColor, labelStr);
-            float radius = 60 + (10 * op->ui.sel.hoverAnim) + (20 * sound);
+            float radius = 60 + (10 * op->ui.sel.hoverAnim) + (20 * sound); // FIXME: why are these big on load??
             snzu_boxSetCornerRadius(radius);
             snzu_boxSetStart(HMM_Sub(op->ui.pos, HMM_V2(radius, radius)));
             snzu_boxSetEnd(HMM_Add(op->ui.pos, HMM_V2(radius, radius)));

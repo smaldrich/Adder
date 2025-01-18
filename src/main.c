@@ -24,7 +24,7 @@ snzu_Instance main_uiInstance;
 snzu_Instance main_sceneUIInstance;
 snzr_FrameBuffer main_sceneFB;
 
-sc_View main_currentView = SC_VIEW_SCENE;
+sc_View main_currentView = SC_VIEW_TIMELINE;
 set_Settings main_settings;
 tl_Timeline main_timeline;
 
@@ -275,28 +275,30 @@ void main_frame(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screen
         ui_setThemeLight();
     }
 
-    HMM_Vec2 rightPanelSize = HMM_V2(0, 0);
-
     snzu_boxNew("parent");
     snzu_boxFillParent();
     snzu_boxScope() {
-        float* const leftPanelAnim = SNZU_USE_MEM(float, "leftPanelAnim");
+        float soundVal = main_getSmoothedSound();
         snzu_Interaction* leftPanelInter = SNZU_USE_MEM(snzu_Interaction, "leftPanelInter");
+        HMM_Vec2 rightPanelSize = HMM_V2(0, 0);
+        float leftPanelSize = 0;
+        float* const leftPanelStayClosedTimer = SNZU_USE_MEM(float, "leftPanelClosedTimer"); // in seconds,  to forcibly close the left panel when the user presses a button to change view
 
-        // FIXME: on startup this flashes out
-        float leftPanelSize = *leftPanelAnim * 200;
-        bool target = main_settings.leftBarAlwaysOpen || (leftPanelInter->mousePosGlobal.X < 20) || (leftPanelInter->mousePosGlobal.X < leftPanelSize);
-        // ^ FIXME: fixable without doing this: using hover doesn't work because of inner elts. masking hover events
-        snzu_easeExp(leftPanelAnim, target, ui_menuAnimationSpeed);
+        {
+            *leftPanelStayClosedTimer -= dt;
+            bool target = main_settings.leftBarAlwaysOpen || (leftPanelInter->hovered && (*leftPanelStayClosedTimer <= 0));
+            float* const leftPanelAnim = SNZU_USE_MEM(float, "leftPanelAnim");
+            snzu_easeExp(leftPanelAnim, target, ui_menuAnimationSpeed);
+            leftPanelSize = *leftPanelAnim * 200;
 
-        rightPanelSize = snzu_boxGetSizePtr(snzu_boxGetParent());
-        rightPanelSize.X -= leftPanelSize;
+            rightPanelSize = snzu_boxGetSizePtr(snzu_boxGetParent());
+            rightPanelSize.X -= leftPanelSize;
+        }
 
         snzu_boxNew("leftPanel");
         snzu_boxFillParent();
         snzu_boxSetSizeFromStartAx(SNZU_AX_X, leftPanelSize);
         snzu_boxSetColor(ui_colorBackground);
-        snzu_boxSetInteractionOutput(leftPanelInter, SNZU_IF_HOVER);
         snzu_boxScope() {
             snzu_boxNew("padding");
             snzu_boxSetSizeMarginFromParent(20);
@@ -306,9 +308,11 @@ void main_frame(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screen
                 snzu_boxSizePctParent(0.5, SNZU_AX_Y);
                 snzu_boxScope() {
                     if (ui_buttonWithHighlight(main_currentView == SC_VIEW_SCENE, "demo scene")) {
+                        *leftPanelStayClosedTimer = 0.25;
                         main_currentView = SC_VIEW_SCENE;
                     }
                     if (ui_buttonWithHighlight(main_currentView == SC_VIEW_TIMELINE, "timeline")) {
+                        *leftPanelStayClosedTimer = 0.25;
                         main_currentView = SC_VIEW_TIMELINE;
                     }
                 }
@@ -320,12 +324,15 @@ void main_frame(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screen
                 snzu_boxSizeFromEndPctParent(0.5, SNZU_AX_Y);
                 snzu_boxScope() {
                     if (ui_buttonWithHighlight(main_currentView == SC_VIEW_DOCS, "docs")) {
+                        *leftPanelStayClosedTimer = 0.25;
                         main_currentView = SC_VIEW_DOCS;
                     }
                     if (ui_buttonWithHighlight(main_currentView == SC_VIEW_SETTINGS, "settings")) {
+                        *leftPanelStayClosedTimer = 0.25;
                         main_currentView = SC_VIEW_SETTINGS;
                     }
                     if (ui_buttonWithHighlight(main_currentView == SC_VIEW_SHORTCUTS, "shortcuts")) {
+                        *leftPanelStayClosedTimer = 0.25;
                         main_currentView = SC_VIEW_SHORTCUTS;
                     }
                     if (ui_buttonWithHighlight(false, "quit")) {
@@ -334,11 +341,14 @@ void main_frame(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screen
                 }
                 snzu_boxOrderChildrenInRowRecurseAlignEnd(5, SNZU_AX_Y);
             }  // end padding
+
+            snzu_boxNew("leftPanelBorder");
+            snzu_boxFillParent();
+            snzu_boxSetSizeFromEndAx(SNZU_AX_X, ui_borderThickness);
+            snzu_boxSetColor(ui_colorText);
         }  // end leftpanel
         snzu_boxClipChildren(true);
-        // FIXME: some hint in the lower left corner that this menu exists
-
-        float soundVal = main_getSmoothedSound();
+        // FIXME: some hint in the lower left corner that this menu exists, same w/ right panel
 
         snzu_boxNew("rightPanel");
         snzu_boxFillParent();
@@ -425,7 +435,12 @@ void main_frame(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screen
             } else {
                 SNZ_ASSERTF(false, "unreachable view case, view was: %d", main_currentView);
             }
-        }
+        } // end right panel
+
+        snzu_boxNew("leftHoverDetector");
+        snzu_boxFillParent();
+        snzu_boxSetSizeFromStartAx(SNZU_AX_X, leftPanelSize + 20);
+        snzu_boxSetInteractionOutput(leftPanelInter, SNZU_IF_HOVER | SNZU_IF_ALLOW_EVENT_FALLTHROUGH);
 
         bool openHintWindow = inputs.mousePos.X > (screenSize.X - 20);
         if (main_settings.hintWindowAlwaysOpen) {
@@ -441,17 +456,6 @@ void main_frame(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screen
             }
         }
         sc_updateAndBuildHintWindow(activeSketch, &main_timeline, &main_currentView, scratch, openHintWindow);
-
-        snzu_boxNew("leftPanelBorder");
-        snzu_boxFillParent();
-        snzu_boxSetStartFromParentAx(leftPanelSize - ui_borderThickness, SNZU_AX_X);
-        snzu_boxSetSizeFromStartAx(SNZU_AX_X, ui_borderThickness);
-        snzu_boxSetColor(ui_colorText);
-
-        snzu_boxNew("upperBorder");
-        snzu_boxFillParent();
-        snzu_boxSetSizeFromStartAx(SNZU_AX_Y, ui_borderThickness);
-        snzu_boxSetColor(ui_colorText);
     }
 
     snzr_callGLFnOrError(glBindFramebuffer(GL_FRAMEBUFFER, 0));
