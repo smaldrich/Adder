@@ -366,21 +366,49 @@ bool scc_sceneLookAt(_sc_CommandArgs args) {
 
     if (selectedFace) {
         SNZ_ASSERT(selectedFace->tris.count > 0, "face with no tris??");
-        HMM_Vec3 normal = geo_triNormal(selectedFace->tris.elems[0]);
+        HMM_Vec3 normal = geo_triNormal(selectedFace->tris.elems[0]); // FIXME: what about curved faces??
         op->scene.orbitOrigin.normal = normal;
         op->scene.orbitAngle = HMM_V2(0, 0);
     } else if (selectedCorner) {
         op->scene.orbitOrigin.pt = selectedCorner->pos;
     }
+    // FIXME: smoothing for the camera? + a setting for that
 
     _scc_sceneDeselectAll(&op->scene); // FIXME: build this in to cmd handling routine like for sketches and tl elts
     return true;
 }
 
+bool scc_sceneRotateCameraLeft(_sc_CommandArgs args) {
+    tl_Op* op = args.timeline->activeOp;
+    if (!op) {
+        return true;
+    }
+    geo_Align* origin = &op->scene.orbitOrigin;
+    HMM_Vec3 newVertical = HMM_Norm(HMM_Cross(origin->normal, origin->vertical));
+    SNZ_ASSERT(!geo_v3Equal(newVertical, HMM_V3(0, 0, 0)), "origin vertical was null after camera rotate.");
+    origin->vertical = newVertical;
+    return true;
+}
+
+bool scc_sceneRotateCameraRight(_sc_CommandArgs args) {
+    tl_Op* op = args.timeline->activeOp;
+    if (!op) {
+        return true;
+    }
+    geo_Align* origin = &op->scene.orbitOrigin;
+    HMM_Vec3 newVertical = HMM_Norm(HMM_Cross(origin->vertical, origin->normal));
+    SNZ_ASSERT(!geo_v3Equal(newVertical, HMM_V3(0, 0, 0)), "origin vertical was null after camera rotate.");
+    origin->vertical = newVertical;
+    return true;
+}
+
+
 void sc_init(PoolAlloc* pool) {
     _sc_commandPool = pool;
 
     _sc_commandInit("look at", "V", SDLK_v, KMOD_NONE, SC_VIEW_SCENE, scc_sceneLookAt);
+    _sc_commandInit("rotate camera left", "Q", SDLK_q, KMOD_LSHIFT, SC_VIEW_SCENE, scc_sceneRotateCameraLeft);
+    _sc_commandInit("rotate camera right", "E", SDLK_e, KMOD_LSHIFT, SC_VIEW_SCENE, scc_sceneRotateCameraRight);
 
     _sc_commandInit("delete", "X", SDLK_x, KMOD_NONE, SC_VIEW_SCENE, _scc_sketchDelete);
     _sc_commandInit("line", "B", SDLK_b, KMOD_NONE, SC_VIEW_SCENE, scc_sketchLineMode);
