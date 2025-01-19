@@ -280,7 +280,6 @@ bool scc_timelineRotate(_sc_CommandArgs args) {
 
 bool scc_timelineAddGeometry(_sc_CommandArgs args) {
     *args.currentView = SC_VIEW_TIMELINE;
-    tl_timelineDeselectAll(args.timeline);
     tl_Op* newOp = tl_timelinePushGeometry(args.timeline, HMM_V2(0, 0), (geo_Mesh) { 0 });
     // FIXME: should be on the mouse, isn't // enter move mode?
     newOp->ui.sel.selected = true;
@@ -290,7 +289,6 @@ bool scc_timelineAddGeometry(_sc_CommandArgs args) {
 
 bool scc_timelineAddSketch(_sc_CommandArgs args) {
     *args.currentView = SC_VIEW_TIMELINE;
-    tl_timelineDeselectAll(args.timeline);
     snz_Arena* arena = SNZ_ARENA_PUSH(args.timeline->arena, snz_Arena); // FIXME: this is a memory leak without a good solution :(
     *arena = snz_arenaInit(1000000, "sketch arena");
     tl_Op* newOp = tl_timelinePushSketch(args.timeline, HMM_V2(0, 0), sk_sketchInit(arena));
@@ -319,8 +317,70 @@ bool scc_timelineMarkActive(_sc_CommandArgs args) {
     return true;
 }
 
+// FIXME: move to geo.h
+void _scc_sceneDeselectAll(tl_Scene* scene) {
+    for (geo_MeshFace* f = scene->mesh->firstFace; f; f = f->next) {
+        f->sel.selected = false;
+    }
+    for (geo_MeshEdge* e = scene->mesh->firstEdge; e; e = e->next) {
+        e->sel.selected = false;
+    }
+    for (int i = 0; i < scene->mesh->corners.count; i++) {
+        scene->mesh->corners.elems[i].sel.selected = false;
+    }
+}
+
+bool scc_sceneLookAt(_sc_CommandArgs args) {
+    tl_Op* op = args.timeline->activeOp;
+    if (!op) {
+        return true;
+    } else if (!op->scene.mesh) {
+        return true;
+    }
+    geo_Mesh* m = op->scene.mesh;
+
+    geo_MeshFace* selectedFace = NULL;
+    for (geo_MeshFace* f = m->firstFace; f; f = f->next) {
+        if (f->sel.selected) {
+            if (selectedFace) {
+                return true;
+            }
+            selectedFace = f;
+        }
+    }
+
+    geo_MeshCorner* selectedCorner = NULL;
+    for (int i = 0; i < m->corners.count; i++) {
+        geo_MeshCorner* c = &m->corners.elems[i];
+        if (c->sel.selected) {
+            if (selectedCorner || selectedFace) {
+                return true;
+            }
+            selectedCorner = c;
+        }
+    }
+
+    if (!selectedFace && !selectedCorner) {
+        return true;
+    }
+
+    if (selectedFace) {
+        SNZ_ASSERT(selectedFace->tris.count > 0, "face with no tris??");
+        HMM_Vec3 normal = geo_triNormal(selectedFace->tris.elems[0]);
+        op->scene.orbitOrigin.normal = normal;
+        op->scene.orbitAngle = HMM_V2(0, 0);
+    } else if (selectedCorner) {
+        op->scene.orbitOrigin.pt = selectedCorner->pos;
+    }
+
+    _scc_sceneDeselectAll(&op->scene); // FIXME: build this in to cmd handling routine like for sketches and tl elts
+    return true;
+}
+
 void sc_init(PoolAlloc* pool) {
     _sc_commandPool = pool;
+
+    _sc_commandInit("look at", "V", SDLK_v, KMOD_NONE, SC_VIEW_SCENE, scc_sceneLookAt);
 
     _sc_commandInit("delete", "X", SDLK_x, KMOD_NONE, SC_VIEW_SCENE, _scc_sketchDelete);
     _sc_commandInit("line", "B", SDLK_b, KMOD_NONE, SC_VIEW_SCENE, scc_sketchLineMode);

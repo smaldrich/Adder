@@ -81,10 +81,10 @@ static snzr_Texture* _ui_texFromFile(const char* path, snz_Arena* outForTexture)
 
 void ui_init(snz_Arena* fontArena, snz_Arena* scratch) {
     stbi_set_flip_vertically_on_load(true);
-    // ui_darkSky = _ui_texFromFile("res/textures/Deep Dusk Equirect.png", fontArena);
-    // ui_lightSky = _ui_texFromFile("res/textures/Untitled.png", fontArena);
-    ui_darkSky = NULL;
-    ui_lightSky = NULL;
+    ui_darkSky = _ui_texFromFile("res/textures/Deep Dusk Equirect.png", fontArena);
+    ui_lightSky = _ui_texFromFile("res/textures/Untitled.png", fontArena);
+    // ui_darkSky = NULL;
+    // ui_lightSky = NULL;
 
     ui_cornerTexture = _ui_texFromFile("res/textures/circle.png", fontArena);
     ui_shiftTexture = _ui_texFromFile("res/textures/shiftIcon.png", fontArena);

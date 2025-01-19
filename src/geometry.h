@@ -135,6 +135,9 @@ static float _geo_angleBetweenV3(HMM_Vec3 a, HMM_Vec3 b) {
 
 HMM_Quat geo_alignToQuat(geo_Align a, geo_Align b) {
     HMM_Vec3 normalCross = HMM_Cross(a.normal, b.normal);
+    if (geo_v3Equal(normalCross, HMM_V3(0, 0, 0))) { // normals are equal or opposite, angle between is either 0 or 180
+        normalCross = HMM_Cross(a.normal, HMM_Add(a.normal, HMM_V3(0.1, 0, 0))); // vector perpendicular to both
+    }
     float normalAngle = _geo_angleBetweenV3(a.normal, b.normal);
     HMM_Quat planeRotate = HMM_QFromAxisAngle_RH(normalCross, normalAngle);
     if (geo_floatEqual(normalAngle, 0)) {
