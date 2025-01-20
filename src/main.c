@@ -222,7 +222,7 @@ void main_sceneBuild(
     }
 
     { // smoothing of camera pos
-        float smoothPct = 0.2;
+        float smoothPct = 0.2; // FIXME: time correct
         if (!main_settings.squishyCamera) {
             smoothPct = 1;
         }
