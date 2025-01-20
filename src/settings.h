@@ -8,6 +8,7 @@ typedef struct {
     bool hintWindowAlwaysOpen;
     bool leftBarAlwaysOpen;
     bool timelinePreviewSpinBackground;
+    bool squishyCamera;
 } set_Settings;
 // NOTE: this is not meant to be a global anywhere, pass specific settings as flags down from wherever this
 // is being persisted betw frames.
@@ -20,6 +21,7 @@ set_Settings set_settingsDefault() {
         .leftBarAlwaysOpen = false,
         .hintWindowAlwaysOpen = false,
         .timelinePreviewSpinBackground = true,
+        .squishyCamera = true,
     };
     return out;
 }
@@ -40,6 +42,7 @@ void set_build(set_Settings* settings) {
         ui_switch("keep cheat sheet open", &settings->hintWindowAlwaysOpen);
         ui_switch("keep left bar open", &settings->leftBarAlwaysOpen);
         ui_switch("spin the background in timeline preview", &settings->timelinePreviewSpinBackground);
+        ui_switch("squishy camera", &settings->squishyCamera);
     }
     // FIXME: UI variable for gap here (?)
     snzu_boxOrderChildrenInRowRecurse(10, SNZU_AX_Y);

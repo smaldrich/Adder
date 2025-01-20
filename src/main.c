@@ -181,13 +181,17 @@ void main_sceneBuild(
     HMM_Vec3* outCamPos, HMM_Vec3* outMouseDir,
     HMM_Mat4* outVP) {
     // FIXME: automagic redo of the origin
-    SNZ_ASSERT(scene, "scene shouldn't be null"); // FIXME: this is only here cause the VS formatter was being annoying, sorry
+    // FIXME: crosshair of the camera
+    HMM_Vec2* const smoothedOrbitAngle = SNZU_USE_MEM(HMM_Vec2, "smoothOrbitAngle");
+    float* const smoothedOrbitDist = SNZU_USE_MEM(float, "smoothOrbitDist");
+    geo_Align* const smoothedOrbitOrigin = SNZU_USE_MEM(geo_Align, "smoothOrbitOrigin");
 
     { // apply inputs to move camera around
         HMM_Vec2* const lastMousePos = SNZU_USE_MEM(HMM_Vec2, "lastMousePos");
         if (panelInter->mouseActions[SNZU_MB_RIGHT] == SNZU_ACT_DOWN) {
             *lastMousePos = panelInter->mousePosGlobal;
         }
+        // FIXME: both pan and rotate should keep a point on the geometry on the cursor instead of just diffing like they are
         if (panelInter->mouseActions[SNZU_MB_RIGHT] == SNZU_ACT_DRAG) {
             HMM_Vec2 diff = HMM_SubV2(panelInter->mousePosGlobal, *lastMousePos);
             if (panelInter->keyMods & KMOD_SHIFT) {
@@ -202,7 +206,7 @@ void main_sceneBuild(
                 scene->orbitOrigin.pt = HMM_Add(scene->orbitOrigin.pt, diffInSpace.XYZ);
             } else {
                 diff = HMM_V2(diff.Y, diff.X);  // switch so that rotations are repective to their axis
-                diff = HMM_Mul(diff, -0.006f);  // sens
+                diff = HMM_Mul(diff, -0.005f);  // sens
                 scene->orbitAngle = HMM_AddV2(scene->orbitAngle, diff);
 
                 if (scene->orbitAngle.X < HMM_AngleDeg(-90)) {
@@ -217,11 +221,26 @@ void main_sceneBuild(
         scene->orbitDist += panelInter->mouseScrollY * scene->orbitDist * 0.05;
     }
 
+    { // smoothing of camera pos
+        float smoothPct = 0.2;
+        if (!main_settings.squishyCamera) {
+            smoothPct = 1;
+        }
+        *smoothedOrbitDist = HMM_Lerp(*smoothedOrbitDist, smoothPct, scene->orbitDist);
+        // FIXME: not wrapping angles here, so sometimes it goes insane
+        *smoothedOrbitAngle = HMM_Lerp(*smoothedOrbitAngle, smoothPct, scene->orbitAngle);
+        smoothedOrbitOrigin->pt = HMM_Lerp(smoothedOrbitOrigin->pt, smoothPct, scene->orbitOrigin.pt);
+
+        smoothedOrbitOrigin->vertical = HMM_Norm(HMM_Lerp(smoothedOrbitOrigin->vertical, smoothPct, scene->orbitOrigin.vertical));
+        // FIXME: sometimes this gets 'caught' if the target jumps 180, interpolation doesn't change the angle, so it just stays opposite
+        smoothedOrbitOrigin->normal = HMM_Norm(HMM_Lerp(smoothedOrbitOrigin->normal, smoothPct, scene->orbitOrigin.normal));
+    }
+
     { // generate VP / camera pos / mouse dir
-        HMM_Mat4 view = HMM_Translate(HMM_V3(0, 0, scene->orbitDist));
-        view = HMM_MulM4(HMM_Rotate_RH(scene->orbitAngle.X, HMM_V3(1, 0, 0)), view);
-        view = HMM_MulM4(HMM_Rotate_RH(scene->orbitAngle.Y, HMM_V3(0, 1, 0)), view);
-        view = HMM_MulM4(geo_alignToM4(geo_alignZero(), scene->orbitOrigin), view);
+        HMM_Mat4 view = HMM_Translate(HMM_V3(0, 0, *smoothedOrbitDist));
+        view = HMM_MulM4(HMM_Rotate_RH(smoothedOrbitAngle->X, HMM_V3(1, 0, 0)), view);
+        view = HMM_MulM4(HMM_Rotate_RH(smoothedOrbitAngle->Y, HMM_V3(0, 1, 0)), view);
+        view = HMM_MulM4(geo_alignToM4(geo_alignZero(), *smoothedOrbitOrigin), view);
         float aspect = panelSize.X / panelSize.Y;
         HMM_Mat4 proj = HMM_Perspective_RH_NO(HMM_AngleDeg(90), aspect, 0.001, 100000);
         HMM_Mat4 vp = HMM_MulM4(proj, HMM_InvGeneral(view));

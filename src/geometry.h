@@ -271,9 +271,9 @@ void geo_BSPTriListToSTLFile(const geo_BSPTriList* list, const char* path) {
     fclose(f);
 }
 
-bool geo_stlFileToBSPTriList(const char* path, snz_Arena* arena, geo_BSPTriList* outTris) {
-    assert(arena || !arena);
 
+// FIXME: error handling without the asserts
+bool geo_stlFileToBSPTriList(const char* path, snz_Arena* arena, geo_BSPTriList* outTris) {
     FILE* f = fopen(path, "r");
     char solid[6] = { 0 };
     char object[100] = { 0 };
