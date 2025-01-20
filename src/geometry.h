@@ -129,6 +129,19 @@ geo_Align geo_alignZero() {
     return (geo_Align) { .pt = HMM_V3(0, 0, 0), .normal = HMM_V3(0, 0, 1), .vertical = HMM_V3(0, 1, 0) };
 }
 
+void geo_alignAssertValid(const geo_Align* a) {
+    SNZ_ASSERT(!isnan(a->pt.X), "align point x was NaN.");
+    SNZ_ASSERT(!isnan(a->normal.X), "align normal x was NaN.");
+    SNZ_ASSERT(!isnan(a->vertical.X), "align vertical x was NaN.");
+    float dot = HMM_Dot(a->normal, a->vertical);
+    SNZ_ASSERTF(geo_floatZero(dot), "align dot prod between normal and vertical non-zero. was: %f", dot);
+
+    float normalLen = HMM_Len(a->normal);
+    SNZ_ASSERTF(geo_floatEqual(normalLen, 1), "align normal length invalid. was: %f, expected: 1.0", normalLen);
+    float verticalLen = HMM_Len(a->vertical);
+    SNZ_ASSERTF(geo_floatEqual(verticalLen, 1), "align vertical length invalid. was: %f, expected: 1.0", verticalLen);
+}
+
 static float _geo_angleBetweenV3(HMM_Vec3 a, HMM_Vec3 b) {
     return acosf(HMM_Dot(a, b) / (HMM_Len(a) * HMM_Len(b)));
 }

@@ -360,21 +360,60 @@ bool scc_sceneLookAt(_sc_CommandArgs args) {
         }
     }
 
-    if (!selectedFace && !selectedCorner) {
+    geo_MeshEdge* selectedEdge = NULL;
+    for (geo_MeshEdge* e = m->firstEdge; e; e = e->next) {
+        if (e->sel.selected) {
+            if (selectedCorner || selectedFace || selectedEdge) {
+                return true;
+            }
+            selectedEdge = e;
+        }
+    }
+
+    if (!selectedFace && !selectedCorner && !selectedEdge) {
         return true;
     }
 
+    geo_Align* origin = &op->scene.orbitOrigin;
     if (selectedFace) {
         SNZ_ASSERT(selectedFace->tris.count > 0, "face with no tris??");
-        HMM_Vec3 normal = geo_triNormal(selectedFace->tris.elems[0]); // FIXME: what about curved faces??
-        op->scene.orbitOrigin.normal = normal;
+        HMM_Vec3 newNorm = geo_triNormal(selectedFace->tris.elems[0]); // FIXME: what about curved faces??
+
+        // adjust so that vertical is 90 off the new normal
+        HMM_Vec3 newVert = origin->vertical;
+        newVert = HMM_Cross(newVert, origin->normal);
+        newVert = HMM_Cross(newNorm, newVert);;
+        if (!geo_v3Equal(newVert, HMM_V3(0, 0, 0))) {
+            origin->vertical = HMM_Norm(newVert);
+        }
+        origin->normal = newNorm;
         op->scene.orbitAngle = HMM_V2(0, 0);
     } else if (selectedCorner) {
         op->scene.orbitOrigin.pt = selectedCorner->pos;
+    } else if (selectedEdge) {
+        // FIXME: what about curved edges??
+        geo_MeshEdgeSegment s = selectedEdge->segments.elems[0];
+        HMM_Vec3 dir = HMM_Norm(HMM_Sub(s.b, s.a));
+        dir = HMM_Norm(HMM_Cross(HMM_Cross(origin->normal, dir), origin->normal));
+
+        HMM_Vec3 closest = dir;
+        float closestDot = -INFINITY;
+        for (int i = 0; i < 4; i++) {
+            float dot = HMM_Dot(dir, origin->vertical);
+            if (dot > closestDot) {
+                closest = dir;
+                closestDot = dot;
+            }
+            dir = HMM_Norm(HMM_Cross(dir, origin->normal)); // rotate 90deg right
+        }
+
+        origin->vertical = closest;
+        op->scene.orbitAngle = HMM_V2(0, 0);
     }
     // FIXME: smoothing for the camera? + a setting for that
 
-    _scc_sceneDeselectAll(&op->scene); // FIXME: build this in to cmd handling routine like for sketches and tl elts
+    geo_alignAssertValid(origin);
+    // _scc_sceneDeselectAll(&op->scene); // FIXME: build this in to cmd handling routine like for sketches and tl elts
     return true;
 }
 
@@ -385,8 +424,8 @@ bool scc_sceneRotateCameraLeft(_sc_CommandArgs args) {
     }
     geo_Align* origin = &op->scene.orbitOrigin;
     HMM_Vec3 newVertical = HMM_Norm(HMM_Cross(origin->normal, origin->vertical));
-    SNZ_ASSERT(!geo_v3Equal(newVertical, HMM_V3(0, 0, 0)), "origin vertical was null after camera rotate.");
     origin->vertical = newVertical;
+    geo_alignAssertValid(&op->scene.orbitOrigin);
     return true;
 }
 
@@ -397,8 +436,8 @@ bool scc_sceneRotateCameraRight(_sc_CommandArgs args) {
     }
     geo_Align* origin = &op->scene.orbitOrigin;
     HMM_Vec3 newVertical = HMM_Norm(HMM_Cross(origin->vertical, origin->normal));
-    SNZ_ASSERT(!geo_v3Equal(newVertical, HMM_V3(0, 0, 0)), "origin vertical was null after camera rotate.");
     origin->vertical = newVertical;
+    geo_alignAssertValid(&op->scene.orbitOrigin);
     return true;
 }
 
