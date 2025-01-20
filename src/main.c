@@ -104,6 +104,16 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
     }  // end mesh for testing
 
     tl_timelinePushSketch(&main_timeline, HMM_V2(0, 0), sk_sketchInit(&main_sketchArena));
+
+    {
+        geo_BSPTriList l = { 0 };
+        geo_stlFileToBSPTriList("res/demos/NEO.stl", &main_meshArena, &l);
+        geo_Mesh m = (geo_Mesh){
+            .bspTris = l,
+            .renderMesh = geo_BSPTriListToRenderMesh(l, scratch),
+        };
+        tl_timelinePushGeometry(&main_timeline, HMM_V2(0, -200), m);
+    }
 }
 
 // returns the normal of the ray starting at cameraPos

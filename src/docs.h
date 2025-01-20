@@ -52,7 +52,7 @@ void docs_buildPage() {
     snzu_boxScope() {
         snzu_boxNew("scroll area for files");
         snzu_boxFillParent();
-        snzu_boxSizePctParent(0.3, SNZU_AX_X);
+        snzu_boxSizePctParent(0.2, SNZU_AX_X);
         snzu_boxScope() {
             snzu_boxNew("margin");
             snzu_boxSetSizeMarginFromParent(20);
@@ -73,7 +73,7 @@ void docs_buildPage() {
 
         snzu_boxNew("scroll area for text");
         snzu_boxFillParent();
-        snzu_boxSizeFromEndPctParent(0.6, SNZU_AX_X);  // FIXME: fill remainder function
+        snzu_boxSizeFromEndPctParent(0.7, SNZU_AX_X);  // FIXME: fill remainder function
         snzu_boxScope() {
             snzu_boxNew("header");
             snzu_boxSetDisplayStr(&ui_titleFont, ui_colorText, _docs_currentFile->name);

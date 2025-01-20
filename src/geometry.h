@@ -271,42 +271,58 @@ void geo_BSPTriListToSTLFile(const geo_BSPTriList* list, const char* path) {
     fclose(f);
 }
 
-// FIXME: this
-// void geo_stlFileToBSPTriList(const char* path) {
-//     FILE* f = fopen(path, "r");
-//     char* solid = NULL;
-//     char* object = NULL;
-//     fscanf(f, "%s%s", solid, object);
+bool geo_stlFileToBSPTriList(const char* path, snz_Arena* arena, geo_BSPTriList* outTris) {
+    assert(arena || !arena);
 
-//     while (true) {
-//         char* facet = NULL;
-//         char* normalStr = NULL;
-//         HMM_Vec3 normal = HMM_V3(0, 0, 0);
-//         fscanf(f, "%s%s%f%f%f", &facet, &normalStr, &normal.X, &normal.Y, &normal.Z);
+    FILE* f = fopen(path, "r");
+    char solid[6] = { 0 };
+    char object[100] = { 0 };
+    SNZ_ASSERT(fscanf(f, "%5s%99s", solid, object) == 2, "fscanf failed.");
+    SNZ_ASSERTF(strcmp(solid, "solid") == 0, "expected 'solid', found '%s'", solid);
 
-//         char* outer = NULL;
-//         char* loop = NULL;
-//         fscanf(f, "%s%s", &outer, &loop);
+    geo_BSPTriList outList = { 0 };
+    while (true) {
+        char facetOrEndsolid[9] = { 0 };
+        SNZ_ASSERT(fscanf(f, "%8s", facetOrEndsolid) == 1, "fscanf failed.");
+        if (strcmp(facetOrEndsolid, "endsolid") == 0) {
+            break;
+        } else if (strcmp(facetOrEndsolid, "facet") == 0) {
+            // this the nominal case.
+        } else {
+            SNZ_ASSERTF(false, "expected 'facet' or 'endsolid', found '%s'", facetOrEndsolid);
+        }
 
-//         for (int i = 0; i < 3; i++) {
-//             HMM_Vec3 data = HMM_V3(0, 0, 0);
-//             char* vertex = NULL;
-//             fscanf(f, "%s%f%f%f", &vertex, &data.X, &data.Y, &data.Z);
-//         }
+        char normalStr[7] = { 0 };
+        HMM_Vec3 normal = HMM_V3(0, 0, 0);
+        SNZ_ASSERT(fscanf(f, "%6s%f%f%f", normalStr, &normal.X, &normal.Y, &normal.Z) == 4, "fscanf failed.");
+        SNZ_ASSERTF(strcmp(normalStr, "normal") == 0, "expected 'normal', found '%s'", normalStr);
 
-//         char* endloop = NULL;
-//         fscanf(f, "%s", endloop); // endloop
+        char outer[6] = { 0 };
+        char loop[5] = { 0 };
+        SNZ_ASSERT(fscanf(f, "%5s%4s", outer, loop) == 2, "fscanf failed.");
+        SNZ_ASSERTF(strcmp(outer, "outer") == 0, "expected 'outer', found '%s'", outer);
 
-//         char* endfacet = NULL;
-//         fscanf(f, "%s", endfacet); // endfacet
-//     }
+        HMM_Vec3 verts[3] = { 0 };
+        for (int i = 0; i < 3; i++) {
+            char vertex[7] = { 0 };
+            SNZ_ASSERT(fscanf(f, "%6s%f%f%f", vertex, &verts[i].X, &verts[i].Y, &verts[i].Z) == 4, "fscanf failed.");
+            SNZ_ASSERTF(strcmp(vertex, "vertex") == 0, "expected 'vertex', found '%s'", vertex);
+        }
+        geo_BSPTriListPushNew(arena, &outList, verts[0], verts[1], verts[2], NULL);
 
-//     char* endsolid = NULL;
-//     char* objectEnd = NULL;
-//     fscanf(f, "%s%s", &endsolid, &objectEnd);
+        char endloop[8] = { 0 };
+        SNZ_ASSERT(fscanf(f, "%7s", endloop) == 1, "fscanf failed.");
+        SNZ_ASSERTF(strcmp(endloop, "endloop") == 0, "expected 'endloop', found '%s'", endloop);
 
-//     fclose(f);
-// }
+        char endfacet[9] = { 0 };
+        SNZ_ASSERT(fscanf(f, "%8s", endfacet) == 1, "fscanf failed.");
+        SNZ_ASSERTF(strcmp(endfacet, "endfacet") == 0, "expected 'endfacet', found '%s'", endfacet);
+    }
+
+    fclose(f);
+    *outTris = outList;
+    return true;
+}
 
 geo_PlaneRelation _geo_triClassify(geo_Tri tri, HMM_Vec3 planeNormal, HMM_Vec3 planeStart) {
     geo_PlaneRelation finalRel = 0;
