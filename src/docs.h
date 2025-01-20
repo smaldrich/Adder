@@ -5,10 +5,8 @@
 static snz_Arena _docs_fileDataArena;
 
 static const char* _docs_filepaths[] = {
-    "res/docs/sketches.md",
-    "res/docs/starting.md",
-    "res/docs/workflow.md",
     "res/docs/adder.md",
+    "res/docs/cameraControls.md",
 };
 
 typedef struct _docs_File _docs_File;

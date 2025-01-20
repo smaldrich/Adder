@@ -11,5 +11,3 @@ It's come about with some greviences my spiteful ass has got against the current
 6. CAD programs are not as powerful as they could be.
 
 And with all that I decided I'd take a crack at building one myself.
-
-To get started, check out [starting.md].
