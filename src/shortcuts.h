@@ -388,6 +388,15 @@ bool scc_sceneLookAt(_sc_CommandArgs args) {
         }
         origin->normal = newNorm;
         op->scene.orbitAngle = HMM_V2(0, 0);
+
+        // adjusting orbit center to be on the new plane
+        float t = 0;
+        HMM_Vec3 lineOrigin = HMM_Add(origin->pt, newNorm);
+        bool hit = geo_planeLineIntersection(
+            selectedFace->tris.elems[0].a, newNorm,
+            lineOrigin, newNorm, &t);
+        SNZ_ASSERT(hit, "can't find a point to move orbit origin to.");
+        origin->pt = HMM_Add(lineOrigin, HMM_Mul(newNorm, t));
     } else if (selectedCorner) {
         op->scene.orbitOrigin.pt = selectedCorner->pos;
     } else if (selectedEdge) {
