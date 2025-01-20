@@ -38,6 +38,7 @@ typedef struct {
     const char* nameLabel;
     const char* keyLabel;
     int64_t availibleViews;
+    bool requiresActiveSketch;
 } _sc_Command;
 
 _sc_Command* _sc_commands = NULL;
@@ -52,7 +53,7 @@ sc_CommandFunc sc_getActiveCommand() {
     return NULL;
 }
 
-static _sc_Command* _sc_commandInit(const char* displayName, const char* keyName, SDL_KeyCode code, SDL_Keymod mod, int64_t availibleViewMask, sc_CommandFunc func) {
+static _sc_Command* _sc_commandInit(const char* displayName, const char* keyName, SDL_KeyCode code, SDL_Keymod mod, int64_t availibleViewMask, bool requiresActiveSketch, sc_CommandFunc func) {
     _sc_Command* c = poolAllocPushArray(_sc_commandPool, _sc_commands, _sc_commandCount, _sc_Command);
     *c = (_sc_Command){
         .nameLabel = displayName,
@@ -63,6 +64,7 @@ static _sc_Command* _sc_commandInit(const char* displayName, const char* keyName
             .mods = mod,
         },
         .availibleViews = availibleViewMask,
+        .requiresActiveSketch = requiresActiveSketch,
     };
     return c;
 }
@@ -454,30 +456,30 @@ bool scc_sceneRotateCameraRight(_sc_CommandArgs args) {
 void sc_init(PoolAlloc* pool) {
     _sc_commandPool = pool;
 
-    _sc_commandInit("look at", "V", SDLK_v, KMOD_NONE, SC_VIEW_SCENE, scc_sceneLookAt);
-    _sc_commandInit("rotate camera left", "Q", SDLK_q, KMOD_LSHIFT, SC_VIEW_SCENE, scc_sceneRotateCameraLeft);
-    _sc_commandInit("rotate camera right", "E", SDLK_e, KMOD_LSHIFT, SC_VIEW_SCENE, scc_sceneRotateCameraRight);
+    _sc_commandInit("look at", "V", SDLK_v, KMOD_NONE, SC_VIEW_SCENE, false, scc_sceneLookAt);
+    _sc_commandInit("rotate camera left", "Q", SDLK_q, KMOD_LSHIFT, SC_VIEW_SCENE, false, scc_sceneRotateCameraLeft);
+    _sc_commandInit("rotate camera right", "E", SDLK_e, KMOD_LSHIFT, SC_VIEW_SCENE, false, scc_sceneRotateCameraRight);
 
-    _sc_commandInit("delete", "X", SDLK_x, KMOD_NONE, SC_VIEW_SCENE, _scc_sketchDelete);
-    _sc_commandInit("line", "B", SDLK_b, KMOD_NONE, SC_VIEW_SCENE, scc_sketchLineMode);
-    _sc_commandInit("move", "G", SDLK_g, KMOD_NONE, SC_VIEW_SCENE, scc_sketchMove);
-    _sc_commandInit("rotate", "R", SDLK_r, KMOD_NONE, SC_VIEW_SCENE, scc_sketchRotate);
-    _sc_commandInit("distance", "D", SDLK_d, KMOD_NONE, SC_VIEW_SCENE, _scc_sketchAddDistanceConstraint);
-    _sc_commandInit("angle", "A", SDLK_a, KMOD_NONE, SC_VIEW_SCENE, _scc_sketchAddAngleConstraint);
+    _sc_commandInit("delete", "X", SDLK_x, KMOD_NONE, SC_VIEW_SCENE, true, _scc_sketchDelete);
+    _sc_commandInit("line", "B", SDLK_b, KMOD_NONE, SC_VIEW_SCENE, true, scc_sketchLineMode);
+    _sc_commandInit("move", "G", SDLK_g, KMOD_NONE, SC_VIEW_SCENE, true, scc_sketchMove);
+    _sc_commandInit("rotate", "R", SDLK_r, KMOD_NONE, SC_VIEW_SCENE, true, scc_sketchRotate);
+    _sc_commandInit("distance", "D", SDLK_d, KMOD_NONE, SC_VIEW_SCENE, true, _scc_sketchAddDistanceConstraint);
+    _sc_commandInit("angle", "A", SDLK_a, KMOD_NONE, SC_VIEW_SCENE, true, _scc_sketchAddAngleConstraint);
 
-    _sc_commandInit("delete", "X", SDLK_x, KMOD_NONE, SC_VIEW_TIMELINE, scc_timelineDelete);
-    _sc_commandInit("move", "G", SDLK_g, KMOD_NONE, SC_VIEW_TIMELINE, scc_timelineMove);
-    _sc_commandInit("rotate", "R", SDLK_r, KMOD_NONE, SC_VIEW_TIMELINE, scc_timelineRotate);
+    _sc_commandInit("delete", "X", SDLK_x, KMOD_NONE, SC_VIEW_TIMELINE, false, scc_timelineDelete);
+    _sc_commandInit("move", "G", SDLK_g, KMOD_NONE, SC_VIEW_TIMELINE, false, scc_timelineMove);
+    _sc_commandInit("rotate", "R", SDLK_r, KMOD_NONE, SC_VIEW_TIMELINE, false, scc_timelineRotate);
     // FIXME: rename this and add file dialogue and add stl parsing
-    _sc_commandInit("new geomety", "I", SDLK_i, KMOD_NONE, SC_VIEW_TIMELINE | SC_VIEW_SCENE, scc_timelineAddGeometry);
-    _sc_commandInit("new sketch", "S", SDLK_s, KMOD_NONE, SC_VIEW_TIMELINE | SC_VIEW_SCENE, scc_timelineAddSketch);
-    _sc_commandInit("mark active", "W", SDLK_w, KMOD_NONE, SC_VIEW_TIMELINE, scc_timelineMarkActive);
+    _sc_commandInit("new geomety", "I", SDLK_i, KMOD_NONE, SC_VIEW_TIMELINE | SC_VIEW_SCENE, false, scc_timelineAddGeometry);
+    _sc_commandInit("new sketch", "S", SDLK_s, KMOD_NONE, SC_VIEW_TIMELINE | SC_VIEW_SCENE, false, scc_timelineAddSketch);
+    _sc_commandInit("mark active", "W", SDLK_w, KMOD_NONE, SC_VIEW_TIMELINE, false, scc_timelineMarkActive);
 
-    _sc_commandInit("goto main scene", "W", SDLK_w, KMOD_LSHIFT, SC_VIEW_ALL, _scc_goToMainScene);
-    _sc_commandInit("goto timeline", "T", SDLK_t, KMOD_LSHIFT, SC_VIEW_ALL, _scc_goToTimeline);
-    _sc_commandInit("goto settings", "S", SDLK_s, KMOD_LSHIFT, SC_VIEW_ALL, _scc_goToSettings);
-    _sc_commandInit("goto docs", "D", SDLK_d, KMOD_LSHIFT, SC_VIEW_ALL, _scc_goToDocs);
-    _sc_commandInit("goto shortcuts", "C", SDLK_c, KMOD_LSHIFT, SC_VIEW_ALL, _scc_goToShortcuts);
+    _sc_commandInit("goto main scene", "W", SDLK_w, KMOD_LSHIFT, SC_VIEW_ALL, false, _scc_goToMainScene);
+    _sc_commandInit("goto timeline", "T", SDLK_t, KMOD_LSHIFT, SC_VIEW_ALL, false, _scc_goToTimeline);
+    _sc_commandInit("goto settings", "S", SDLK_s, KMOD_LSHIFT, SC_VIEW_ALL, false, _scc_goToSettings);
+    _sc_commandInit("goto docs", "D", SDLK_d, KMOD_LSHIFT, SC_VIEW_ALL, false, _scc_goToDocs);
+    _sc_commandInit("goto shortcuts", "C", SDLK_c, KMOD_LSHIFT, SC_VIEW_ALL, false, _scc_goToShortcuts);
 }
 
 // immediately sets the active cmd to null, so make sure you don't trample shit
@@ -516,6 +518,14 @@ static void _sc_buildCommandShortcutBox(_sc_Command* cmd, HMM_Vec4 textColor) {
     snzu_boxSetSizeFitChildren();
 }
 
+bool _sc_commandShouldBeAvailible(_sc_Command* cmd, sc_View view, bool activeSketch) {
+    bool out = cmd->availibleViews & view;
+    if (cmd->requiresActiveSketch && !activeSketch) {
+        out = false;
+    }
+    return out;
+}
+
 void sc_updateAndBuildHintWindow(sk_Sketch* activeSketch, tl_Timeline* timeline, sc_View* outCurrentView, snz_Arena* scratch, bool targetOpen) {
     snzu_boxNew("updatesParent");
     snzu_boxFillParent();
@@ -541,7 +551,7 @@ void sc_updateAndBuildHintWindow(sk_Sketch* activeSketch, tl_Timeline* timeline,
             if (snzu_isNothingFocused()) {
                 for (int i = 0; i < _sc_commandCount; i++) {
                     _sc_Command* c = &_sc_commands[i];
-                    if (!(c->availibleViews & *outCurrentView)) {
+                    if (!_sc_commandShouldBeAvailible(c, *outCurrentView, activeSketch != NULL)) {
                         continue;
                     }
                     // FIXME: left shift only is required thats bad
@@ -577,7 +587,7 @@ void sc_updateAndBuildHintWindow(sk_Sketch* activeSketch, tl_Timeline* timeline,
 
     snzu_boxScope() {
         if (_sc_activeCommand != NULL) {
-            bool invalidated = !(_sc_activeCommand->availibleViews & *outCurrentView);
+            bool invalidated = !_sc_commandShouldBeAvailible(_sc_activeCommand, *outCurrentView, activeSketch != NULL);
             bool done = _sc_activeCommand->func(args);
             if (invalidated || done) {
                 _sc_activeCommand = NULL;
@@ -649,7 +659,7 @@ void sc_updateAndBuildHintWindow(sk_Sketch* activeSketch, tl_Timeline* timeline,
 
                     for (int i = 0; i < _sc_commandCount; i++) {
                         _sc_Command* c = &_sc_commands[i];
-                        if (!(c->availibleViews & *outCurrentView)) {
+                        if (!_sc_commandShouldBeAvailible(c, *outCurrentView, activeSketch != NULL)) {
                             continue;
                         }
 
