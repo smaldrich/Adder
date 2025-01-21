@@ -418,10 +418,13 @@ bool scc_sceneLookAt(_sc_CommandArgs args) {
             dir = HMM_Norm(HMM_Cross(dir, origin->normal)); // rotate 90deg right
         }
 
-        origin->vertical = closest;
+        // if the edge is perfectly away from the base normal, this could end up nan. Just don't apply if that's the case.
+        if (!isnan(closest.X)) {
+            origin->vertical = closest;
+        }
+
         op->scene.orbitAngle = HMM_V2(0, 0);
     }
-    // FIXME: smoothing for the camera? + a setting for that
 
     geo_alignAssertValid(origin);
     // _scc_sceneDeselectAll(&op->scene); // FIXME: build this in to cmd handling routine like for sketches and tl elts
