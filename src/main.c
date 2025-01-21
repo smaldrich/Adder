@@ -29,6 +29,8 @@ set_Settings main_settings;
 tl_Timeline main_timeline;
 
 void main_init(snz_Arena* scratch, SDL_Window* window) {
+    SNZ_ASSERT(window || !window, "huh"); //  getting rid of unused arg warning
+
     _poolAllocTests();
     sk_tests();
     ser_tests();
@@ -43,15 +45,6 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
     snzu_instanceSelect(&main_uiInstance);
     main_sceneUIInstance = snzu_instanceInit();
     main_settings = set_settingsDefault();
-
-    {  // FIXME: move to snz
-        SDL_Surface* s = SDL_LoadBMP("res/textures/icon.bmp");
-        char buf[1000] = { 0 };
-        const char* err = SDL_GetErrorMsg(buf, 1000);
-        printf("%s", err);
-        SNZ_ASSERT(s != NULL, "icon load failed.");
-        SDL_SetWindowIcon(window, s);
-    }
 
     sound_init();
     ui_init(&main_fontArena, scratch);
@@ -494,7 +487,7 @@ void main_frame(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screen
 }
 
 int main() {
-    snz_main("ADDER V0.0", main_init, main_frame);
+    snz_main("ADDER V0.0", "res/textures/icon.bmp", main_init, main_frame);
     sound_deinit();
     poolAllocDeinit(&main_pool);
     return 0;

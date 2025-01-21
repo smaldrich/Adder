@@ -1751,7 +1751,8 @@ void snz_quit() {
     _snz_shouldQuit = true;
 }
 
-void snz_main(const char* windowTitle, snz_InitFunc initFunc, snz_FrameFunc frameFunc) {
+// icon path may be null
+void snz_main(const char* windowTitle, const char* iconPath, snz_InitFunc initFunc, snz_FrameFunc frameFunc) {
     SDL_Window* window = NULL;
     {
         // initialize SDL and open window
@@ -1761,10 +1762,21 @@ void snz_main(const char* windowTitle, snz_InitFunc initFunc, snz_FrameFunc fram
         uint32_t windowFlags = SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE | SDL_WINDOW_MAXIMIZED | SDL_WINDOW_OPENGL | SDL_WINDOW_ALLOW_HIGHDPI;
         window = SDL_CreateWindow(windowTitle, 100, 100, 700, 500, windowFlags);
         SNZ_ASSERT(window, "sdl window creation failed.");
+
+        if (iconPath != NULL) {
+            SDL_Surface* s = SDL_LoadBMP(iconPath);
+            char buf[1000] = { 0 };
+            const char* err = SDL_GetErrorMsg(buf, 1000);
+            printf("%s", err);
+            SNZ_ASSERT(s != NULL, "icon load failed.");
+            SDL_SetWindowIcon(window, s);
+        }
+
         SDL_GLContext context = SDL_GL_CreateContext(window);
         SNZ_ASSERT(context, "sdl gl context creation failed");
         SDL_Renderer* renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
         SNZ_ASSERT(renderer, "sdl renderer creation failed");
+
     }
 
     snz_Arena frameArena = snz_arenaInit(100000000, "snz frame arena");

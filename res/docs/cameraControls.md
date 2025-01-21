@@ -4,9 +4,6 @@ In general:
     Use Shift+RMB to pan around
     Use the scroll wheel to zoom in and out.
 
-I decided against middle mouse because most trackpads don't have one, and adder is indended to be useable anywhere.
-Also, right mouse takes less force to press than most middle buttons, which is nice when you're using it all the time.
-
 For almost anything else (especially changing the roll of the camera), you'll want look at.
 V (look at), aligns the camera to a piece of geometry that you have selected. (I.E. select first, then press V).
     - selecting a face will point the camera at that face
