@@ -38,7 +38,7 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
 
     main_fontArena = snz_arenaInit(10000000, "main font arena");
     main_sketchArena = snz_arenaInit(10000000, "main sketch arena");
-    main_meshArena = snz_arenaInit(10000000000, "main mesh arena");
+    main_meshArena = snz_arenaInit(1000000000, "main mesh arena");
     main_tlArena = snz_arenaInit(10000000, "main tl arena");
     main_pool = poolAllocInit();
     main_uiInstance = snzu_instanceInit();

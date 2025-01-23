@@ -604,6 +604,40 @@ static void _snzr_init(snz_Arena* scratchArena) {
     _snzr_globs.solidTex = snzr_textureInitRBGA(1, 1, solidTexData);
 }
 
+struct {
+    int vp;
+    int z;
+    int cornerRadius;
+    int borderThickness;
+    int borderColor;
+    int dstStart;
+    int dstEnd;
+    int srcStart;
+    int srcEnd;
+    int clipStart;
+    int clipEnd;
+    int color;
+    int fontTexture;
+    int colorTexture;
+} _snzr_rectShaderLocations;
+
+static void _snzr_loadRectUniformLocations(uint32_t id) {
+    _snzr_rectShaderLocations.vp = glGetUniformLocation(id, "uVP");
+    _snzr_rectShaderLocations.z = glGetUniformLocation(id, "uZ");
+    _snzr_rectShaderLocations.cornerRadius = glGetUniformLocation(id, "uCornerRadius");
+    _snzr_rectShaderLocations.borderThickness = glGetUniformLocation(id, "uBorderThickness");
+    _snzr_rectShaderLocations.borderColor = glGetUniformLocation(id, "uBorderColor");
+    _snzr_rectShaderLocations.dstStart = glGetUniformLocation(id, "uDstStart");
+    _snzr_rectShaderLocations.dstEnd = glGetUniformLocation(id, "uDstEnd");
+    _snzr_rectShaderLocations.srcStart = glGetUniformLocation(id, "uSrcStart");
+    _snzr_rectShaderLocations.srcEnd = glGetUniformLocation(id, "uSrcEnd");
+    _snzr_rectShaderLocations.clipStart = glGetUniformLocation(id, "uClipStart");
+    _snzr_rectShaderLocations.clipEnd = glGetUniformLocation(id, "uClipEnd");
+    _snzr_rectShaderLocations.color = glGetUniformLocation(id, "uColor");
+    _snzr_rectShaderLocations.fontTexture = glGetUniformLocation(id, "uFontTexture");
+    _snzr_rectShaderLocations.colorTexture = glGetUniformLocation(id, "uColorTexture");
+}
+
 void snzr_drawRect(
     HMM_Vec2 start,
     HMM_Vec2 end,
@@ -619,45 +653,30 @@ void snzr_drawRect(
     // FIXME: error safe gl calls
     snzr_callGLFnOrError(glUseProgram(_snzr_globs.rectShaderId));
 
-    int loc = glGetUniformLocation(_snzr_globs.rectShaderId, "uVP");
-    glUniformMatrix4fv(loc, 1, false, (float*)&vp);
-    loc = glGetUniformLocation(_snzr_globs.rectShaderId, "uZ");
-    glUniform1f(loc, 0);
+    glUniformMatrix4fv(_snzr_rectShaderLocations.vp, 1, false, (float*)&vp);
+    glUniform1f(_snzr_rectShaderLocations.z, 0);
+    glUniform1f(_snzr_rectShaderLocations.cornerRadius, cornerRadius);
 
-    loc = glGetUniformLocation(_snzr_globs.rectShaderId, "uCornerRadius");
-    glUniform1f(loc, cornerRadius);
+    glUniform1f(_snzr_rectShaderLocations.borderThickness, borderThickness);
+    glUniform4f(_snzr_rectShaderLocations.borderColor, borderColor.X, borderColor.Y, borderColor.Z, borderColor.A);
 
-    loc = glGetUniformLocation(_snzr_globs.rectShaderId, "uBorderThickness");
-    glUniform1f(loc, borderThickness);
-    loc = glGetUniformLocation(_snzr_globs.rectShaderId, "uBorderColor");
-    glUniform4f(loc, borderColor.X, borderColor.Y, borderColor.Z, borderColor.A);
-
-    loc = glGetUniformLocation(_snzr_globs.rectShaderId, "uDstStart");
-    glUniform2f(loc, start.X, start.Y);
-    loc = glGetUniformLocation(_snzr_globs.rectShaderId, "uDstEnd");
-    glUniform2f(loc, end.X, end.Y);
+    glUniform2f(_snzr_rectShaderLocations.dstStart, start.X, start.Y);
+    glUniform2f(_snzr_rectShaderLocations.dstEnd, end.X, end.Y);
 
     // flip vertically because we assume this is being used in pixel space, where 00 is in the UL corner
-    loc = glGetUniformLocation(_snzr_globs.rectShaderId, "uSrcStart");
-    glUniform2f(loc, 0, 1);
-    loc = glGetUniformLocation(_snzr_globs.rectShaderId, "uSrcEnd");
-    glUniform2f(loc, 1, 0);
+    glUniform2f(_snzr_rectShaderLocations.srcStart, 0, 1);
+    glUniform2f(_snzr_rectShaderLocations.srcEnd, 1, 0);
 
-    loc = glGetUniformLocation(_snzr_globs.rectShaderId, "uClipStart");
-    glUniform2f(loc, clipStart.X, clipStart.Y);
-    loc = glGetUniformLocation(_snzr_globs.rectShaderId, "uClipEnd");
-    glUniform2f(loc, clipEnd.X, clipEnd.Y);
+    glUniform2f(_snzr_rectShaderLocations.clipStart, clipStart.X, clipStart.Y);
+    glUniform2f(_snzr_rectShaderLocations.clipEnd, clipEnd.X, clipEnd.Y);
 
-    loc = glGetUniformLocation(_snzr_globs.rectShaderId, "uColor");
-    glUniform4f(loc, color.X, color.Y, color.Z, color.W);
+    glUniform4f(_snzr_rectShaderLocations.color, color.X, color.Y, color.Z, color.W);
 
-    loc = glGetUniformLocation(_snzr_globs.rectShaderId, "uFontTexture");
-    glUniform1i(loc, 0);
+    glUniform1i(_snzr_rectShaderLocations.fontTexture, 0);
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, _snzr_globs.solidTex.glId);
 
-    loc = glGetUniformLocation(_snzr_globs.rectShaderId, "uColorTexture");
-    glUniform1i(loc, 1);
+    glUniform1i(_snzr_rectShaderLocations.colorTexture, 1);
     glActiveTexture(GL_TEXTURE1);
     glBindTexture(GL_TEXTURE_2D, texture.glId);
 
