@@ -271,59 +271,6 @@ void geo_BSPTriListToSTLFile(const geo_BSPTriList* list, const char* path) {
     fclose(f);
 }
 
-
-// FIXME: error handling without the asserts
-bool geo_stlFileToBSPTriList(const char* path, snz_Arena* arena, geo_BSPTriList* outTris) {
-    FILE* f = fopen(path, "r");
-    char solid[6] = { 0 };
-    char object[100] = { 0 };
-    SNZ_ASSERT(fscanf(f, "%5s%99s", solid, object) == 2, "fscanf failed.");
-    SNZ_ASSERTF(strcmp(solid, "solid") == 0, "expected 'solid', found '%s'", solid);
-
-    geo_BSPTriList outList = { 0 };
-    while (true) {
-        char facetOrEndsolid[9] = { 0 };
-        SNZ_ASSERT(fscanf(f, "%8s", facetOrEndsolid) == 1, "fscanf failed.");
-        if (strcmp(facetOrEndsolid, "endsolid") == 0) {
-            break;
-        } else if (strcmp(facetOrEndsolid, "facet") == 0) {
-            // this the nominal case.
-        } else {
-            SNZ_ASSERTF(false, "expected 'facet' or 'endsolid', found '%s'", facetOrEndsolid);
-        }
-
-        char normalStr[7] = { 0 };
-        HMM_Vec3 normal = HMM_V3(0, 0, 0);
-        SNZ_ASSERT(fscanf(f, "%6s%f%f%f", normalStr, &normal.X, &normal.Y, &normal.Z) == 4, "fscanf failed.");
-        SNZ_ASSERTF(strcmp(normalStr, "normal") == 0, "expected 'normal', found '%s'", normalStr);
-
-        char outer[6] = { 0 };
-        char loop[5] = { 0 };
-        SNZ_ASSERT(fscanf(f, "%5s%4s", outer, loop) == 2, "fscanf failed.");
-        SNZ_ASSERTF(strcmp(outer, "outer") == 0, "expected 'outer', found '%s'", outer);
-
-        HMM_Vec3 verts[3] = { 0 };
-        for (int i = 0; i < 3; i++) {
-            char vertex[7] = { 0 };
-            SNZ_ASSERT(fscanf(f, "%6s%f%f%f", vertex, &verts[i].X, &verts[i].Y, &verts[i].Z) == 4, "fscanf failed.");
-            SNZ_ASSERTF(strcmp(vertex, "vertex") == 0, "expected 'vertex', found '%s'", vertex);
-        }
-        geo_BSPTriListPushNew(arena, &outList, verts[0], verts[1], verts[2], NULL);
-
-        char endloop[8] = { 0 };
-        SNZ_ASSERT(fscanf(f, "%7s", endloop) == 1, "fscanf failed.");
-        SNZ_ASSERTF(strcmp(endloop, "endloop") == 0, "expected 'endloop', found '%s'", endloop);
-
-        char endfacet[9] = { 0 };
-        SNZ_ASSERT(fscanf(f, "%8s", endfacet) == 1, "fscanf failed.");
-        SNZ_ASSERTF(strcmp(endfacet, "endfacet") == 0, "expected 'endfacet', found '%s'", endfacet);
-    }
-
-    fclose(f);
-    *outTris = outList;
-    return true;
-}
-
 geo_PlaneRelation _geo_triClassify(geo_Tri tri, HMM_Vec3 planeNormal, HMM_Vec3 planeStart) {
     geo_PlaneRelation finalRel = 0;
     for (int i = 0; i < 3; i++) {
@@ -1244,6 +1191,139 @@ void geo_meshGenerateCorners(geo_Mesh* mesh, snz_Arena* out, snz_Arena* scratch)
         }
     }
     mesh->corners = SNZ_ARENA_ARR_END(out, geo_MeshCorner);
+}
+
+// FIXME: error handling without the asserts
+bool geo_stlFileToMesh(const char* path, snz_Arena* arena, snz_Arena* scratch, PoolAlloc* pool, geo_Mesh* outMesh) {
+    geo_BSPTriList tris = { 0 };
+    { // parse from file
+        FILE* f = fopen(path, "r");
+        SNZ_ASSERTF(f, "opening file '%s' failed.", path);
+        char solid[6] = { 0 };
+        char object[100] = { 0 };
+        SNZ_ASSERT(fscanf(f, "%5s%99s", solid, object) == 2, "fscanf failed.");
+        SNZ_ASSERTF(strcmp(solid, "solid") == 0, "expected 'solid', found '%s'", solid);
+
+        while (true) {
+            char facetOrEndsolid[9] = { 0 };
+            SNZ_ASSERT(fscanf(f, "%8s", facetOrEndsolid) == 1, "fscanf failed.");
+            if (strcmp(facetOrEndsolid, "endsolid") == 0) {
+                break;
+            } else if (strcmp(facetOrEndsolid, "facet") == 0) {
+                // this the nominal case.
+            } else {
+                SNZ_ASSERTF(false, "expected 'facet' or 'endsolid', found '%s'", facetOrEndsolid);
+            }
+
+            char normalStr[7] = { 0 };
+            HMM_Vec3 normal = HMM_V3(0, 0, 0);
+            SNZ_ASSERT(fscanf(f, "%6s%f%f%f", normalStr, &normal.X, &normal.Y, &normal.Z) == 4, "fscanf failed.");
+            SNZ_ASSERTF(strcmp(normalStr, "normal") == 0, "expected 'normal', found '%s'", normalStr);
+
+            char outer[6] = { 0 };
+            char loop[5] = { 0 };
+            SNZ_ASSERT(fscanf(f, "%5s%4s", outer, loop) == 2, "fscanf failed.");
+            SNZ_ASSERTF(strcmp(outer, "outer") == 0, "expected 'outer', found '%s'", outer);
+
+            HMM_Vec3 verts[3] = { 0 };
+            for (int i = 0; i < 3; i++) {
+                char vertex[7] = { 0 };
+                SNZ_ASSERT(fscanf(f, "%6s%f%f%f", vertex, &verts[i].X, &verts[i].Y, &verts[i].Z) == 4, "fscanf failed.");
+                SNZ_ASSERTF(strcmp(vertex, "vertex") == 0, "expected 'vertex', found '%s'", vertex);
+            }
+            geo_BSPTriListPushNew(arena, &tris, verts[0], verts[1], verts[2], NULL);
+
+            char endloop[8] = { 0 };
+            SNZ_ASSERT(fscanf(f, "%7s", endloop) == 1, "fscanf failed.");
+            SNZ_ASSERTF(strcmp(endloop, "endloop") == 0, "expected 'endloop', found '%s'", endloop);
+
+            char endfacet[9] = { 0 };
+            SNZ_ASSERT(fscanf(f, "%8s", endfacet) == 1, "fscanf failed.");
+            SNZ_ASSERTF(strcmp(endfacet, "endfacet") == 0, "expected 'endfacet', found '%s'", endfacet);
+        }
+
+        fclose(f);
+    }
+
+    geo_MeshFace* faces = NULL;
+    { // group into faces based on adjacency
+        geo_MeshEdgeSegment* segments = poolAllocAlloc(pool, 0);
+        int64_t segmentCount = 0;
+
+        while (true) {
+            geo_MeshFace* f = SNZ_ARENA_PUSH(arena, geo_MeshFace);
+            f->next = faces;
+            faces = f;
+
+            segmentCount = 0;
+
+            bool anyFound = false;
+            for (geo_BSPTri* other = tris.first; other; other = other->next) {
+                if (other->sourceFace) {
+                    continue;
+                }
+                bool partOfFace = false;
+
+                if (segmentCount == 0) {
+                    partOfFace = true;
+                } else {
+                    for (int i = 0; i < 3; i++) {
+                        geo_MeshEdgeSegment seg = (geo_MeshEdgeSegment){
+                            .a = other->tri.elems[i],
+                            .b = other->tri.elems[(i + 1) % 3],
+                        };
+                        for (int64_t j = 0; j < segmentCount; j++) {
+                            geo_MeshEdgeSegment clipped = { 0 };
+                            if (_geo_segmentPairAdjacent(seg, segments[j], &clipped)) {
+                                partOfFace = true;
+                                break;
+                            }
+                        }
+                        if (partOfFace) {
+                            break;
+                        }
+                    }
+                }
+
+                if (partOfFace) {
+                    other->sourceFace = f;
+                    anyFound = true;
+
+                    for (int i = 0; i < 3; i++) {
+                        *poolAllocPushArray(pool, segments, segmentCount, geo_MeshEdgeSegment) = (geo_MeshEdgeSegment){
+                            .a = other->tri.elems[i],
+                            .b = other->tri.elems[(i + 1) % 3],
+                        };
+                    }
+                    // printf("one tri popped! now at %lld edge segments.\n", segmentCount);
+                }
+            }
+
+            int64_t count = 0;
+            for (geo_BSPTri* t = tris.first; t; t = t->next) {
+                if (t->sourceFace) {
+                    count++;
+                }
+            }
+            printf("%lld tris marked.\n", count);
+
+
+            if (!anyFound) {
+                break;
+            }
+        }
+    }
+
+    *outMesh = (geo_Mesh){
+        .bspTris = tris,
+        .firstFace = faces,
+        .renderMesh = geo_BSPTriListToRenderMesh(tris, scratch),
+        .bspTree = geo_BSPTriListToBSP(&tris, arena),
+    };
+    geo_BSPTriListToFaceTris(pool, outMesh);
+    geo_meshGenerateEdges(outMesh, arena, scratch);
+    geo_meshGenerateCorners(outMesh, arena, scratch);
+    return true;
 }
 
 void geo_tests() {
