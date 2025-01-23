@@ -9,19 +9,21 @@ typedef struct {
     bool leftBarAlwaysOpen;
     bool timelinePreviewSpinBackground;
     bool squishyCamera;
+    bool crosshair;
 } set_Settings;
 // NOTE: this is not meant to be a global anywhere, pass specific settings as flags down from wherever this
 // is being persisted betw frames.
 
 set_Settings set_settingsDefault() {
     set_Settings out = (set_Settings){
-        .darkMode = true,
+        .darkMode = false,
         .skybox = true,
         .musicMode = true,
         .leftBarAlwaysOpen = false,
         .hintWindowAlwaysOpen = false,
         .timelinePreviewSpinBackground = true,
         .squishyCamera = true,
+        .crosshair = true,
     };
     return out;
 }
@@ -43,6 +45,7 @@ void set_build(set_Settings* settings) {
         ui_switch("keep left bar open", &settings->leftBarAlwaysOpen);
         ui_switch("spin the background in timeline preview", &settings->timelinePreviewSpinBackground);
         ui_switch("squishy camera", &settings->squishyCamera);
+        ui_switch("crosshair", &settings->crosshair);
     }
     // FIXME: UI variable for gap here (?)
     snzu_boxOrderChildrenInRowRecurse(10, SNZU_AX_Y);

@@ -1798,6 +1798,7 @@ void snz_main(const char* windowTitle, const char* iconPath, snz_InitFunc initFu
         float time = (float)SDL_GetTicks64() / 1000;
         float dt = time - prevTime;
         prevTime = time;
+        dt = SNZ_MIN(dt, 0.2);
 
         int screenW, screenH;
         SDL_GL_GetDrawableSize(window, &screenW, &screenH);

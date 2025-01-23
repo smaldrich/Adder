@@ -171,7 +171,7 @@ void main_drawTimelineMeshPreview(float dt, HMM_Vec2 panelSize, const ren3d_Mesh
 // takes care of camera logic + skybox
 void main_sceneBuild(
     tl_Scene* scene,
-    HMM_Vec2 panelSize, snzu_Interaction* panelInter,
+    HMM_Vec2 panelSize, snzu_Interaction* panelInter, float dt,
     HMM_Vec3* outCamPos, HMM_Vec3* outMouseDir,
     HMM_Mat4* outVP) {
     // FIXME: automagic redo of the origin
@@ -216,7 +216,8 @@ void main_sceneBuild(
     }
 
     { // smoothing of camera pos
-        float smoothPct = 0.2; // FIXME: time correct
+        float smoothPct = dt * 25;
+        smoothPct = SNZ_MIN(smoothPct, 1);
         if (!main_settings.squishyCamera) {
             smoothPct = 1;
         }
@@ -409,7 +410,7 @@ void main_frame(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screen
                     if (op) {
                         HMM_Vec3 cameraPos, mouseDir;
                         HMM_Mat4 vp;
-                        main_sceneBuild(&op->scene, HMM_V2(w, h), inter, &cameraPos, &mouseDir, &vp);
+                        main_sceneBuild(&op->scene, HMM_V2(w, h), inter, dt, &cameraPos, &mouseDir, &vp);
 
                         // FIXME: don't check for kinds because that isn't how this is supposed to work
                         if (op->kind == TL_OPK_SKETCH) {
@@ -422,6 +423,21 @@ void main_frame(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screen
                                 geo_meshBuild(op->scene.mesh, vp, cameraPos, mouseDir, inter, HMM_V2(w, h), scratch);
                                 snzu_frameDrawAndGenInteractions(inputs, HMM_M4D(1.0f));
                             }
+                        }
+
+                        // draw crosshair
+                        if (main_settings.crosshair) {
+                            // FIXME: looks jumpy with camera in squishy mode
+                            // FIXME: I don't like gl here
+                            glDisable(GL_DEPTH_TEST);
+                            geo_Align origin = op->scene.orbitOrigin;
+                            float scale = op->scene.orbitDist * 0.05;
+                            HMM_Vec4 pts[2] = { 0 };
+                            pts[0].XYZ = HMM_Add(origin.pt, HMM_Mul(origin.vertical, scale));
+                            pts[1].XYZ = origin.pt;
+                            // pts[2].XYZ = HMM_Add(origin.pt, HMM_Mul(origin.normal, scale));
+                            snzr_drawLine(pts, sizeof(pts) / sizeof(*pts), ui_colorTransparentAccent, 5, vp);
+                            glEnable(GL_DEPTH_TEST);
                         }
                     }
                 } else if (main_currentView == SC_VIEW_TIMELINE) {
