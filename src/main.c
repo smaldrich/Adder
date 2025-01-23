@@ -38,7 +38,7 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
 
     main_fontArena = snz_arenaInit(10000000, "main font arena");
     main_sketchArena = snz_arenaInit(10000000, "main sketch arena");
-    main_meshArena = snz_arenaInit(1000000000, "main mesh arena");
+    main_meshArena = snz_arenaInit(10000000000, "main mesh arena");
     main_tlArena = snz_arenaInit(10000000, "main tl arena");
     main_pool = poolAllocInit();
     main_uiInstance = snzu_instanceInit();
@@ -101,8 +101,9 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
     {
         PoolAlloc p = poolAllocInit();
         geo_Mesh m = { 0 };
-        // geo_stlFileToMesh("res/demos/NEO.stl", &main_meshArena, scratch, &p, &m);
-        geo_stlFileToMesh("testing/intersection.stl", &main_meshArena, scratch, &p, &m);
+        snz_arenaClear(scratch);
+        geo_stlFileToMesh("res/demos/bracket.stl", &main_meshArena, scratch, &p, &m);
+        // geo_stlFileToMesh("testing/intersection.stl", &main_meshArena, scratch, &p, &m);
         poolAllocDeinit(&p);
 
         tl_timelinePushGeometry(&main_timeline, HMM_V2(0, -200), m);

@@ -1779,7 +1779,7 @@ void snz_main(const char* windowTitle, const char* iconPath, snz_InitFunc initFu
 
     }
 
-    snz_Arena frameArena = snz_arenaInit(100000000, "snz frame arena");
+    snz_Arena frameArena = snz_arenaInit(1000000000, "snz frame arena");
 
     _snzr_init(&frameArena);
     snz_arenaClear(&frameArena);

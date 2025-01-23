@@ -640,10 +640,16 @@ ren3d_Mesh geo_BSPTriListToRenderMesh(geo_BSPTriList list, snz_Arena* scratch) {
 // uses a meshes BSPTriList to regenerate the face tri arrays
 // assumes valid mesh->bspTris and and old but non-null mesh->faces data.
 void geo_BSPTriListToFaceTris(PoolAlloc* pool, geo_Mesh* mesh) {
+
     for (geo_MeshFace* f = mesh->firstFace; f; f = f->next) {
         f->tris = (geo_TriSlice){ 0 };
     }
     for (geo_BSPTri* tri = mesh->bspTris.first; tri; tri = tri->next) {
+        // REMOVE THIS PLEASE PLEASE PLEASE
+        // FIXME: FIXME: FIXME: AHHH
+        if (!tri->sourceFace) {
+            continue;
+        }
         geo_Tri* t = poolAllocPushArray(pool, tri->sourceFace->tris.elems, tri->sourceFace->tris.count, geo_Tri);
         *t = tri->tri;
     }
@@ -868,7 +874,7 @@ void geo_meshBuild(geo_Mesh* mesh, HMM_Mat4 vp, HMM_Vec3 cameraPos, HMM_Vec3 mou
                 HMM_Vec3 pos = _geo_closestPointToLineOnSegment(cameraPos, HMM_Add(cameraPos, mouseDir), seg.a, seg.b, &distFromRay);
                 float distFromCamera = HMM_Len(HMM_Sub(pos, cameraPos));
 
-                float size = 0.02 * distFromCamera;
+                float size = 0.01 * distFromCamera;
                 if (distFromRay > size) {
                     continue;
                 } else if (distFromCamera > clipDist + size) {
@@ -1011,6 +1017,19 @@ typedef struct {
 } _geo_MeshFacePair;
 
 SNZ_SLICE(_geo_MeshFacePair);
+
+static bool _geo_segmentPairAdjacentFast(geo_MeshEdgeSegment a, geo_MeshEdgeSegment b) {
+    if (geo_v3Equal(a.a, b.a)) {
+        return true;
+    } else if (geo_v3Equal(a.a, b.b)) {
+        return true;
+    } else if (geo_v3Equal(a.b, b.a)) {
+        return true;
+    } else if (geo_v3Equal(a.b, b.b)) {
+        return true;
+    }
+    return false;
+}
 
 // clips A to B
 static bool _geo_segmentPairAdjacent(geo_MeshEdgeSegment a, geo_MeshEdgeSegment b, geo_MeshEdgeSegment* outClipped) {
@@ -1193,6 +1212,130 @@ void geo_meshGenerateCorners(geo_Mesh* mesh, snz_Arena* out, snz_Arena* scratch)
     mesh->corners = SNZ_ARENA_ARR_END(out, geo_MeshCorner);
 }
 
+// FIXME: OCTREES YEAHH!!!
+// FIXME: fillet seam detection??
+static geo_MeshFace* _geo_groupBSPTriListToFaces(geo_BSPTriList tris, PoolAlloc* pool, snz_Arena* arena) {
+    geo_MeshFace* faces = NULL;
+
+    geo_MeshEdgeSegmentSlice segments = (geo_MeshEdgeSegmentSlice){
+        .count = 0,
+        .elems = poolAllocAlloc(pool, 0),
+    };
+    HMM_Vec3* normals = poolAllocAlloc(pool, 0);
+    int64_t normalCount = 0;
+
+    // FIXME: the two while trues in here should really have cutoffs
+    while (true) {
+        { // find and seed a new face
+            geo_BSPTri* t = { 0 };
+            for (geo_BSPTri* tri = tris.first; tri; tri = tri->next) {
+                if (tri->sourceFace) {
+                    continue;
+                }
+                t = tri;
+                break;
+            }
+            if (!t) {
+                break; // No tris left, everything has a face and we can end.
+            }
+
+            segments.count = 0;
+            normalCount = 0;
+
+            for (int i = 0; i < 3; i++) {
+                *poolAllocPushArray(pool, segments.elems, segments.count, geo_MeshEdgeSegment) = (geo_MeshEdgeSegment){
+                    .a = t->tri.elems[i],
+                    .b = t->tri.elems[(i + 1) % 3],
+                };
+                *poolAllocPushArray(pool, normals, normalCount, HMM_Vec3) = geo_triNormal(t->tri);
+            }
+
+
+            int64_t total = 0;
+            int64_t sectioned = 0;
+            for (geo_BSPTri* tri = tris.first; tri; tri = tri->next) {
+                if (tri->sourceFace) {
+                    sectioned++;
+                }
+                total++;
+            }
+            printf("pushed a new face! %lld/%lld\n", sectioned, total);
+
+            geo_MeshFace* f = SNZ_ARENA_PUSH(arena, geo_MeshFace);
+            *f = (geo_MeshFace){
+                .next = faces,
+            };
+            faces = f;
+        }
+
+        // FIXME: perf might be significantly better if we can iterate over an array of just the tri pts instead of a full LLNode + whatever else
+        // but then we need to store the source face (WHY CANT I HAVE SUBSTRUCTS PLEASE PLEASE PLEASE)
+        geo_BSPTri* t = NULL;
+        bool anyPushedThisLoop = true;
+        int64_t triCount = 0;
+        while (true) {
+            if (!t || t->next == NULL) {
+                if (!anyPushedThisLoop) {
+                    break;
+                }
+                t = tris.first;
+                anyPushedThisLoop = false;
+            } else {
+                t = t->next;
+            }
+
+            if (t->sourceFace) {
+                continue;
+            }
+
+            HMM_Vec3 triNormal = geo_triNormal(t->tri);
+            geo_MeshEdgeSegment triSegments[3] = { 0 };
+            for (int i = 0; i < 3; i++) {
+                triSegments[i] = (geo_MeshEdgeSegment){
+                    .a = t->tri.elems[i],
+                    .b = t->tri.elems[(i + 1) % 3],
+                };
+            }
+
+            bool adj = false;
+            for (int64_t i = 0; i < segments.count; i++) {
+                float angle = _geo_angleBetweenV3(triNormal, normals[i]);
+                if (angle > HMM_AngleDeg(30)) {
+                    continue;
+                }
+
+                for (int j = 0; j < 3; j++) {
+                    if (_geo_segmentPairAdjacentFast(triSegments[j], segments.elems[i])) {
+                        adj = true; // pop this tri
+                        i = segments.count; // break the segment loop
+                        break;
+                    }
+                }
+            } // end segment loop
+
+            if (!adj) {
+                continue;
+            }
+
+            t->sourceFace = faces; // set source face to most recent one
+            anyPushedThisLoop = true;
+            triCount++;
+
+            // FIXME: we can put one of these in place of the edge that we started with and not push it to the end
+            for (int i = 0; i < 3; i++) {
+                *poolAllocPushArray(pool, segments.elems, segments.count, geo_MeshEdgeSegment) = triSegments[i];
+                *poolAllocPushArray(pool, normals, normalCount, HMM_Vec3) = geo_triNormal(t->tri);
+            }
+
+            if (triCount > 1000) {
+                printf("quitting!\n");
+                break;
+            }
+        } // end hunting for tris that could fit the face
+    } // end while(any tris left)
+    return faces;
+}
+
 // FIXME: error handling without the asserts
 bool geo_stlFileToMesh(const char* path, snz_Arena* arena, snz_Arena* scratch, PoolAlloc* pool, geo_Mesh* outMesh) {
     geo_BSPTriList tris = { 0 };
@@ -1245,80 +1388,11 @@ bool geo_stlFileToMesh(const char* path, snz_Arena* arena, snz_Arena* scratch, P
         fclose(f);
     }
 
-    geo_MeshFace* faces = NULL;
-    { // group into faces based on adjacency
-        geo_MeshEdgeSegment* segments = poolAllocAlloc(pool, 0);
-        int64_t segmentCount = 0;
-
-        while (true) {
-            geo_MeshFace* f = SNZ_ARENA_PUSH(arena, geo_MeshFace);
-            f->next = faces;
-            faces = f;
-
-            segmentCount = 0;
-
-            bool anyFound = false;
-            for (geo_BSPTri* other = tris.first; other; other = other->next) {
-                if (other->sourceFace) {
-                    continue;
-                }
-                bool partOfFace = false;
-
-                if (segmentCount == 0) {
-                    partOfFace = true;
-                } else {
-                    for (int i = 0; i < 3; i++) {
-                        geo_MeshEdgeSegment seg = (geo_MeshEdgeSegment){
-                            .a = other->tri.elems[i],
-                            .b = other->tri.elems[(i + 1) % 3],
-                        };
-                        for (int64_t j = 0; j < segmentCount; j++) {
-                            geo_MeshEdgeSegment clipped = { 0 };
-                            if (_geo_segmentPairAdjacent(seg, segments[j], &clipped)) {
-                                partOfFace = true;
-                                break;
-                            }
-                        }
-                        if (partOfFace) {
-                            break;
-                        }
-                    }
-                }
-
-                if (partOfFace) {
-                    other->sourceFace = f;
-                    anyFound = true;
-
-                    for (int i = 0; i < 3; i++) {
-                        *poolAllocPushArray(pool, segments, segmentCount, geo_MeshEdgeSegment) = (geo_MeshEdgeSegment){
-                            .a = other->tri.elems[i],
-                            .b = other->tri.elems[(i + 1) % 3],
-                        };
-                    }
-                    // printf("one tri popped! now at %lld edge segments.\n", segmentCount);
-                }
-            }
-
-            int64_t count = 0;
-            for (geo_BSPTri* t = tris.first; t; t = t->next) {
-                if (t->sourceFace) {
-                    count++;
-                }
-            }
-            printf("%lld tris marked.\n", count);
-
-
-            if (!anyFound) {
-                break;
-            }
-        }
-    }
-
     *outMesh = (geo_Mesh){
         .bspTris = tris,
-        .firstFace = faces,
+        .firstFace = _geo_groupBSPTriListToFaces(tris, pool, arena),
         .renderMesh = geo_BSPTriListToRenderMesh(tris, scratch),
-        .bspTree = geo_BSPTriListToBSP(&tris, arena),
+        // .bspTree = geo_BSPTriListToBSP(&tris, arena),
     };
     geo_BSPTriListToFaceTris(pool, outMesh);
     geo_meshGenerateEdges(outMesh, arena, scratch);
@@ -1428,19 +1502,8 @@ void geo_tests() {
     }
 
     {
-        // float t = 0;
-        // float dist = _geo_closestPointToLineOnSegment(
-        //     HMM_V3(0, 0, 0), HMM_V3(0, 1, 0),
-        //     HMM_V3(0, 0, 1), HMM_V3(1, 0, 1),
-        //     &t);
-        // snz_testPrint(geo_floatEqual(dist, 1) && geo_floatEqual(t, 0), "line & segment dist test 1");
-
-        // t = 0;
-        // dist = _geo_closestPointToLineOnSegment(
-        //     HMM_V3(0, 0, 0), HMM_V3(1, 0, 0),
-        //     HMM_V3(0, 0, 1), HMM_V3(1, 0, 1),
-        //     &t);
-        // snz_testPrint(geo_floatEqual(dist, 1), "line & segment dist test 2");
+        geo_Mesh m = geo_cube(&arena);
+        geo_BSPTriListToSTLFile(&m.bspTris, "testing/cube.stl");
     }
 
     snz_arenaDeinit(&arena);
