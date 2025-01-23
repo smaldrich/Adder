@@ -414,6 +414,40 @@ snzr_Font snzr_fontInit(snz_Arena* dataArena, snz_Arena* scratch, const char* pa
     return out;
 }
 
+struct {
+    int vp;
+    int z;
+    int cornerRadius;
+    int borderThickness;
+    int borderColor;
+    int dstStart;
+    int dstEnd;
+    int srcStart;
+    int srcEnd;
+    int clipStart;
+    int clipEnd;
+    int color;
+    int fontTexture;
+    int colorTexture;
+} _snzr_rectShaderLocations;
+
+static void _snzr_rectShaderLocationsInit(uint32_t id) {
+    _snzr_rectShaderLocations.vp = glGetUniformLocation(id, "uVP");
+    _snzr_rectShaderLocations.z = glGetUniformLocation(id, "uZ");
+    _snzr_rectShaderLocations.cornerRadius = glGetUniformLocation(id, "uCornerRadius");
+    _snzr_rectShaderLocations.borderThickness = glGetUniformLocation(id, "uBorderThickness");
+    _snzr_rectShaderLocations.borderColor = glGetUniformLocation(id, "uBorderColor");
+    _snzr_rectShaderLocations.dstStart = glGetUniformLocation(id, "uDstStart");
+    _snzr_rectShaderLocations.dstEnd = glGetUniformLocation(id, "uDstEnd");
+    _snzr_rectShaderLocations.srcStart = glGetUniformLocation(id, "uSrcStart");
+    _snzr_rectShaderLocations.srcEnd = glGetUniformLocation(id, "uSrcEnd");
+    _snzr_rectShaderLocations.clipStart = glGetUniformLocation(id, "uClipStart");
+    _snzr_rectShaderLocations.clipEnd = glGetUniformLocation(id, "uClipEnd");
+    _snzr_rectShaderLocations.color = glGetUniformLocation(id, "uColor");
+    _snzr_rectShaderLocations.fontTexture = glGetUniformLocation(id, "uFontTexture");
+    _snzr_rectShaderLocations.colorTexture = glGetUniformLocation(id, "uColorTexture");
+}
+
 static void _snzr_init(snz_Arena* scratchArena) {
     {  // initialize gl settings
         gladLoadGL();
@@ -520,6 +554,7 @@ static void _snzr_init(snz_Arena* scratchArena) {
             "    if (color.a <= 0.01) { discard; }"
             "};";
         _snzr_globs.rectShaderId = snzr_shaderInit(vertSrc, fragSrc, scratchArena);
+        _snzr_rectShaderLocationsInit(_snzr_globs.rectShaderId);
     }
 
     {
@@ -602,40 +637,6 @@ static void _snzr_init(snz_Arena* scratchArena) {
 
     uint8_t solidTexData[] = { 255, 255, 255, 255 };
     _snzr_globs.solidTex = snzr_textureInitRBGA(1, 1, solidTexData);
-}
-
-struct {
-    int vp;
-    int z;
-    int cornerRadius;
-    int borderThickness;
-    int borderColor;
-    int dstStart;
-    int dstEnd;
-    int srcStart;
-    int srcEnd;
-    int clipStart;
-    int clipEnd;
-    int color;
-    int fontTexture;
-    int colorTexture;
-} _snzr_rectShaderLocations;
-
-static void _snzr_loadRectUniformLocations(uint32_t id) {
-    _snzr_rectShaderLocations.vp = glGetUniformLocation(id, "uVP");
-    _snzr_rectShaderLocations.z = glGetUniformLocation(id, "uZ");
-    _snzr_rectShaderLocations.cornerRadius = glGetUniformLocation(id, "uCornerRadius");
-    _snzr_rectShaderLocations.borderThickness = glGetUniformLocation(id, "uBorderThickness");
-    _snzr_rectShaderLocations.borderColor = glGetUniformLocation(id, "uBorderColor");
-    _snzr_rectShaderLocations.dstStart = glGetUniformLocation(id, "uDstStart");
-    _snzr_rectShaderLocations.dstEnd = glGetUniformLocation(id, "uDstEnd");
-    _snzr_rectShaderLocations.srcStart = glGetUniformLocation(id, "uSrcStart");
-    _snzr_rectShaderLocations.srcEnd = glGetUniformLocation(id, "uSrcEnd");
-    _snzr_rectShaderLocations.clipStart = glGetUniformLocation(id, "uClipStart");
-    _snzr_rectShaderLocations.clipEnd = glGetUniformLocation(id, "uClipEnd");
-    _snzr_rectShaderLocations.color = glGetUniformLocation(id, "uColor");
-    _snzr_rectShaderLocations.fontTexture = glGetUniformLocation(id, "uFontTexture");
-    _snzr_rectShaderLocations.colorTexture = glGetUniformLocation(id, "uColorTexture");
 }
 
 void snzr_drawRect(
@@ -730,28 +731,19 @@ void snzr_drawTextScaled(HMM_Vec2 start,
     // FIXME: layering system
     // FIXME: safe gl calls
     snzr_callGLFnOrError(glUseProgram(_snzr_globs.rectShaderId));
-    int loc = glGetUniformLocation(_snzr_globs.rectShaderId, "uVP");
-    glUniformMatrix4fv(loc, 1, false, (float*)&vp);
-    loc = glGetUniformLocation(_snzr_globs.rectShaderId, "uZ");
-    glUniform1f(loc, 0);
-    loc = glGetUniformLocation(_snzr_globs.rectShaderId, "uColor");
-    glUniform4f(loc, color.X, color.Y, color.Z, color.W);
-    loc = glGetUniformLocation(_snzr_globs.rectShaderId, "uFontTexture");
-    glUniform1i(loc, 0);
+    glUniformMatrix4fv(_snzr_rectShaderLocations.vp, 1, false, (float*)&vp);
+    glUniform1f(_snzr_rectShaderLocations.z, 0);
+    glUniform4f(_snzr_rectShaderLocations.color, color.X, color.Y, color.Z, color.W);
+    glUniform1i(_snzr_rectShaderLocations.fontTexture, 0);
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, font.atlas.glId);
 
-    loc = glGetUniformLocation(_snzr_globs.rectShaderId, "uCornerRadius");
-    glUniform1f(loc, 0);
-    loc = glGetUniformLocation(_snzr_globs.rectShaderId, "uBorderThickness");
-    glUniform1f(loc, 0);
-    loc = glGetUniformLocation(_snzr_globs.rectShaderId, "uBorderColor");
-    glUniform4f(loc, 0, 0, 0, 0);
+    glUniform1f(_snzr_rectShaderLocations.cornerRadius, 0);
+    glUniform1f(_snzr_rectShaderLocations.borderThickness, 0);
+    glUniform4f(_snzr_rectShaderLocations.borderColor, 0, 0, 0, 0);
 
-    loc = glGetUniformLocation(_snzr_globs.rectShaderId, "uClipStart");
-    glUniform2f(loc, clipStart.X, clipStart.Y);
-    loc = glGetUniformLocation(_snzr_globs.rectShaderId, "uClipEnd");
-    glUniform2f(loc, clipEnd.X, clipEnd.Y);
+    glUniform2f(_snzr_rectShaderLocations.clipStart, clipStart.X, clipStart.Y);
+    glUniform2f(_snzr_rectShaderLocations.clipEnd, clipEnd.X, clipEnd.Y);
 
     float scaleFactor = targetSize / font.renderedSize;
 
@@ -794,14 +786,10 @@ void snzr_drawTextScaled(HMM_Vec2 start,
             dstEnd.Y = (int)dstEnd.Y;
         }
 
-        loc = glGetUniformLocation(_snzr_globs.rectShaderId, "uSrcStart");
-        glUniform2f(loc, srcStart.X, srcStart.Y);
-        loc = glGetUniformLocation(_snzr_globs.rectShaderId, "uSrcEnd");
-        glUniform2f(loc, srcEnd.X, srcEnd.Y);
-        loc = glGetUniformLocation(_snzr_globs.rectShaderId, "uDstStart");
-        glUniform2f(loc, dstStart.X, dstStart.Y);
-        loc = glGetUniformLocation(_snzr_globs.rectShaderId, "uDstEnd");
-        glUniform2f(loc, dstEnd.X, dstEnd.Y);
+        glUniform2f(_snzr_rectShaderLocations.srcStart, srcStart.X, srcStart.Y);
+        glUniform2f(_snzr_rectShaderLocations.srcEnd, srcEnd.X, srcEnd.Y);
+        glUniform2f(_snzr_rectShaderLocations.dstStart, dstStart.X, dstStart.Y);
+        glUniform2f(_snzr_rectShaderLocations.dstEnd, dstEnd.X, dstEnd.Y);
         snzr_callGLFnOrError(glDrawArrays(GL_TRIANGLES, 0, 6));
     }
 }
