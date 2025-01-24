@@ -751,6 +751,100 @@ void sk_sketchDeselectAll(sk_Sketch* sketch) {
     }
 }
 
+typedef struct _sk_TriangulationPoint _sk_TriangulationPoint;
+SNZ_SLICE_NAMED(_sk_TriangulationPoint*, _sk_TriangulationPointPtrSlice);
+
+typedef struct {
+    _sk_TriangulationPointPtrSlice adjacent;
+    HMM_Vec2 pos;
+} _sk_TriangulationPoint;
+
+SNZ_SLICE(_sk_TriangulationPoint);
+
+typedef struct _sk_TriangulationVertLoop _sk_TriangulationVertLoop;
+struct _sk_TriangulationVertLoop {
+    _sk_TriangulationVertLoop* next;
+    HMM_Vec2Slice pts;
+};
+
+// FIXME: does this function gauranteed crash on a malformed sketch??
+geo_Mesh sk_sketchTriangulate(const sk_Sketch* sketch, snz_Arena* arena, snz_Arena* scratch, PoolAlloc* scratchPool) {
+    // // arcs -> lines
+    // lines -> intersections
+    // sketch -> graph
+    // graph -> vert loops (don't forget holes!!)
+    // vert loops -> tris
+    // done!!
+
+    _sk_TriangulationPointSlice points = { 0 };
+    { // imports
+        SNZ_ARENA_ARR_BEGIN(scratch, _sk_TriangulationPoint);
+        for (sk_Point* p = sketch->firstPoint; p; p = p->next) {
+            _sk_TriangulationPoint* new = SNZ_ARENA_PUSH(scratch, _sk_TriangulationPoint);
+            new->pos = p->pos;
+        }
+        points = SNZ_ARENA_ARR_END(scratch, _sk_TriangulationPoint);
+    }
+
+    if (!points.count) {
+        return (geo_Mesh) { 0 };
+    }
+
+    { // intersections
+    }
+
+    { // adj. lists
+        sk_Point* ptInSourceSketch = sketch->firstPoint;
+        for (int ptIdx = 0; ptIdx < points.count; (ptIdx++, ptInSourceSketch = ptInSourceSketch->next)) {
+            _sk_TriangulationPoint* pt = &points.elems[ptIdx];
+
+            SNZ_ARENA_ARR_BEGIN(scratch, _sk_TriangulationPoint*);
+            for (sk_Line* l = sketch->firstLine; l; l = l->next) {
+                bool pt1Matches = l->p1 == ptInSourceSketch;
+                if (!pt1Matches && l->p2 != ptInSourceSketch) {
+                    continue;
+                }
+
+                sk_Point* targetPt = (pt1Matches ? l->p2 : l->p1);
+                _sk_TriangulationPoint* finalPt = NULL;
+                // FIXME: cache an index in the OG pts or no?
+                for (int i = 0; i < points.count; i++) {
+                    _sk_TriangulationPoint* p = &points.elems[i];
+                    if (p == targetPt) {
+                        finalPt = p;
+                        break;
+                    }
+                }
+                SNZ_ASSERT(finalPt != NULL, "point on line wasn't found in the triangulation point arr.");
+                *SNZ_ARENA_PUSH(scratch, _sk_TriangulationPoint*) = finalPt;
+            }
+            pt->adjacent = SNZ_ARENA_ARR_END_NAMED(scratch, _sk_TriangulationPoint*, _sk_TriangulationPointPtrSlice);
+        }
+    } // end generating adj. lists
+
+    _sk_TriangulationVertLoop* firstLoop;
+    { // vert loop gen
+        _sk_TriangulationPoint* pt = &points.elems[0];
+        float dir = 0;
+        while (true) { // FIXME: cutoff
+            _sk_TriangulationPoint* next = NULL;
+            for (int i = 0; i < pt->adjacent.count; i++) {
+                _sk_TriangulationPoint* adj = pt->adjacent.elems[i];
+                float angle = geo_normalizeAngle();
+            }
+            pt = next;
+        }
+    }
+
+    { // triangulation
+
+    }
+
+    geo_Mesh out = { 0 };
+    out.bspTris = ;
+    out.firstFace = ;
+}
+
 void sk_tests() {
     snz_testPrintSection("sketch");
 

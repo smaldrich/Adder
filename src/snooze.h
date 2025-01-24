@@ -63,11 +63,13 @@ void snz_testPrintSection(const char* name) {
     printf("\n    -- %s Tests -- \n", name);
 }
 
-#define SNZ_SLICE(T)   \
+#define SNZ_SLICE_NAMED(T, name)   \
     typedef struct {   \
         T* elems;      \
         int64_t count; \
-    } T##Slice
+    } name
+
+#define SNZ_SLICE(T) SNZ_SLICE_NAMED(T, T##Slice)
 
 SNZ_SLICE(HMM_Vec2);
 SNZ_SLICE(HMM_Vec3);
@@ -192,7 +194,8 @@ void _snz_arenaArrBegin(snz_Arena* a, int64_t elemSize, const char* elemName) {
 // evaluates to a slice containing all the elts pushed since SNZ_ARENA_ARR_BEGIN was called.
 // arena should be an arena ptr
 // also sry abt this one, it's real gross. Ease of use should compensate.
-#define SNZ_ARENA_ARR_END(arena, T) (_snz_arenaArrEnd(arena, sizeof(T)), (T##Slice){.elems = (T*)((arena)->end) - (arena)->arrModeElemCount, .count = (arena)->arrModeElemCount})
+#define SNZ_ARENA_ARR_END_NAMED(arena, T, sliceTypeName) (_snz_arenaArrEnd(arena, sizeof(T)), (sliceTypeName){.elems = (T*)((arena)->end) - (arena)->arrModeElemCount, .count = (arena)->arrModeElemCount})
+#define SNZ_ARENA_ARR_END(arena, T) SNZ_ARENA_ARR_END_NAMED(arena, T, T##Slice)
 void _snz_arenaArrEnd(snz_Arena* a, int64_t elemSize) {
     SNZ_ASSERTF(a->arrModeElemSize == elemSize,
                 "arena arr end failed for '%s', Current elem: '%s' (size %lld), end elt size was: %lld",
