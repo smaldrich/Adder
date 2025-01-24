@@ -96,7 +96,17 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
         tl_timelinePushGeometry(&main_timeline, HMM_V2(-200, 0), mesh);
     }  // end mesh for testing
 
-    tl_timelinePushSketch(&main_timeline, HMM_V2(0, 0), sk_sketchInit(&main_sketchArena));
+    {
+        sk_Sketch sketch = sk_sketchInit(&main_sketchArena);
+        sk_Point* p = sk_sketchAddPoint(&sketch, HMM_V2(0.5, 1));
+        sk_sketchAddLine(&sketch, p, sketch.originLine->p1);
+        sk_sketchAddLine(&sketch, p, sketch.originLine->p2);
+        tl_timelinePushSketch(&main_timeline, HMM_V2(0, 0), sketch);
+
+        geo_Mesh m = sk_sketchTriangulate(&sketch, &main_meshArena, scratch);
+        m.renderMesh = geo_BSPTriListToRenderMesh(m.bspTris, scratch);
+        tl_timelinePushGeometry(&main_timeline, HMM_V2(200, 200), m);
+    }
 
     {
         PoolAlloc p = poolAllocInit();

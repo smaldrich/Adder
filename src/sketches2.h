@@ -754,10 +754,10 @@ void sk_sketchDeselectAll(sk_Sketch* sketch) {
 typedef struct _sk_TriangulationPoint _sk_TriangulationPoint;
 SNZ_SLICE_NAMED(_sk_TriangulationPoint*, _sk_TriangulationPointPtrSlice);
 
-typedef struct {
+struct _sk_TriangulationPoint {
     _sk_TriangulationPointPtrSlice adjacent;
     HMM_Vec2 pos;
-} _sk_TriangulationPoint;
+};
 
 SNZ_SLICE(_sk_TriangulationPoint);
 
@@ -768,7 +768,8 @@ struct _sk_TriangulationVertLoop {
 };
 
 // FIXME: does this function gauranteed crash on a malformed sketch??
-geo_Mesh sk_sketchTriangulate(const sk_Sketch* sketch, snz_Arena* arena, snz_Arena* scratch, PoolAlloc* scratchPool) {
+geo_Mesh sk_sketchTriangulate(const sk_Sketch* sketch, snz_Arena* arena, snz_Arena* scratch) {
+    assert(arena || !arena);
     // // arcs -> lines
     // lines -> intersections
     // sketch -> graph
@@ -808,12 +809,13 @@ geo_Mesh sk_sketchTriangulate(const sk_Sketch* sketch, snz_Arena* arena, snz_Are
                 sk_Point* targetPt = (pt1Matches ? l->p2 : l->p1);
                 _sk_TriangulationPoint* finalPt = NULL;
                 // FIXME: cache an index in the OG pts or no?
-                for (int i = 0; i < points.count; i++) {
-                    _sk_TriangulationPoint* p = &points.elems[i];
-                    if (p == targetPt) {
-                        finalPt = p;
+                int i = 0;
+                for (sk_Point* other = sketch->firstPoint; other; other = other->next) {
+                    if (other == targetPt) {
+                        finalPt = &points.elems[i];
                         break;
                     }
+                    i++;
                 }
                 SNZ_ASSERT(finalPt != NULL, "point on line wasn't found in the triangulation point arr.");
                 *SNZ_ARENA_PUSH(scratch, _sk_TriangulationPoint*) = finalPt;
@@ -822,27 +824,65 @@ geo_Mesh sk_sketchTriangulate(const sk_Sketch* sketch, snz_Arena* arena, snz_Are
         }
     } // end generating adj. lists
 
-    _sk_TriangulationVertLoop* firstLoop;
+    { // interatively cull pts with one or none adj.
+    }
+
+    _sk_TriangulationVertLoop* firstLoop = 0;
     { // vert loop gen
-        _sk_TriangulationPoint* pt = &points.elems[0];
+        SNZ_ASSERTF(points.count > 0, "points count was: %lld", points.count);
+        _sk_TriangulationPoint* startPt = &points.elems[0];
+
+        SNZ_ARENA_ARR_BEGIN(scratch, HMM_Vec2);
+
+        SNZ_ASSERTF(startPt->adjacent.count >= 2, "point had only %lld adjacents.", startPt->adjacent.count);
+        _sk_TriangulationPoint* pt = startPt->adjacent.elems[0];
         float dir = 0;
-        while (true) { // FIXME: cutoff
+        {
+            HMM_Vec2 diff = HMM_Sub(pt->pos, startPt->pos);
+            dir = atan2f(diff.Y, diff.X);
+            if (dir < 0) {
+                dir += HMM_AngleDeg(360);
+            }
+        }
+        while (pt != startPt) { // FIXME: emergency cutoff
+            SNZ_ASSERTF(pt->adjacent.count >= 2, "point had only %lld adjacents.", pt->adjacent.count);
             _sk_TriangulationPoint* next = NULL;
+            float maxAngle = -INFINITY;
             for (int i = 0; i < pt->adjacent.count; i++) {
                 _sk_TriangulationPoint* adj = pt->adjacent.elems[i];
-                float angle = geo_normalizeAngle();
+                HMM_Vec2 diff = HMM_Sub(adj->pos, pt->pos);
+                float angle = dir - atan2f(diff.Y, diff.X);
+                while (angle < 0) {
+                    angle += HMM_AngleDeg(360);
+                }
+
+                // select the most CCW next point to go to
+                if (angle > maxAngle) {
+                    next = adj;
+                    maxAngle = angle;
+                }
             }
             pt = next;
-        }
+            *SNZ_ARENA_PUSH(scratch, HMM_Vec2) = pt->pos;
+        } // end one
+
+        HMM_Vec2Slice loopPoints = SNZ_ARENA_ARR_END(scratch, HMM_Vec2);
+        _sk_TriangulationVertLoop* loop = SNZ_ARENA_PUSH(scratch, _sk_TriangulationVertLoop);
+        loop->pts = loopPoints;
+        loop->next = firstLoop;
+        firstLoop = loop;
+    }
+
+    { // vert loop minimization
     }
 
     { // triangulation
-
     }
 
-    geo_Mesh out = { 0 };
-    out.bspTris = ;
-    out.firstFace = ;
+    // geo_Mesh out = { 0 };
+    // out.bspTris = ;
+    // out.firstFace = ;
+    return (geo_Mesh) { 0 };
 }
 
 void sk_tests() {
