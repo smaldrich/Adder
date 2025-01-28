@@ -96,6 +96,8 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
         tl_timelinePushGeometry(&main_timeline, HMM_V2(-200, 0), mesh);
     }  // end mesh for testing
 
+    snz_arenaClear(scratch);
+
     {
         sk_Sketch sketch = sk_sketchInit(&main_sketchArena);
         sk_Point* p = sk_sketchAddPoint(&sketch, HMM_V2(0.5, 1));

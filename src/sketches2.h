@@ -753,15 +753,29 @@ void sk_sketchDeselectAll(sk_Sketch* sketch) {
 
 typedef struct _sk_TriangulationPoint _sk_TriangulationPoint;
 typedef struct {
-    _sk_TriangulationPoint* pt;
-    bool traversed;
+    // low and high decided based on pointer compare
+    _sk_TriangulationPoint* lowPt;
+    _sk_TriangulationPoint* highPt;
+    int traverse; // see _sk_TriangulationEdgeTraverse
 } _sk_TriangulationEdge;
+
+typedef enum {
+    _SK_TET_NONE,
+    _SK_TET_LOW_FIRST,
+    _SK_TET_HIGH_FIRST,
+} _sk_TriangulationEdgeTraverse;
+
 SNZ_SLICE(_sk_TriangulationEdge);
+SNZ_SLICE_NAMED(_sk_TriangulationEdge*, _sk_TriangulationEdgePtrSlice);
 
 struct _sk_TriangulationPoint {
-    _sk_TriangulationEdgeSlice adjacent;
+    _sk_TriangulationEdgePtrSlice adjacent;
     HMM_Vec2 pos;
 };
+
+static _sk_TriangulationPoint* _sk_otherInTriangulationEdge(_sk_TriangulationEdge* e, _sk_TriangulationPoint* pt) {
+    return e->lowPt == pt ? e->highPt : e->lowPt;
+}
 
 SNZ_SLICE(_sk_TriangulationPoint);
 
@@ -784,7 +798,8 @@ geo_Mesh sk_sketchTriangulate(const sk_Sketch* sketch, snz_Arena* arena, snz_Are
     _sk_TriangulationPointSlice points = { 0 };
     { // imports
         SNZ_ARENA_ARR_BEGIN(scratch, _sk_TriangulationPoint);
-        for (sk_Point* p = sketch->firstPoint; p; p = p->next) {
+        int i = 0;
+        for (sk_Point* p = sketch->firstPoint; p; (p = p->next, i++)) {
             _sk_TriangulationPoint* new = SNZ_ARENA_PUSH(scratch, _sk_TriangulationPoint);
             new->pos = p->pos;
         }
@@ -798,40 +813,35 @@ geo_Mesh sk_sketchTriangulate(const sk_Sketch* sketch, snz_Arena* arena, snz_Are
     { // intersections
     }
 
-    { // adj. lists
-        sk_Point* ptInSourceSketch = sketch->firstPoint;
-        for (int ptIdx = 0; ptIdx < points.count; (ptIdx++, ptInSourceSketch = ptInSourceSketch->next)) {
-            _sk_TriangulationPoint* pt = &points.elems[ptIdx];
-
-            SNZ_ARENA_ARR_BEGIN(scratch, _sk_TriangulationPoint*);
-            for (sk_Line* l = sketch->firstLine; l; l = l->next) {
-                bool pt1Matches = l->p1 == ptInSourceSketch;
-                if (!pt1Matches && l->p2 != ptInSourceSketch) {
-                    continue;
-                }
-
-                sk_Point* targetPt = (pt1Matches ? l->p2 : l->p1);
-                _sk_TriangulationPoint* finalPt = NULL;
-                // FIXME: cache an index in the OG pts or no?
-                int i = 0;
-                for (sk_Point* other = sketch->firstPoint; other; other = other->next) {
-                    if (other == targetPt) {
-                        finalPt = &points.elems[i];
-                        break;
-                    }
-                    i++;
-                }
-                SNZ_ASSERT(finalPt != NULL, "point on line wasn't found in the triangulation point arr.");
-                *SNZ_ARENA_PUSH(scratch, _sk_TriangulationEdge) = (_sk_TriangulationEdge){ .pt = finalPt };
-            }
-            pt->adjacent = SNZ_ARENA_ARR_END(scratch, _sk_TriangulationEdge);
-        }
-    } // end generating adj. lists
-
     { // iteratively cull pts with one or none adj.
     }
 
+    { // adj. lists
+        SNZ_ARENA_ARR_BEGIN(scratch, _sk_TriangulationEdge);
+        for (sk_Line* l = sketch->firstLine; l; l = l->next) {
+            *SNZ_ARENA_PUSH(scratch, _sk_TriangulationEdge) = (_sk_TriangulationEdge){
+                .highPt = SNZ_MAX(l->p1, l->p2),
+                .lowPt = SNZ_MIN(l->p1, l->p2),
+            };
+        }
+        _sk_TriangulationEdgeSlice edges = SNZ_ARENA_ARR_END(scratch, _sk_TriangulationEdge);
+
+        for (int ptIdx = 0; ptIdx < points.count; ptIdx++) {
+            _sk_TriangulationPoint* p = &points.elems[ptIdx];
+            SNZ_ARENA_ARR_BEGIN(scratch, _sk_TriangulationEdge*);
+            for (int edgeIdx = 0; edgeIdx < edges.count; edgeIdx++) {
+                _sk_TriangulationEdge* e = &edges.elems[edgeIdx];
+                if (e->lowPt == p || e->highPt == p) {
+                    *SNZ_ARENA_PUSH(scratch, _sk_TriangulationEdge*) = e;
+                }
+            }
+            p->adjacent = SNZ_ARENA_ARR_END_NAMED(scratch, _sk_TriangulationEdge*, _sk_TriangulationEdgePtrSlice);
+            SNZ_ASSERTF(p->adjacent.count >= 2, "point had only %lld adjacents.", p->adjacent.count);
+        }
+    } // end generating adj. lists
+
     _sk_TriangulationVertLoop* firstLoop = 0;
+    int loopCount = 0;
     { // vert loop gen
         SNZ_ASSERTF(points.count > 0, "points count was: %lld", points.count);
 
@@ -841,15 +851,15 @@ geo_Mesh sk_sketchTriangulate(const sk_Sketch* sketch, snz_Arena* arena, snz_Are
             { // find the seed for the next loop
                 for (int i = 0; i < points.count; i++) {
                     _sk_TriangulationPoint* p = &points.elems[i];
-                    SNZ_ASSERTF(p->adjacent.count >= 2, "point had only %lld adjacents.", p->adjacent.count);
                     for (int j = 0; j < p->adjacent.count; j++) {
                         _sk_TriangulationEdge* e = &p->adjacent.elems[j];
-                        if (e->traversed) {
+                        int traverseMask = (p == e->lowPt) ? _SK_TET_LOW_FIRST : _SK_TET_HIGH_FIRST;
+                        if (e->traverse & traverseMask) {
                             continue;
                         }
-                        e->traversed = true;
+                        e->traverse &= traverseMask;
                         prevPt = p;
-                        currentPt = e->pt;
+                        currentPt = _sk_otherInTriangulationEdge(e, p);
 
                         i = points.count; // break outer
                         break;
@@ -869,15 +879,20 @@ geo_Mesh sk_sketchTriangulate(const sk_Sketch* sketch, snz_Arena* arena, snz_Are
                     dir += HMM_AngleDeg(360);
                 }
             }
+
+            SNZ_ARENA_ARR_BEGIN(scratch, HMM_Vec2);
+            *SNZ_ARENA_PUSH(scratch, HMM_Vec2) = currentPt->pos;
+
             while (currentPt != startPt) { // FIXME: emergency cutoff
                 _sk_TriangulationEdge* selected = NULL;
                 float maxAngle = -INFINITY;
                 for (int i = 0; i < currentPt->adjacent.count; i++) {
-                    _sk_TriangulationEdge* adj = &currentPt->adjacent.elems[i];
-                    if (adj->pt == prevPt) {
+                    _sk_TriangulationEdge* edge = &currentPt->adjacent.elems[i];
+                    _sk_TriangulationPoint* other = _sk_otherInTriangulationEdge(edge, currentPt);
+                    if (other == prevPt) {
                         continue;
                     }
-                    HMM_Vec2 diff = HMM_Sub(adj->pt->pos, currentPt->pos);
+                    HMM_Vec2 diff = HMM_Sub(other->pos, currentPt->pos);
                     float angle = dir - atan2f(diff.Y, diff.X);
                     while (angle < 0) {
                         angle += HMM_AngleDeg(360);
@@ -888,13 +903,13 @@ geo_Mesh sk_sketchTriangulate(const sk_Sketch* sketch, snz_Arena* arena, snz_Are
 
                     // select the most CCW next point to go to
                     if (angle > maxAngle) {
-                        selected = adj;
+                        selected = edge;
                         maxAngle = angle;
                     }
                 }
                 prevPt = currentPt;
-                selected->traversed = true;
-                currentPt = selected->pt;
+                selected->traverse &= (currentPt == selected->lowPt ? _SK_TET_LOW_FIRST : _SK_TET_HIGH_FIRST);
+                currentPt = _sk_otherInTriangulationEdge(selected, currentPt);
                 *SNZ_ARENA_PUSH(scratch, HMM_Vec2) = currentPt->pos;
             } // end finding points for a loop
 
@@ -903,6 +918,7 @@ geo_Mesh sk_sketchTriangulate(const sk_Sketch* sketch, snz_Arena* arena, snz_Are
             loop->pts = loopPoints;
             loop->next = firstLoop;
             firstLoop = loop;
+            loopCount++;
         } // end loop loop
     } // end all loop gen
 
@@ -910,9 +926,24 @@ geo_Mesh sk_sketchTriangulate(const sk_Sketch* sketch, snz_Arena* arena, snz_Are
     }
 
     { // vert loop minimization
+        { // sort by largest first, insertion style
+            // new list, slowly push nodes into it
+        }
+
+        { // cull loops that aren't necessary
+
+        }
     }
 
     { // triangulation
+    }
+
+    for (_sk_TriangulationVertLoop* l = firstLoop; l; l = l->next) {
+        printf("LOOP:\n");
+        for (int i = 0; i < l->pts.count; i++) {
+            HMM_Vec2 p = l->pts.elems[i];
+            printf("  %.2f, %.2f\n", p.X, p.Y);
+        }
     }
 
     // geo_Mesh out = { 0 };
