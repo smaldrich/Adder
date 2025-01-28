@@ -752,10 +752,14 @@ void sk_sketchDeselectAll(sk_Sketch* sketch) {
 }
 
 typedef struct _sk_TriangulationPoint _sk_TriangulationPoint;
-SNZ_SLICE_NAMED(_sk_TriangulationPoint*, _sk_TriangulationPointPtrSlice);
+typedef struct {
+    _sk_TriangulationPoint* pt;
+    bool traversed;
+} _sk_TriangulationEdge;
+SNZ_SLICE(_sk_TriangulationEdge);
 
 struct _sk_TriangulationPoint {
-    _sk_TriangulationPointPtrSlice adjacent;
+    _sk_TriangulationEdgeSlice adjacent;
     HMM_Vec2 pos;
 };
 
@@ -818,59 +822,91 @@ geo_Mesh sk_sketchTriangulate(const sk_Sketch* sketch, snz_Arena* arena, snz_Are
                     i++;
                 }
                 SNZ_ASSERT(finalPt != NULL, "point on line wasn't found in the triangulation point arr.");
-                *SNZ_ARENA_PUSH(scratch, _sk_TriangulationPoint*) = finalPt;
+                *SNZ_ARENA_PUSH(scratch, _sk_TriangulationEdge) = (_sk_TriangulationEdge){ .pt = finalPt };
             }
-            pt->adjacent = SNZ_ARENA_ARR_END_NAMED(scratch, _sk_TriangulationPoint*, _sk_TriangulationPointPtrSlice);
+            pt->adjacent = SNZ_ARENA_ARR_END(scratch, _sk_TriangulationEdge);
         }
     } // end generating adj. lists
 
-    { // interatively cull pts with one or none adj.
+    { // iteratively cull pts with one or none adj.
     }
 
     _sk_TriangulationVertLoop* firstLoop = 0;
     { // vert loop gen
         SNZ_ASSERTF(points.count > 0, "points count was: %lld", points.count);
-        _sk_TriangulationPoint* startPt = &points.elems[0];
 
-        SNZ_ARENA_ARR_BEGIN(scratch, HMM_Vec2);
+        while (true) { // FIXME: emergency cutoff
+            _sk_TriangulationPoint* prevPt = NULL;
+            _sk_TriangulationPoint* currentPt = NULL;
+            { // find the seed for the next loop
+                for (int i = 0; i < points.count; i++) {
+                    _sk_TriangulationPoint* p = &points.elems[i];
+                    SNZ_ASSERTF(p->adjacent.count >= 2, "point had only %lld adjacents.", p->adjacent.count);
+                    for (int j = 0; j < p->adjacent.count; j++) {
+                        _sk_TriangulationEdge* e = &p->adjacent.elems[j];
+                        if (e->traversed) {
+                            continue;
+                        }
+                        e->traversed = true;
+                        prevPt = p;
+                        currentPt = e->pt;
 
-        SNZ_ASSERTF(startPt->adjacent.count >= 2, "point had only %lld adjacents.", startPt->adjacent.count);
-        _sk_TriangulationPoint* pt = startPt->adjacent.elems[0];
-        float dir = 0;
-        {
-            HMM_Vec2 diff = HMM_Sub(pt->pos, startPt->pos);
-            dir = atan2f(diff.Y, diff.X);
-            if (dir < 0) {
-                dir += HMM_AngleDeg(360);
-            }
-        }
-        while (pt != startPt) { // FIXME: emergency cutoff
-            SNZ_ASSERTF(pt->adjacent.count >= 2, "point had only %lld adjacents.", pt->adjacent.count);
-            _sk_TriangulationPoint* next = NULL;
-            float maxAngle = -INFINITY;
-            for (int i = 0; i < pt->adjacent.count; i++) {
-                _sk_TriangulationPoint* adj = pt->adjacent.elems[i];
-                HMM_Vec2 diff = HMM_Sub(adj->pos, pt->pos);
-                float angle = dir - atan2f(diff.Y, diff.X);
-                while (angle < 0) {
-                    angle += HMM_AngleDeg(360);
-                }
-
-                // select the most CCW next point to go to
-                if (angle > maxAngle) {
-                    next = adj;
-                    maxAngle = angle;
+                        i = points.count; // break outer
+                        break;
+                    }
                 }
             }
-            pt = next;
-            *SNZ_ARENA_PUSH(scratch, HMM_Vec2) = pt->pos;
-        } // end one
+            if (prevPt == NULL) {
+                break; // break out of finding more loops, because every edge has been traversed both ways
+            }
+            _sk_TriangulationPoint* startPt = prevPt;
 
-        HMM_Vec2Slice loopPoints = SNZ_ARENA_ARR_END(scratch, HMM_Vec2);
-        _sk_TriangulationVertLoop* loop = SNZ_ARENA_PUSH(scratch, _sk_TriangulationVertLoop);
-        loop->pts = loopPoints;
-        loop->next = firstLoop;
-        firstLoop = loop;
+            float dir = 0;
+            {
+                HMM_Vec2 diff = HMM_Sub(currentPt->pos, startPt->pos);
+                dir = atan2f(diff.Y, diff.X);
+                if (dir < 0) {
+                    dir += HMM_AngleDeg(360);
+                }
+            }
+            while (currentPt != startPt) { // FIXME: emergency cutoff
+                _sk_TriangulationEdge* selected = NULL;
+                float maxAngle = -INFINITY;
+                for (int i = 0; i < currentPt->adjacent.count; i++) {
+                    _sk_TriangulationEdge* adj = &currentPt->adjacent.elems[i];
+                    if (adj->pt == prevPt) {
+                        continue;
+                    }
+                    HMM_Vec2 diff = HMM_Sub(adj->pt->pos, currentPt->pos);
+                    float angle = dir - atan2f(diff.Y, diff.X);
+                    while (angle < 0) {
+                        angle += HMM_AngleDeg(360);
+                    }
+                    while (angle > 360) {
+                        angle -= HMM_AngleDeg(360);
+                    }
+
+                    // select the most CCW next point to go to
+                    if (angle > maxAngle) {
+                        selected = adj;
+                        maxAngle = angle;
+                    }
+                }
+                prevPt = currentPt;
+                selected->traversed = true;
+                currentPt = selected->pt;
+                *SNZ_ARENA_PUSH(scratch, HMM_Vec2) = currentPt->pos;
+            } // end finding points for a loop
+
+            HMM_Vec2Slice loopPoints = SNZ_ARENA_ARR_END(scratch, HMM_Vec2);
+            _sk_TriangulationVertLoop* loop = SNZ_ARENA_PUSH(scratch, _sk_TriangulationVertLoop);
+            loop->pts = loopPoints;
+            loop->next = firstLoop;
+            firstLoop = loop;
+        } // end loop loop
+    } // end all loop gen
+
+    { // hole gen
     }
 
     { // vert loop minimization
