@@ -6,6 +6,7 @@
 #include "settings.h"
 #include "shortcuts.h"
 #include "sketches2.h"
+#include "sketchTriangulation.h"
 #include "sketchui.h"
 #include "snooze.h"
 #include "sound.h"
@@ -33,6 +34,7 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
 
     _poolAllocTests();
     sk_tests();
+    skt_tests();
     ser_tests();
     geo_tests();
 
