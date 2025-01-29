@@ -751,6 +751,8 @@ void sk_sketchDeselectAll(sk_Sketch* sketch) {
     }
 }
 
+// FIXME: new file for triangulation stuff
+
 typedef struct _sk_TriangulationPoint _sk_TriangulationPoint;
 typedef struct {
     // low and high decided based on pointer compare
@@ -768,22 +770,44 @@ typedef enum {
 SNZ_SLICE(_sk_TriangulationEdge);
 SNZ_SLICE_NAMED(_sk_TriangulationEdge*, _sk_TriangulationEdgePtrSlice);
 
+typedef struct _sk_TriangulationIsland _sk_TriangulationIsland;
+
 struct _sk_TriangulationPoint {
     _sk_TriangulationEdgePtrSlice adjacent;
     HMM_Vec2 pos;
+    _sk_TriangulationIsland* island;
 };
+
+SNZ_SLICE(_sk_TriangulationPoint);
+SNZ_SLICE_NAMED(_sk_TriangulationPoint*, _sk_TriangulationPointPtrSlice);
 
 static _sk_TriangulationPoint* _sk_otherInTriangulationEdge(_sk_TriangulationEdge* e, _sk_TriangulationPoint* pt) {
     return e->lowPt == pt ? e->highPt : e->lowPt;
 }
 
-SNZ_SLICE(_sk_TriangulationPoint);
-
 typedef struct _sk_TriangulationVertLoop _sk_TriangulationVertLoop;
 struct _sk_TriangulationVertLoop {
     _sk_TriangulationVertLoop* next;
     HMM_Vec2Slice pts;
+    float area;
 };
+
+struct _sk_TriangulationIsland {
+    _sk_TriangulationVertLoop* firstLoop;
+    _sk_TriangulationIsland* next;
+};
+
+void _sk_triangulationMarkIsland(_sk_TriangulationPoint* pt, _sk_TriangulationIsland* island, snz_Arena* arena) {
+    pt->island = island;
+    for (int i = 0; i < pt->adjacent.count; i++) {
+        _sk_TriangulationEdge* edge = pt->adjacent.elems[i];
+        _sk_TriangulationPoint* other = _sk_otherInTriangulationEdge(edge, pt);
+        if (other->island) {
+            continue;
+        }
+        _sk_triangulationMarkIsland(other, island, arena);
+    }
+}
 
 // FIXME: does this function gauranteed crash on a malformed sketch??
 geo_Mesh sk_sketchTriangulate(const sk_Sketch* sketch, snz_Arena* arena, snz_Arena* scratch) {
@@ -816,15 +840,16 @@ geo_Mesh sk_sketchTriangulate(const sk_Sketch* sketch, snz_Arena* arena, snz_Are
     { // iteratively cull pts with one or none adj.
     }
 
+    _sk_TriangulationEdgeSlice edges = { 0 };
     { // adj. lists
         SNZ_ARENA_ARR_BEGIN(scratch, _sk_TriangulationEdge);
         for (sk_Line* l = sketch->firstLine; l; l = l->next) {
             *SNZ_ARENA_PUSH(scratch, _sk_TriangulationEdge) = (_sk_TriangulationEdge){
-                .highPt = SNZ_MAX(l->p1, l->p2),
+                .highPt = SNZ_MAX(l->p1, l->p2), this is wrong.
                 .lowPt = SNZ_MIN(l->p1, l->p2),
             };
         }
-        _sk_TriangulationEdgeSlice edges = SNZ_ARENA_ARR_END(scratch, _sk_TriangulationEdge);
+        edges = SNZ_ARENA_ARR_END(scratch, _sk_TriangulationEdge);
 
         for (int ptIdx = 0; ptIdx < points.count; ptIdx++) {
             _sk_TriangulationPoint* p = &points.elems[ptIdx];
@@ -840,8 +865,20 @@ geo_Mesh sk_sketchTriangulate(const sk_Sketch* sketch, snz_Arena* arena, snz_Are
         }
     } // end generating adj. lists
 
-    _sk_TriangulationVertLoop* firstLoop = 0;
-    int loopCount = 0;
+    _sk_TriangulationIsland* firstIsland;
+    { // island marking / list gen
+        for (int i = 0; i < points.count; i++) {
+            _sk_TriangulationPoint* pt = &points.elems[i];
+            if (pt->island) {
+                continue;
+            }
+            _sk_TriangulationIsland* island = SNZ_ARENA_PUSH(scratch, _sk_TriangulationIsland);
+            island->next = firstIsland;
+            firstIsland = island;
+            _sk_triangulationMarkIsland(pt, island, scratch);
+        }
+    }
+
     { // vert loop gen
         SNZ_ASSERTF(points.count > 0, "points count was: %lld", points.count);
 
@@ -912,30 +949,58 @@ geo_Mesh sk_sketchTriangulate(const sk_Sketch* sketch, snz_Arena* arena, snz_Are
                 currentPt = _sk_otherInTriangulationEdge(selected, currentPt);
                 *SNZ_ARENA_PUSH(scratch, HMM_Vec2) = currentPt->pos;
             } // end finding points for a loop
-
             HMM_Vec2Slice loopPoints = SNZ_ARENA_ARR_END(scratch, HMM_Vec2);
+
+            _sk_TriangulationIsland* island = startPt->island;
+            SNZ_ASSERT(island != NULL, "null island for a vert loop.");
             _sk_TriangulationVertLoop* loop = SNZ_ARENA_PUSH(scratch, _sk_TriangulationVertLoop);
-            loop->pts = loopPoints;
-            loop->next = firstLoop;
-            firstLoop = loop;
-            loopCount++;
+            *loop = (_sk_TriangulationVertLoop){
+                .pts = loopPoints,
+                .next = island->firstLoop,
+            };
+            island->firstLoop = loop;
+
+            for (int i = 0; i < loop->pts.count; i++) {
+                HMM_Vec2 p0 = loop->pts.elems[i];
+                HMM_Vec2 p1 = loop->pts.elems[(i + 1) % loop->pts.count];
+                loop->area += p0.X * p1.Y - p1.X * p0.Y;
+            }
+            loop->area = fabsf(loop->area) / 2;
         } // end loop loop
-    } // end all loop gen
+    } // all of vert loop gen
 
-    { // hole gen
-    }
-
-    { // vert loop minimization
-        { // sort by largest first, insertion style
-            // new list, slowly push nodes into it
+    // removing the perimeter loop that happens to get generated per island (which has the largest area)
+    for (_sk_TriangulationIsland* island = firstIsland; island; island = island->next) {
+        _sk_TriangulationVertLoop* prevLoop = NULL;
+        _sk_TriangulationVertLoop* maxLoop = island->firstLoop;
+        for (_sk_TriangulationVertLoop* loop = island->firstLoop; loop; loop = loop->next) {
+            if (loop->area > maxLoop->area) {
+                maxLoop = loop;
+            }
+            prevLoop = loop;
         }
 
-        { // cull loops that aren't necessary
-
+        if (prevLoop) {
+            prevLoop->next = maxLoop->next;
+        } else {
+            island->firstLoop = maxLoop->next;
         }
     }
 
-    { // triangulation
+    // hole / seam gen
+    for (_sk_TriangulationIsland* island = firstIsland; island; island = island->next) {
+        for (_sk_TriangulationIsland* other = island->next; other; other = other->next) {
+            if (!islandCompletelyContainsOther()) {
+                continue;
+            }
+            _sk_TriangulationPoint* a = NULL, * b = NULL;
+            findMeGoodPointsForASeam(island, other, &a, &b);
+            join(island, other);
+        }
+    }
+
+    // triangulation
+    {
     }
 
     for (_sk_TriangulationVertLoop* l = firstLoop; l; l = l->next) {
