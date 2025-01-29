@@ -40,6 +40,7 @@ struct sk_Point {
     HMM_Vec2 pos;
     sk_Point* next;
     sk_Manifold manifold;
+    int indexIntoSketch; // temp var for triangulation
     bool solved;
     bool markedForDelete;
 
@@ -824,6 +825,7 @@ geo_Mesh sk_sketchTriangulate(const sk_Sketch* sketch, snz_Arena* arena, snz_Are
         SNZ_ARENA_ARR_BEGIN(scratch, _sk_TriangulationPoint);
         int i = 0;
         for (sk_Point* p = sketch->firstPoint; p; (p = p->next, i++)) {
+            p->indexIntoSketch = i;
             _sk_TriangulationPoint* new = SNZ_ARENA_PUSH(scratch, _sk_TriangulationPoint);
             new->pos = p->pos;
         }
@@ -844,9 +846,11 @@ geo_Mesh sk_sketchTriangulate(const sk_Sketch* sketch, snz_Arena* arena, snz_Are
     { // adj. lists
         SNZ_ARENA_ARR_BEGIN(scratch, _sk_TriangulationEdge);
         for (sk_Line* l = sketch->firstLine; l; l = l->next) {
+            _sk_TriangulationPoint* p1 = &points.elems[l->p1->indexIntoSketch];
+            _sk_TriangulationPoint* p2 = &points.elems[l->p2->indexIntoSketch];
             *SNZ_ARENA_PUSH(scratch, _sk_TriangulationEdge) = (_sk_TriangulationEdge){
-                .highPt = SNZ_MAX(l->p1, l->p2), this is wrong.
-                .lowPt = SNZ_MIN(l->p1, l->p2),
+                .highPt = SNZ_MAX(p1, p2),
+                .lowPt = SNZ_MIN(p1, p2),
             };
         }
         edges = SNZ_ARENA_ARR_END(scratch, _sk_TriangulationEdge);
@@ -879,95 +883,95 @@ geo_Mesh sk_sketchTriangulate(const sk_Sketch* sketch, snz_Arena* arena, snz_Are
         }
     }
 
-    { // vert loop gen
-        SNZ_ASSERTF(points.count > 0, "points count was: %lld", points.count);
+    SNZ_ASSERTF(points.count > 0, "points count was: %lld", points.count);
 
-        while (true) { // FIXME: emergency cutoff
-            _sk_TriangulationPoint* prevPt = NULL;
-            _sk_TriangulationPoint* currentPt = NULL;
-            { // find the seed for the next loop
-                for (int i = 0; i < points.count; i++) {
-                    _sk_TriangulationPoint* p = &points.elems[i];
-                    for (int j = 0; j < p->adjacent.count; j++) {
-                        _sk_TriangulationEdge* e = &p->adjacent.elems[j];
-                        int traverseMask = (p == e->lowPt) ? _SK_TET_LOW_FIRST : _SK_TET_HIGH_FIRST;
-                        if (e->traverse & traverseMask) {
-                            continue;
-                        }
-                        e->traverse &= traverseMask;
-                        prevPt = p;
-                        currentPt = _sk_otherInTriangulationEdge(e, p);
-
-                        i = points.count; // break outer
-                        break;
-                    }
-                }
-            }
-            if (prevPt == NULL) {
-                break; // break out of finding more loops, because every edge has been traversed both ways
-            }
-            _sk_TriangulationPoint* startPt = prevPt;
-
-            float dir = 0;
-            {
-                HMM_Vec2 diff = HMM_Sub(currentPt->pos, startPt->pos);
-                dir = atan2f(diff.Y, diff.X);
-                if (dir < 0) {
-                    dir += HMM_AngleDeg(360);
-                }
-            }
-
-            SNZ_ARENA_ARR_BEGIN(scratch, HMM_Vec2);
-            *SNZ_ARENA_PUSH(scratch, HMM_Vec2) = currentPt->pos;
-
-            while (currentPt != startPt) { // FIXME: emergency cutoff
-                _sk_TriangulationEdge* selected = NULL;
-                float maxAngle = -INFINITY;
-                for (int i = 0; i < currentPt->adjacent.count; i++) {
-                    _sk_TriangulationEdge* edge = &currentPt->adjacent.elems[i];
-                    _sk_TriangulationPoint* other = _sk_otherInTriangulationEdge(edge, currentPt);
-                    if (other == prevPt) {
+    // vert loop gen
+    while (true) { // FIXME: emergency cutoff
+        _sk_TriangulationPoint* prevPt = NULL;
+        _sk_TriangulationPoint* currentPt = NULL;
+        { // find the seed for the next loop
+            for (int i = 0; i < points.count; i++) {
+                _sk_TriangulationPoint* p = &points.elems[i];
+                for (int j = 0; j < p->adjacent.count; j++) {
+                    _sk_TriangulationEdge* e = p->adjacent.elems[j];
+                    int traverseMask = (p == e->lowPt) ? _SK_TET_LOW_FIRST : _SK_TET_HIGH_FIRST;
+                    if (e->traverse & traverseMask) {
                         continue;
                     }
-                    HMM_Vec2 diff = HMM_Sub(other->pos, currentPt->pos);
-                    float angle = dir - atan2f(diff.Y, diff.X);
-                    while (angle < 0) {
-                        angle += HMM_AngleDeg(360);
-                    }
-                    while (angle > 360) {
-                        angle -= HMM_AngleDeg(360);
-                    }
+                    e->traverse &= traverseMask;
+                    prevPt = p;
+                    currentPt = _sk_otherInTriangulationEdge(e, p);
 
-                    // select the most CCW next point to go to
-                    if (angle > maxAngle) {
-                        selected = edge;
-                        maxAngle = angle;
-                    }
+                    i = points.count; // break outer
+                    break;
                 }
-                prevPt = currentPt;
-                selected->traverse &= (currentPt == selected->lowPt ? _SK_TET_LOW_FIRST : _SK_TET_HIGH_FIRST);
-                currentPt = _sk_otherInTriangulationEdge(selected, currentPt);
-                *SNZ_ARENA_PUSH(scratch, HMM_Vec2) = currentPt->pos;
-            } // end finding points for a loop
-            HMM_Vec2Slice loopPoints = SNZ_ARENA_ARR_END(scratch, HMM_Vec2);
-
-            _sk_TriangulationIsland* island = startPt->island;
-            SNZ_ASSERT(island != NULL, "null island for a vert loop.");
-            _sk_TriangulationVertLoop* loop = SNZ_ARENA_PUSH(scratch, _sk_TriangulationVertLoop);
-            *loop = (_sk_TriangulationVertLoop){
-                .pts = loopPoints,
-                .next = island->firstLoop,
-            };
-            island->firstLoop = loop;
-
-            for (int i = 0; i < loop->pts.count; i++) {
-                HMM_Vec2 p0 = loop->pts.elems[i];
-                HMM_Vec2 p1 = loop->pts.elems[(i + 1) % loop->pts.count];
-                loop->area += p0.X * p1.Y - p1.X * p0.Y;
             }
-            loop->area = fabsf(loop->area) / 2;
-        } // end loop loop
-    } // all of vert loop gen
+        }
+        if (prevPt == NULL) {
+            break; // break out of finding more loops, because every edge has been traversed both ways
+        }
+        _sk_TriangulationPoint* startPt = prevPt;
+
+        float dir = 0;
+        {
+            HMM_Vec2 diff = HMM_Sub(currentPt->pos, startPt->pos);
+            dir = atan2f(diff.Y, diff.X);
+            if (dir < 0) {
+                dir += HMM_AngleDeg(360);
+            }
+        }
+
+        SNZ_ARENA_ARR_BEGIN(scratch, HMM_Vec2);
+        *SNZ_ARENA_PUSH(scratch, HMM_Vec2) = currentPt->pos;
+
+        while (currentPt != startPt) { // FIXME: emergency cutoff
+            _sk_TriangulationEdge* selected = NULL;
+            float maxAngle = -INFINITY;
+            for (int i = 0; i < currentPt->adjacent.count; i++) {
+                _sk_TriangulationEdge* edge = currentPt->adjacent.elems[i];
+                _sk_TriangulationPoint* other = _sk_otherInTriangulationEdge(edge, currentPt);
+                if (other == prevPt) {
+                    continue;
+                }
+                HMM_Vec2 diff = HMM_Sub(other->pos, currentPt->pos);
+                float angle = dir - atan2f(diff.Y, diff.X);
+                while (angle < 0) {
+                    angle += HMM_AngleDeg(360);
+                }
+                while (angle > 360) {
+                    angle -= HMM_AngleDeg(360);
+                }
+
+                // select the most CCW next point to go to
+                if (angle > maxAngle) {
+                    selected = edge;
+                    maxAngle = angle;
+                }
+            }
+            prevPt = currentPt;
+            selected->traverse &= (currentPt == selected->lowPt ? _SK_TET_LOW_FIRST : _SK_TET_HIGH_FIRST);
+            currentPt = _sk_otherInTriangulationEdge(selected, currentPt);
+            *SNZ_ARENA_PUSH(scratch, HMM_Vec2) = currentPt->pos;
+        } // end finding points for a loop
+        HMM_Vec2Slice loopPoints = SNZ_ARENA_ARR_END(scratch, HMM_Vec2);
+
+        _sk_TriangulationIsland* island = startPt->island;
+        SNZ_ASSERT(island != NULL, "null island for a vert loop.");
+        _sk_TriangulationVertLoop* loop = SNZ_ARENA_PUSH(scratch, _sk_TriangulationVertLoop);
+        *loop = (_sk_TriangulationVertLoop){
+            .pts = loopPoints,
+            .next = island->firstLoop,
+        };
+        island->firstLoop = loop;
+
+        for (int i = 0; i < loop->pts.count; i++) {
+            HMM_Vec2 p0 = loop->pts.elems[i];
+            HMM_Vec2 p1 = loop->pts.elems[(i + 1) % loop->pts.count];
+            loop->area += p0.X * p1.Y - p1.X * p0.Y;
+        }
+        loop->area = fabsf(loop->area) / 2;
+    } // end loop loop
+    // all of vert loop gen
 
     // removing the perimeter loop that happens to get generated per island (which has the largest area)
     for (_sk_TriangulationIsland* island = firstIsland; island; island = island->next) {
