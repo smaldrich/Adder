@@ -1,37 +1,23 @@
 #include "snooze.h"
 #include "sketches2.h"
 
-typedef struct _skt_Point _skt_Point;
-typedef struct {
-    // low and high decided based on pointer compare
-    _skt_Point* lowPt;
-    _skt_Point* highPt;
-    int traverse; // see _skt_EdgeTraverse
-} _skt_Edge;
-
-typedef enum {
-    _SKT_ET_NONE,
-    _SKT_ET_LOW_FIRST,
-    _SKT_ET_HIGH_FIRST,
-} _skt_EdgeTraverse;
-
-SNZ_SLICE(_skt_Edge);
-SNZ_SLICE_NAMED(_skt_Edge*, _skt_EdgePtrSlice);
-
 typedef struct _skt_Island _skt_Island;
-
-struct _skt_Point {
-    _skt_EdgePtrSlice adjacent;
-    HMM_Vec2 pos;
-    _skt_Island* island;
-};
-
+typedef struct _skt_Point _skt_Point;
 SNZ_SLICE(_skt_Point);
 SNZ_SLICE_NAMED(_skt_Point*, _skt_PointPtrSlice);
 
-static _skt_Point* _sk_otherInTriangulationEdge(_skt_Edge* e, _skt_Point* pt) {
-    return e->lowPt == pt ? e->highPt : e->lowPt;
-}
+typedef struct {
+    _skt_Point* other;
+    bool traversed; // FIXME: the padding on this one hurts but who cares
+} _skt_Edge;
+
+SNZ_SLICE(_skt_Edge);
+
+struct _skt_Point {
+    _skt_EdgeSlice edges;
+    HMM_Vec2 pos;
+    _skt_Island* island;
+};
 
 typedef struct _skt_VertLoop _skt_VertLoop;
 struct _skt_VertLoop {
@@ -46,15 +32,14 @@ struct _skt_Island {
     _skt_Island* next;
 };
 
-void _skt_MarkIsland(_skt_Point* pt, _skt_Island* island, snz_Arena* arena) {
+void _skt_markIsland(_skt_Point* pt, _skt_Island* island, snz_Arena* arena) {
     pt->island = island;
-    for (int i = 0; i < pt->adjacent.count; i++) {
-        _skt_Edge* edge = pt->adjacent.elems[i];
-        _skt_Point* other = _sk_otherInTriangulationEdge(edge, pt);
+    for (int i = 0; i < pt->edges.count; i++) {
+        _skt_Point* other = pt->edges.elems[i].other;
         if (other->island) {
             continue;
         }
-        _skt_MarkIsland(other, island, arena);
+        _skt_markIsland(other, island, arena);
     }
 }
 
@@ -133,7 +118,7 @@ bool _skt_vertLoopContainsVertLoop(_skt_VertLoop* a, _skt_VertLoop* b) {
 }
 
 // FIXME: does this function gauranteed crash on a malformed sketch??
-geo_Mesh sk_sketchTriangulate(const sk_Sketch* sketch, snz_Arena* arena, snz_Arena* scratch) {
+geo_Mesh skt_sketchTriangulate(const sk_Sketch* sketch, snz_Arena* arena, snz_Arena* scratch) {
     assert(arena || !arena);
     // // arcs -> lines
     // lines -> intersections
@@ -164,30 +149,25 @@ geo_Mesh sk_sketchTriangulate(const sk_Sketch* sketch, snz_Arena* arena, snz_Are
     { // iteratively cull pts with one or none adj.
     }
 
-    _skt_EdgeSlice edges = { 0 };
     { // adj. lists
-        SNZ_ARENA_ARR_BEGIN(scratch, _skt_Edge);
-        for (sk_Line* l = sketch->firstLine; l; l = l->next) {
-            _skt_Point* p1 = &points.elems[l->p1->indexIntoSketch];
-            _skt_Point* p2 = &points.elems[l->p2->indexIntoSketch];
-            *SNZ_ARENA_PUSH(scratch, _skt_Edge) = (_skt_Edge){
-                .highPt = SNZ_MAX(p1, p2),
-                .lowPt = SNZ_MIN(p1, p2),
-            };
-        }
-        edges = SNZ_ARENA_ARR_END(scratch, _skt_Edge);
-
-        for (int ptIdx = 0; ptIdx < points.count; ptIdx++) {
-            _skt_Point* p = &points.elems[ptIdx];
-            SNZ_ARENA_ARR_BEGIN(scratch, _skt_Edge*);
-            for (int edgeIdx = 0; edgeIdx < edges.count; edgeIdx++) {
-                _skt_Edge* e = &edges.elems[edgeIdx];
-                if (e->lowPt == p || e->highPt == p) {
-                    *SNZ_ARENA_PUSH(scratch, _skt_Edge*) = e;
+        for (int i = 0; i < points.count; i++) {
+            _skt_Point* p = &points.elems[i];
+            SNZ_ARENA_ARR_BEGIN(scratch, _skt_Edge);
+            for (sk_Line* line = sketch->firstLine; line; line = line->next) {
+                bool p1Matches = line->p1->indexIntoSketch == i;
+                bool p2Matches = line->p2->indexIntoSketch == i;
+                if (!p1Matches && !p2Matches) {
+                    continue;
                 }
+
+                int idx = (p1Matches ? line->p2->indexIntoSketch : line->p1->indexIntoSketch);
+                *SNZ_ARENA_PUSH(scratch, _skt_Edge) = (_skt_Edge){
+                    .other = &points.elems[idx],
+                    .traversed = false,
+                };
             }
-            p->adjacent = SNZ_ARENA_ARR_END_NAMED(scratch, _skt_Edge*, _skt_EdgePtrSlice);
-            SNZ_ASSERTF(p->adjacent.count >= 2, "point had only %lld adjacents.", p->adjacent.count);
+            p->edges = SNZ_ARENA_ARR_END(scratch, _skt_Edge);
+            SNZ_ASSERTF(p->edges.count >= 2, "point had only %lld adjacents.", p->edges.count);
         }
     } // end generating adj. lists
 
@@ -201,7 +181,7 @@ geo_Mesh sk_sketchTriangulate(const sk_Sketch* sketch, snz_Arena* arena, snz_Are
             _skt_Island* island = SNZ_ARENA_PUSH(scratch, _skt_Island);
             island->next = firstIsland;
             firstIsland = island;
-            _skt_MarkIsland(pt, island, scratch);
+            _skt_markIsland(pt, island, scratch);
         }
     }
 
@@ -214,15 +194,14 @@ geo_Mesh sk_sketchTriangulate(const sk_Sketch* sketch, snz_Arena* arena, snz_Are
         { // find the seed for the next loop
             for (int i = 0; i < points.count; i++) {
                 _skt_Point* p = &points.elems[i];
-                for (int j = 0; j < p->adjacent.count; j++) {
-                    _skt_Edge* e = p->adjacent.elems[j];
-                    int traverseMask = (p == e->lowPt) ? _SKT_ET_LOW_FIRST : _SKT_ET_HIGH_FIRST;
-                    if (e->traverse & traverseMask) {
+                for (int j = 0; j < p->edges.count; j++) {
+                    _skt_Edge* edge = &p->edges.elems[j];
+                    if (edge->traversed) {
                         continue;
                     }
-                    e->traverse &= traverseMask;
+                    edge->traversed = true;
                     prevPt = p;
-                    currentPt = _sk_otherInTriangulationEdge(e, p);
+                    currentPt = edge->other;
 
                     i = points.count; // break outer
                     break;
@@ -232,6 +211,7 @@ geo_Mesh sk_sketchTriangulate(const sk_Sketch* sketch, snz_Arena* arena, snz_Are
         if (prevPt == NULL) {
             break; // break out of finding more loops, because every edge has been traversed both ways
         }
+        printf("starting another damn vert loop.");
         _skt_Point* startPt = prevPt;
 
         float dir = 0;
@@ -249,13 +229,12 @@ geo_Mesh sk_sketchTriangulate(const sk_Sketch* sketch, snz_Arena* arena, snz_Are
         while (currentPt != startPt) { // FIXME: emergency cutoff
             _skt_Edge* selected = NULL;
             float maxAngle = -INFINITY;
-            for (int i = 0; i < currentPt->adjacent.count; i++) {
-                _skt_Edge* edge = currentPt->adjacent.elems[i];
-                _skt_Point* other = _sk_otherInTriangulationEdge(edge, currentPt);
-                if (other == prevPt) {
+            for (int i = 0; i < currentPt->edges.count; i++) {
+                _skt_Edge* edge = &currentPt->edges.elems[i];
+                if (edge->other == prevPt) {
                     continue;
                 }
-                HMM_Vec2 diff = HMM_Sub(other->pos, currentPt->pos);
+                HMM_Vec2 diff = HMM_Sub(edge->other->pos, currentPt->pos);
                 float angle = dir - atan2f(diff.Y, diff.X);
                 while (angle < 0) {
                     angle += HMM_AngleDeg(360);
@@ -271,8 +250,8 @@ geo_Mesh sk_sketchTriangulate(const sk_Sketch* sketch, snz_Arena* arena, snz_Are
                 }
             }
             prevPt = currentPt;
-            selected->traverse &= (currentPt == selected->lowPt ? _SKT_ET_LOW_FIRST : _SKT_ET_HIGH_FIRST);
-            currentPt = _sk_otherInTriangulationEdge(selected, currentPt);
+            selected->traversed = true;
+            currentPt = selected->other;
             *SNZ_ARENA_PUSH(scratch, HMM_Vec2) = currentPt->pos;
         } // end finding points for a loop
         HMM_Vec2Slice loopPoints = SNZ_ARENA_ARR_END(scratch, HMM_Vec2);

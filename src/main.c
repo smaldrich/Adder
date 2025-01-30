@@ -107,7 +107,7 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
         sk_sketchAddLine(&sketch, p, sketch.originLine->p2);
         tl_timelinePushSketch(&main_timeline, HMM_V2(0, 0), sketch);
 
-        geo_Mesh m = sk_sketchTriangulate(&sketch, &main_meshArena, scratch);
+        geo_Mesh m = skt_sketchTriangulate(&sketch, &main_meshArena, scratch);
         m.renderMesh = geo_BSPTriListToRenderMesh(m.bspTris, scratch);
         tl_timelinePushGeometry(&main_timeline, HMM_V2(200, 200), m);
     }
