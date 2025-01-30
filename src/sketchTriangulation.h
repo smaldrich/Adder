@@ -41,6 +41,7 @@ struct _skt_VertLoop {
 };
 
 struct _skt_Island {
+    _skt_VertLoop* perimeterLoop;
     _skt_VertLoop* firstLoop;
     _skt_Island* next;
 };
@@ -55,6 +56,80 @@ void _skt_MarkIsland(_skt_Point* pt, _skt_Island* island, snz_Arena* arena) {
         }
         _skt_MarkIsland(other, island, arena);
     }
+}
+
+bool _skt_lineLineIntersection(HMM_Vec2 l1a, HMM_Vec2 l1b, HMM_Vec2 l2a, HMM_Vec2 l2b) {
+    HMM_Vec2 l1Dir = HMM_Norm(HMM_Sub(l1b, l1a));
+    HMM_Vec2 l2Dir = HMM_Norm(HMM_Sub(l2b, l2a));
+    if (geo_v2Equal(l1a, l2a) && geo_v2Equal(l1Dir, l2Dir)) {
+        return true;  // coincident
+    }
+
+    // stolen: https://en.wikipedia.org/wiki/Line%E2%80%93line_intersection
+    float x1 = l1a.X;
+    float x2 = l1b.X;
+    float y1 = l1a.Y;
+    float y2 = l1b.Y;
+    float x3 = l2a.X;
+    float x4 = l2b.X;
+    float y3 = l2a.Y;
+    float y4 = l2b.Y;
+
+    float denom = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4);
+    if (geo_floatZero(denom)) {
+        return false; // parallel
+    }
+
+    float u = (x1 - x3) * (y3 - y4) - (y1 - y3) * (x3 - x4);
+    u /= denom;
+    if (!geo_floatGreaterEqual(u, 0) || !geo_floatLessEqual(u, 1)) {
+        return false; // past bounds on one line, doesn't trip on ~equal to ends
+    }
+
+    float v = (x1 - x2) * (y1 - y3) - (y1 - y2) * (x1 - x3);
+    v /= denom;
+    if (!geo_floatGreaterEqual(v, 0) || !geo_floatLessEqual(v, 1)) {
+        return false;
+    }
+
+    return true;
+}
+
+bool _skt_vertLoopContainsPoint(_skt_VertLoop* l, HMM_Vec2 pt) {
+    int hitCount = 0;
+    HMM_Vec2 rayOrigin = pt;
+    HMM_Vec2 rayOther = HMM_Add(pt, HMM_V2(100000, 0)); // FIXME: maybe this fails in insane cases, but INF i haven't tested so this is just gonna work for now.
+    for (int i = 0; i < l->pts.count; i++) {
+        HMM_Vec2 l1a = l->pts.elems[i];
+        HMM_Vec2 l1b = l->pts.elems[(i + 1) % l->pts.count];
+        if (_skt_lineLineIntersection(rayOrigin, rayOther, l1a, l1b)) {
+            hitCount++;
+        }
+    }
+    // point must have been inside if it crosses an odd number of times
+    return (hitCount % 2) == 1;
+}
+
+// checks only that B is inside of A
+bool _skt_vertLoopContainsVertLoop(_skt_VertLoop* a, _skt_VertLoop* b) {
+    SNZ_ASSERTF(b->pts.count > 0, "Vert loop with zero or less points. Had: %lld", b->pts.count);
+    bool ptInside = _skt_vertLoopContainsPoint(a, b->pts.elems[0]);
+    if (!ptInside) {
+        return false;
+    }
+
+    for (int i = 0; i < a->pts.count; i++) {
+        HMM_Vec2 l1a = a->pts.elems[i];
+        HMM_Vec2 l1b = a->pts.elems[(i + 1) % a->pts.count];
+        for (int j = 0; j < b->pts.count; j++) {
+            HMM_Vec2 l2a = b->pts.elems[j];
+            HMM_Vec2 l2b = b->pts.elems[(j + 1) % b->pts.count];
+            if (!_skt_lineLineIntersection(l1a, l1b, l2a, l2b)) {
+                return false;
+            }
+        }
+    }
+    return true;
 }
 
 // FIXME: does this function gauranteed crash on a malformed sketch??
@@ -220,7 +295,7 @@ geo_Mesh sk_sketchTriangulate(const sk_Sketch* sketch, snz_Arena* arena, snz_Are
     } // end loop loop
     // all of vert loop gen
 
-    // removing the perimeter loop that happens to get generated per island (which has the largest area)
+    // finding & removing the perimeter loop that happens to get generated per island (which has the largest area)
     for (_skt_Island* island = firstIsland; island; island = island->next) {
         _skt_VertLoop* prevLoop = NULL;
         _skt_VertLoop* maxLoop = island->firstLoop;
@@ -236,30 +311,26 @@ geo_Mesh sk_sketchTriangulate(const sk_Sketch* sketch, snz_Arena* arena, snz_Are
         } else {
             island->firstLoop = maxLoop->next;
         }
+        maxLoop->next = NULL;
+        island->perimeterLoop = maxLoop;
     }
 
     // hole / seam gen
     for (_skt_Island* island = firstIsland; island; island = island->next) {
         for (_skt_Island* other = island->next; other; other = other->next) {
-            if (!islandCompletelyContainsOther()) {
+            if (!_skt_vertLoopContainsVertLoop(island->perimeterLoop, other->perimeterLoop)) {
                 continue;
             }
-            _skt_Point* a = NULL, * b = NULL;
-            findMeGoodPointsForASeam(island, other, &a, &b);
-            join(island, other);
+            printf("island contains another !!!!\n");
+            // _skt_Point* a = NULL;
+            // _skt_Point* b = NULL;
+            // findMeGoodPointsForASeam(island, other, &a, &b);
+            // join(island, other);
         }
     }
 
     // triangulation
     {
-    }
-
-    for (_skt_VertLoop* l = firstLoop; l; l = l->next) {
-        printf("LOOP:\n");
-        for (int i = 0; i < l->pts.count; i++) {
-            HMM_Vec2 p = l->pts.elems[i];
-            printf("  %.2f, %.2f\n", p.X, p.Y);
-        }
     }
 
     // geo_Mesh out = { 0 };
