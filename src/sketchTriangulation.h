@@ -125,8 +125,50 @@ static void _skt_vertLoopPrint(_skt_VertLoop* l) {
     }
 }
 
+static geo_MeshFace* _skt_vertLoopToMeshFace(_skt_VertLoop* l, geo_BSPTriList* list, snz_Arena* scratch, snz_Arena* out) {
+    geo_MeshFace* f = SNZ_ARENA_PUSH(out, geo_MeshFace);
+
+    // FIXME: move this data to be inline with the vert loop points // actually also profile if that is worth doing
+    bool* culledFlags = SNZ_ARENA_PUSH_ARR(scratch, l->pts.count, bool);
+    int culledCount = 0;
+
+    for (int startIdx = 0; true; startIdx++) {
+        startIdx %= l->pts.count;
+
+        if (culledCount >= l->pts.count - 2) {
+            break;
+        } else if (culledFlags[startIdx]) {
+            continue;
+        }
+
+        int ptIndexes[3] = { startIdx, 0, 0 };
+        for (int i = 1; i < 3; i++) {
+            int idx = ptIndexes[i - i];
+            for (; true; idx++) { // FIXME: emergency crash here
+                int modded = idx % l->pts.count;
+                if (culledFlags[modded]) {
+                    continue;
+                }
+                ptIndexes[i] = modded;
+                break;
+            }
+        }
+
+        geo_Tri t = { 0 };
+        for (int i = 0; i < 3; i++) {
+            t.elems[i].XY = l->pts.elems[i];
+        }
+
+        geo_BSPTriListPushNew(out, list, t.a, t.b, t.c, f);
+        culledFlags[ptIndexes[1]] = true;
+        culledCount++;
+    }
+
+    return f;
+}
+
 // FIXME: does this function gauranteed crash on a malformed sketch??
-geo_Mesh skt_sketchTriangulate(const sk_Sketch* sketch, snz_Arena* arena, snz_Arena* scratch) {
+geo_Mesh skt_sketchTriangulate(const sk_Sketch* sketch, snz_Arena* arena, snz_Arena* scratch, PoolAlloc* pool) {
     assert(arena || !arena);
     // // arcs -> lines
     // lines -> intersections
@@ -343,35 +385,22 @@ geo_Mesh skt_sketchTriangulate(const sk_Sketch* sketch, snz_Arena* arena, snz_Ar
     // triangulation
     geo_BSPTriList tris = geo_BSPTriListInit();
     geo_MeshFace* firstFace = NULL;
-    {
-        for (_skt_Island* island = firstIsland; island; island = island->next) {
-            for (_skt_VertLoop* l = island->firstLoop; l; l = l->next) {
-                geo_MeshFace* f = SNZ_ARENA_PUSH(arena, geo_MeshFace);
-                f->next = firstFace;
-                firstFace = f;
 
-                bool* culledFlags = SNZ_ARENA_PUSH_ARR(scratch, l->pts.count, bool);
-                int culledCount = 0;
+    for (_skt_Island* island = firstIsland; island; island = island->next) {
+        for (_skt_VertLoop* l = island->firstLoop; l; l = l->next) {
+            geo_MeshFace* new = _skt_vertLoopToMeshFace(l, &tris, scratch, arena);
+            new->next = firstFace;
+            firstFace = new;
+        }
+    } // end island loop
 
-                int startIdx = 0;
-                while (true) {
-                    if (culledFlags[startIdx]) {
-                        continue;
-                    }
-
-                    geo_BSPTri* t = geo_BSPTriListPushNew(arena, &tris, a, b, c, f);
-                    culledFlags[bIdx] = true;
-                    culledCount++;
-                    startIdx++;
-                }
-            }
-        } // end island loop
-    }
-
-    // geo_Mesh out = { 0 };
-    // out.bspTris = ;
-    // out.firstFace = ;
-    return (geo_Mesh) { 0 };
+    geo_Mesh out = (geo_Mesh){
+        .firstFace = firstFace,
+        .bspTris = tris,
+        .renderMesh = geo_BSPTriListToRenderMesh(tris, scratch),
+    };
+    geo_BSPTriListToFaceTris(pool, &out);
+    return out;
 }
 
 void skt_tests() {
