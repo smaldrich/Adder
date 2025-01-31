@@ -17,6 +17,7 @@ struct _skt_Point {
     _skt_EdgeSlice edges;
     HMM_Vec2 pos;
     _skt_Island* island;
+    int dbgIndex;
 };
 
 typedef struct _skt_VertLoop _skt_VertLoop;
@@ -117,6 +118,13 @@ bool _skt_vertLoopContainsVertLoop(_skt_VertLoop* a, _skt_VertLoop* b) {
     return true;
 }
 
+static void _skt_vertLoopPrint(_skt_VertLoop* l) {
+    for (int i = 0; i < l->pts.count; i++) {
+        HMM_Vec2 p = l->pts.elems[i];
+        printf("\t%.2f, %.2f\n", p.X, p.Y);
+    }
+}
+
 // FIXME: does this function gauranteed crash on a malformed sketch??
 geo_Mesh skt_sketchTriangulate(const sk_Sketch* sketch, snz_Arena* arena, snz_Arena* scratch) {
     assert(arena || !arena);
@@ -135,6 +143,7 @@ geo_Mesh skt_sketchTriangulate(const sk_Sketch* sketch, snz_Arena* arena, snz_Ar
             p->indexIntoSketch = i;
             _skt_Point* new = SNZ_ARENA_PUSH(scratch, _skt_Point);
             new->pos = p->pos;
+            new->dbgIndex = i;
         }
         points = SNZ_ARENA_ARR_END(scratch, _skt_Point);
     }
@@ -171,7 +180,18 @@ geo_Mesh skt_sketchTriangulate(const sk_Sketch* sketch, snz_Arena* arena, snz_Ar
         }
     } // end generating adj. lists
 
-    _skt_Island* firstIsland;
+    { // dbg print adj lists in a readable way
+        for (int i = 0; i < points.count; i++) {
+            _skt_Point* p = &points.elems[i];
+            printf("Pt: %d\n", p->dbgIndex);
+            for (int j = 0; j < p->edges.count; j++) {
+                printf("\t%d\n", p->edges.elems[j].other->dbgIndex);
+            }
+        }
+        printf("\n");
+    }
+
+    _skt_Island* firstIsland = NULL;
     { // island marking / list gen
         for (int i = 0; i < points.count; i++) {
             _skt_Point* pt = &points.elems[i];
@@ -211,7 +231,6 @@ geo_Mesh skt_sketchTriangulate(const sk_Sketch* sketch, snz_Arena* arena, snz_Ar
         if (prevPt == NULL) {
             break; // break out of finding more loops, because every edge has been traversed both ways
         }
-        printf("starting another damn vert loop.");
         _skt_Point* startPt = prevPt;
 
         float dir = 0;
@@ -292,24 +311,61 @@ geo_Mesh skt_sketchTriangulate(const sk_Sketch* sketch, snz_Arena* arena, snz_Ar
         }
         maxLoop->next = NULL;
         island->perimeterLoop = maxLoop;
+
+
+        // Debug printing islands
+        printf("Island:\n");
+        printf("perimeter:\n");
+        _skt_vertLoopPrint(island->perimeterLoop);
+        int i = 0;
+        for (_skt_VertLoop* l = island->firstLoop; l; l = l->next) {
+            printf("%d:\n", i);
+            _skt_vertLoopPrint(l);
+            i++;
+        }
+        printf("\n");
     }
 
-    // hole / seam gen
-    for (_skt_Island* island = firstIsland; island; island = island->next) {
-        for (_skt_Island* other = island->next; other; other = other->next) {
-            if (!_skt_vertLoopContainsVertLoop(island->perimeterLoop, other->perimeterLoop)) {
-                continue;
-            }
-            printf("island contains another !!!!\n");
-            // _skt_Point* a = NULL;
-            // _skt_Point* b = NULL;
-            // findMeGoodPointsForASeam(island, other, &a, &b);
-            // join(island, other);
-        }
-    }
+    // // hole / seam gen // FIXME: make this work :)
+    // for (_skt_Island* island = firstIsland; island; island = island->next) {
+    //     for (_skt_Island* other = island->next; other; other = other->next) {
+    //         if (!_skt_vertLoopContainsVertLoop(island->perimeterLoop, other->perimeterLoop)) {
+    //             continue;
+    //         }
+    //         printf("island contains another !!!!\n");
+    //         // _skt_Point* a = NULL;
+    //         // _skt_Point* b = NULL;
+    //         // findMeGoodPointsForASeam(island, other, &a, &b);
+    //         // join(island, other);
+    //     }
+    // }
 
     // triangulation
+    geo_BSPTriList tris = geo_BSPTriListInit();
+    geo_MeshFace* firstFace = NULL;
     {
+        for (_skt_Island* island = firstIsland; island; island = island->next) {
+            for (_skt_VertLoop* l = island->firstLoop; l; l = l->next) {
+                geo_MeshFace* f = SNZ_ARENA_PUSH(arena, geo_MeshFace);
+                f->next = firstFace;
+                firstFace = f;
+
+                bool* culledFlags = SNZ_ARENA_PUSH_ARR(scratch, l->pts.count, bool);
+                int culledCount = 0;
+
+                int startIdx = 0;
+                while (true) {
+                    if (culledFlags[startIdx]) {
+                        continue;
+                    }
+
+                    geo_BSPTri* t = geo_BSPTriListPushNew(arena, &tris, a, b, c, f);
+                    culledFlags[bIdx] = true;
+                    culledCount++;
+                    startIdx++;
+                }
+            }
+        } // end island loop
     }
 
     // geo_Mesh out = { 0 };
