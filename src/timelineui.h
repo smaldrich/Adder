@@ -167,7 +167,7 @@ void tl_build(tl_Timeline* timeline, snz_Arena* scratch, HMM_Vec2 panelSize, HMM
             if (op->kind == TL_OPK_SKETCH) {
                 // FIXME: put a render here
                 labelStr = "sketch";
-            } else if (op->kind == TL_OPK_GEOMETRY) {
+            } else if (op->kind == TL_OPK_BASE_GEOMETRY) {
                 // FIXME: put a render here
                 labelStr = "geometry";
             } else {

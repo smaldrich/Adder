@@ -7,8 +7,11 @@
 
 typedef enum {
     TL_OPK_SKETCH,
-    TL_OPK_GEOMETRY,
+    TL_OPK_BASE_GEOMETRY,
+    TL_OPK_SKETCH_GEOMETRY,
 } tl_OpKind;
+
+typedef struct tl_Op tl_Op;
 
 typedef struct {
     sk_Sketch sketch;
@@ -16,7 +19,11 @@ typedef struct {
 
 typedef struct {
     geo_Mesh mesh;
-} tl_OpGeometry;
+} tl_OpBaseGeometry;
+
+typedef struct {
+    tl_Op* sketch;
+} tl_OpSketchGeometry;
 
 typedef struct {
     geo_Align orbitOrigin;
@@ -36,10 +43,10 @@ tl_Scene tl_sceneInit() {
     return out;
 }
 
-typedef struct tl_Op tl_Op;
 struct tl_Op {
     tl_Op* next;
     bool markedForDeletion;
+    bool solved;
 
     struct {
         HMM_Vec2 pos;
@@ -50,7 +57,8 @@ struct tl_Op {
     tl_OpKind kind;
     union {
         tl_OpSketch sketch;
-        tl_OpGeometry geometry;
+        tl_OpBaseGeometry baseGeometry;
+        tl_OpSketchGeometry sketchGeometry;
     } val;
 
     tl_Scene scene;
@@ -90,12 +98,12 @@ tl_Op* tl_timelinePushGeometry(tl_Timeline* tl, HMM_Vec2 pos, geo_Mesh mesh) {
     tl_Op* out = SNZ_ARENA_PUSH(tl->arena, tl_Op);
     *out = (tl_Op){
         .ui.pos = pos,
-        .kind = TL_OPK_GEOMETRY,
+        .kind = TL_OPK_BASE_GEOMETRY,
         .next = tl->firstOp,
-        .val.geometry.mesh = mesh,
+        .val.sketchGeometry.mesh = mesh,
         .scene = tl_sceneInit(),
     };
-    out->scene.mesh = &out->val.geometry.mesh;
+    out->scene.mesh = &out->val.sketchGeometry.mesh;
 
     tl->firstOp = out;
     return out;
@@ -134,4 +142,30 @@ static bool tl_timelineAnySelected(tl_Timeline* tl) {
         }
     }
     return false;
+}
+
+void tl_solve(tl_Timeline* t, snz_Arena* arena, snz_Arena* scratch, PoolAlloc* pool) {
+    for (tl_Op* op = t->firstOp; op; op = op->next) {
+        op->solved = false;
+        if (op->kind == TL_OPK_BASE_GEOMETRY) {
+            op->solved = true;
+        }
+    }
+
+    for (tl_Op* op = t->firstOp; op; op = op->next) {
+        if (op->kind == TL_OPK_SKETCH) {
+            // FIXME: bool status
+            sk_sketchSolve(&op->val.sketch.sketch);
+        } else if (op->kind == TL_OPK_SKETCH_GEOMETRY) {
+            tl_Op* other = op->val.sketchGeometry.sketch;
+            SNZ_ASSERTF(other->kind == TL_OPK_SKETCH, "dependent op wasn't expected kind. Was: %d, expected %d.", other->kind, TL_OPK_SKETCH);
+            SNZ_ASSERT(op->val.sketchGeometry.sketch, "dependent was null.");
+            other->scene.mesh = skt_sketchTriangulate(&other->val.sketch.sketch, arena, scratch, pool);
+        }
+        op->solved = true;
+    }
+
+    for (tl_Op* op = t->firstOp; op; op = op->next) {
+        SNZ_ASSERT(op->solved, "unsolved tl op.");
+    }
 }
