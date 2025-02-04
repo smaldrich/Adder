@@ -176,6 +176,7 @@ sk_Line* sk_sketchAddLine(sk_Sketch* sketch, sk_Point* p1, sk_Point* p2) {
 }
 
 // arena is retained
+// adds an initial origin line and two pts for it
 sk_Sketch sk_sketchInit(snz_Arena* arena) {
     sk_Sketch out = (sk_Sketch){ .arena = arena };
 

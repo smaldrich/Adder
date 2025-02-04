@@ -44,6 +44,7 @@ void _skt_markIsland(_skt_Point* pt, _skt_Island* island, snz_Arena* arena) {
     }
 }
 
+// FIXME: tests
 bool _skt_lineLineIntersection(HMM_Vec2 l1a, HMM_Vec2 l1b, HMM_Vec2 l2a, HMM_Vec2 l2b) {
     HMM_Vec2 l1Dir = HMM_Norm(HMM_Sub(l1b, l1a));
     HMM_Vec2 l2Dir = HMM_Norm(HMM_Sub(l2b, l2a));
@@ -81,6 +82,7 @@ bool _skt_lineLineIntersection(HMM_Vec2 l1a, HMM_Vec2 l1b, HMM_Vec2 l2a, HMM_Vec
     return true;
 }
 
+// FIXME: tests
 bool _skt_vertLoopContainsPoint(_skt_VertLoop* l, HMM_Vec2 pt) {
     int hitCount = 0;
     HMM_Vec2 rayOrigin = pt;
@@ -97,6 +99,7 @@ bool _skt_vertLoopContainsPoint(_skt_VertLoop* l, HMM_Vec2 pt) {
 }
 
 // checks only that B is inside of A
+// FIXME: tests
 bool _skt_vertLoopContainsVertLoop(_skt_VertLoop* a, _skt_VertLoop* b) {
     SNZ_ASSERTF(b->pts.count > 0, "Vert loop with zero or less points. Had: %lld", b->pts.count);
     bool ptInside = _skt_vertLoopContainsPoint(a, b->pts.elems[0]);
@@ -168,7 +171,9 @@ static geo_MeshFace* _skt_vertLoopToMeshFace(_skt_VertLoop* l, geo_BSPTriList* l
 }
 
 // FIXME: does this function gauranteed crash on a malformed sketch??
-geo_Mesh skt_sketchTriangulate(const sk_Sketch* sketch, snz_Arena* arena, snz_Arena* scratch, PoolAlloc* pool) {
+// arena and scratch can be the same arena
+// only fills out BSPTri list for a new mesh
+geo_Mesh skt_sketchTriangulate(const sk_Sketch* sketch, snz_Arena* arena, snz_Arena* scratch) {
     assert(arena || !arena);
     // // arcs -> lines
     // lines -> intersections
@@ -397,12 +402,46 @@ geo_Mesh skt_sketchTriangulate(const sk_Sketch* sketch, snz_Arena* arena, snz_Ar
     geo_Mesh out = (geo_Mesh){
         .firstFace = firstFace,
         .bspTris = tris,
-        .renderMesh = geo_BSPTriListToRenderMesh(tris, scratch),
     };
-    geo_BSPTriListToFaceTris(pool, &out);
     return out;
 }
 
+// static int _skt_countFacesInMesh(geo_Mesh* m) {
+//     int faceCount = 0;
+//     for (geo_MeshFace* f = m->firstFace; f; f = f->next) {
+//         faceCount++;
+//     }
+//     return faceCount;
+// }
+
 void skt_tests() {
-    snz_testPrintSection("sketch triangulation");
+    // snz_testPrintSection("sketch triangulation");
+    // snz_Arena a = snz_arenaInit(10000000, "skt test arena");
+
+    // { // pt in vert loop
+
+    // }
+
+    // { // vert loop contains vert loop
+
+    // }
+
+    // { // triangulate vertloop
+    //     HMM_Vec2 pts[] = {
+    //         HMM_V2(0, 0),
+    //         HMM_V2(1, 1),
+    //         HMM_V2(2, 0),
+    //         HMM_V2(2, 2),
+    //         HMM_V2(0, 2),
+    //     };
+
+    //     _skt_VertLoop loop = (_skt_VertLoop){
+    //         .pts = (HMM_Vec2Slice) {
+    //             .elems = pts,
+    //             .count = sizeof(pts) / sizeof(*pts),
+    //         },
+    //     };
+    // } // end vert loop trianuglation tests
+
+    // snz_arenaDeinit(&a);
 }
