@@ -2,6 +2,7 @@
 
 #include "geometry.h"
 #include "sketches2.h"
+#include "sketchTriangulation.h"
 #include "snooze.h"
 #include "ui.h"
 
@@ -94,16 +95,16 @@ tl_Op* tl_timelinePushSketch(tl_Timeline* tl, HMM_Vec2 pos, sk_Sketch sketch) {
     return out;
 }
 
-tl_Op* tl_timelinePushGeometry(tl_Timeline* tl, HMM_Vec2 pos, geo_Mesh mesh) {
+tl_Op* tl_timelinePushBaseGeometry(tl_Timeline* tl, HMM_Vec2 pos, geo_Mesh mesh) {
     tl_Op* out = SNZ_ARENA_PUSH(tl->arena, tl_Op);
     *out = (tl_Op){
         .ui.pos = pos,
         .kind = TL_OPK_BASE_GEOMETRY,
         .next = tl->firstOp,
-        .val.sketchGeometry.mesh = mesh,
+        .val.baseGeometry.mesh = mesh,
         .scene = tl_sceneInit(),
     };
-    out->scene.mesh = &out->val.sketchGeometry.mesh;
+    out->scene.mesh = &out->val.baseGeometry.mesh;
 
     tl->firstOp = out;
     return out;
@@ -160,10 +161,12 @@ void tl_solve(tl_Timeline* t, snz_Arena* arena, snz_Arena* scratch, PoolAlloc* p
             tl_Op* other = op->val.sketchGeometry.sketch;
             SNZ_ASSERTF(other->kind == TL_OPK_SKETCH, "dependent op wasn't expected kind. Was: %d, expected %d.", other->kind, TL_OPK_SKETCH);
             SNZ_ASSERT(op->val.sketchGeometry.sketch, "dependent was null.");
-            other->scene.mesh = skt_sketchTriangulate(&other->val.sketch.sketch, arena, scratch, pool);
+            geo_Mesh* m = SNZ_ARENA_PUSH(arena, geo_Mesh);
+            *m = skt_sketchTriangulate(&other->val.sketch.sketch, arena, scratch, pool);
+            other->scene.mesh = m;
         }
         op->solved = true;
-    }
+    } // end solving
 
     for (tl_Op* op = t->firstOp; op; op = op->next) {
         SNZ_ASSERT(op->solved, "unsolved tl op.");

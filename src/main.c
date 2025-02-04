@@ -95,7 +95,7 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
         geo_meshGenerateEdges(&mesh, &main_meshArena, scratch);
         geo_meshGenerateCorners(&mesh, &main_meshArena, scratch);
 
-        tl_timelinePushGeometry(&main_timeline, HMM_V2(-200, 0), mesh);
+        tl_timelinePushBaseGeometry(&main_timeline, HMM_V2(-200, 0), mesh);
     }  // end mesh for testing
 
     snz_arenaClear(scratch);
@@ -109,7 +109,7 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
 
         geo_Mesh m = skt_sketchTriangulate(&sketch, &main_meshArena, scratch, &main_pool);
         m.renderMesh = geo_BSPTriListToRenderMesh(m.bspTris, scratch);
-        tl_timelinePushGeometry(&main_timeline, HMM_V2(200, 200), m);
+        tl_timelinePushBaseGeometry(&main_timeline, HMM_V2(200, 200), m);
     }
 
     {
@@ -120,7 +120,7 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
         // geo_stlFileToMesh("testing/intersection.stl", &main_meshArena, scratch, &p, &m);
         poolAllocDeinit(&p);
 
-        tl_timelinePushGeometry(&main_timeline, HMM_V2(0, -200), m);
+        tl_timelinePushBaseGeometry(&main_timeline, HMM_V2(0, -200), m);
     }
 }
 

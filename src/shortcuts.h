@@ -282,7 +282,7 @@ bool scc_timelineRotate(_sc_CommandArgs args) {
 
 bool scc_timelineAddGeometry(_sc_CommandArgs args) {
     *args.currentView = SC_VIEW_TIMELINE;
-    tl_Op* newOp = tl_timelinePushGeometry(args.timeline, HMM_V2(0, 0), (geo_Mesh) { 0 });
+    tl_Op* newOp = tl_timelinePushBaseGeometry(args.timeline, HMM_V2(0, 0), (geo_Mesh) { 0 });
     // FIXME: should be on the mouse, isn't // enter move mode?
     newOp->ui.sel.selected = true;
     newOp->ui.sel.selectionAnim = 1;
