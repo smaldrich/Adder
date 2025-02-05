@@ -146,7 +146,7 @@ static geo_MeshFace* _skt_vertLoopToMeshFace(_skt_VertLoop* l, geo_BSPTriList* l
 
         int ptIndexes[3] = { startIdx, 0, 0 };
         for (int i = 1; i < 3; i++) {
-            int idx = ptIndexes[i - i];
+            int idx = ptIndexes[i - 1] + 1;
             for (; true; idx++) { // FIXME: emergency crash here
                 int modded = idx % l->pts.count;
                 if (culledFlags[modded]) {
@@ -159,7 +159,7 @@ static geo_MeshFace* _skt_vertLoopToMeshFace(_skt_VertLoop* l, geo_BSPTriList* l
 
         geo_Tri t = { 0 };
         for (int i = 0; i < 3; i++) {
-            t.elems[i].XY = l->pts.elems[i];
+            t.elems[i].XY = l->pts.elems[ptIndexes[i]];
         }
 
         geo_BSPTriListPushNew(out, list, t.a, t.b, t.c, f);
@@ -342,23 +342,26 @@ geo_Mesh skt_sketchTriangulate(const sk_Sketch* sketch, snz_Arena* arena, snz_Ar
 
     // finding & removing the perimeter loop that happens to get generated per island (which has the largest area)
     for (_skt_Island* island = firstIsland; island; island = island->next) {
-        _skt_VertLoop* prevLoop = NULL;
-        _skt_VertLoop* maxLoop = island->firstLoop;
+        // find and remove the loop with the maximum area
+        float maxArea = 0;
+        _skt_VertLoop* nodeBefore = NULL;
+        _skt_VertLoop* prev = NULL;
         for (_skt_VertLoop* loop = island->firstLoop; loop; loop = loop->next) {
-            if (loop->area > maxLoop->area) {
-                maxLoop = loop;
+            if (loop->area > maxArea) {
+                maxArea = loop->area;
+                nodeBefore = prev;
             }
-            prevLoop = loop;
+            prev = loop;
         }
 
-        if (prevLoop) {
-            prevLoop->next = maxLoop->next;
+        _skt_VertLoop* maxLoop = nodeBefore ? nodeBefore->next : island->firstLoop;
+        if (nodeBefore) {
+            nodeBefore->next = maxLoop->next;
         } else {
             island->firstLoop = maxLoop->next;
         }
         maxLoop->next = NULL;
         island->perimeterLoop = maxLoop;
-
 
         // Debug printing islands
         printf("Island:\n");
@@ -398,6 +401,7 @@ geo_Mesh skt_sketchTriangulate(const sk_Sketch* sketch, snz_Arena* arena, snz_Ar
             firstFace = new;
         }
     } // end island loop
+
 
     geo_Mesh out = (geo_Mesh){
         .firstFace = firstFace,

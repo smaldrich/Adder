@@ -100,32 +100,32 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
 
     snz_arenaClear(scratch);
 
-    {
-        sk_Sketch sketch = sk_sketchInit(&main_sketchArena);
-        sk_Point* p = sk_sketchAddPoint(&sketch, HMM_V2(0.5, 1));
-        sk_sketchAddLine(&sketch, p, sketch.originLine->p1);
-        sk_sketchAddLine(&sketch, p, sketch.originLine->p2);
-        tl_timelinePushSketch(&main_timeline, HMM_V2(200, 0), sketch);
+    // {
+    //     sk_Sketch sketch = sk_sketchInit(&main_sketchArena);
+    //     sk_Point* p = sk_sketchAddPoint(&sketch, HMM_V2(0.5, 1));
+    //     sk_sketchAddLine(&sketch, p, sketch.originLine->p1);
+    //     sk_sketchAddLine(&sketch, p, sketch.originLine->p2);
+    //     tl_timelinePushSketch(&main_timeline, HMM_V2(200, 0), sketch);
 
-        geo_Mesh m = skt_sketchTriangulate(&sketch, &main_meshArena, scratch);
-        geo_BSPTriListToFaceTris(&main_pool, &m);
-        m.renderMesh = geo_BSPTriListToRenderMesh(m.bspTris, scratch);
-        tl_timelinePushGeometry(&main_timeline, HMM_V2(200, 100), m);
-    }
+    //     geo_Mesh m = skt_sketchTriangulate(&sketch, &main_meshArena, scratch);
+    //     geo_BSPTriListToFaceTris(&main_pool, &m);
+    //     m.renderMesh = geo_BSPTriListToRenderMesh(m.bspTris, scratch);
+    //     tl_timelinePushGeometry(&main_timeline, HMM_V2(200, 100), m);
+    // }
 
     {
         sk_Sketch sketch = sk_sketchInit(&main_sketchArena);
         sk_Point* left = sketch.originLine->p1;
         sk_Point* right = sketch.originLine->p2;
+        sk_Point* middle = sk_sketchAddPoint(&sketch, HMM_V2(0.5, 0.5));
         sk_Point* leftUpper = sk_sketchAddPoint(&sketch, HMM_V2(0, 1));
         sk_Point* rightUpper = sk_sketchAddPoint(&sketch, HMM_V2(1, 1));
-        sk_Point* middle = sk_sketchAddPoint(&sketch, HMM_V2(0.5, 0.5));
 
+        sk_sketchAddLine(&sketch, leftUpper, middle);
+        sk_sketchAddLine(&sketch, rightUpper, middle);
         sk_sketchAddLine(&sketch, left, right);
         sk_sketchAddLine(&sketch, left, leftUpper);
         sk_sketchAddLine(&sketch, right, rightUpper);
-        sk_sketchAddLine(&sketch, leftUpper, middle);
-        sk_sketchAddLine(&sketch, rightUpper, middle);
         tl_timelinePushSketch(&main_timeline, HMM_V2(400, 0), sketch);
 
         geo_Mesh m = skt_sketchTriangulate(&sketch, &main_meshArena, scratch);
