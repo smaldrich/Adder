@@ -399,9 +399,39 @@ geo_Mesh skt_sketchTriangulate(const sk_Sketch* sketch, snz_Arena* arena, snz_Ar
         }
     } // end island loop
 
+    // move points nad lines over to the mesh
+    // FIXME: this will have to change when intersections get dealt with
+    geo_MeshEdge* firstEdge = NULL;
+    geo_MeshCornerSlice corners = { 0 };
+    {
+        for (sk_Line* l = sketch->firstLine; l; l = l->next) {
+            geo_MeshEdge* e = SNZ_ARENA_PUSH(arena, geo_MeshEdge);
+            geo_MeshEdgeSegment* segment = SNZ_ARENA_PUSH(arena, geo_MeshEdgeSegment);
+            segment->a.XY = l->p1->pos;
+            segment->b.XY = l->p2->pos;
+            *e = (geo_MeshEdge){
+                .next = firstEdge,
+                .segments = (geo_MeshEdgeSegmentSlice) {
+                    .count = 1,
+                    .elems = segment,
+                },
+            };
+            firstEdge = e;
+        }
+
+        SNZ_ARENA_ARR_BEGIN(arena, geo_MeshCorner);
+        for (sk_Point* p = sketch->firstPoint; p; p = p->next) {
+            *SNZ_ARENA_PUSH(arena, geo_MeshCorner) = (geo_MeshCorner){
+                .pos.XY = p->pos,
+            };
+        }
+        corners = SNZ_ARENA_ARR_END(arena, geo_MeshCorner);
+    }
 
     geo_Mesh out = (geo_Mesh){
         .firstFace = firstFace,
+        .firstEdge = firstEdge,
+        .corners = corners,
         .bspTris = tris,
     };
     return out;
