@@ -24,7 +24,6 @@ typedef struct _skt_VertLoop _skt_VertLoop;
 struct _skt_VertLoop {
     _skt_VertLoop* next;
     HMM_Vec2Slice pts;
-    float area;
 };
 
 struct _skt_Island {
@@ -121,17 +120,17 @@ bool _skt_vertLoopContainsVertLoop(_skt_VertLoop* a, _skt_VertLoop* b) {
     return true;
 }
 
-static void _skt_vertLoopPrint(_skt_VertLoop* l) {
-    for (int i = 0; i < l->pts.count; i++) {
-        HMM_Vec2 p = l->pts.elems[i];
-        printf("\t%.2f, %.2f\n", p.X, p.Y);
-    }
-}
+// static void _skt_vertLoopPrint(_skt_VertLoop* l) {
+//     for (int i = 0; i < l->pts.count; i++) {
+//         HMM_Vec2 p = l->pts.elems[i];
+//         printf("\t%.2f, %.2f\n", p.X, p.Y);
+//     }
+// }
 
 static geo_MeshFace* _skt_vertLoopToMeshFace(_skt_VertLoop* l, geo_BSPTriList* list, snz_Arena* scratch, snz_Arena* out) {
     geo_MeshFace* f = SNZ_ARENA_PUSH(out, geo_MeshFace);
 
-    // FIXME: move this data to be inline with the vert loop points // actually also profile if that is worth doing
+    // FIXME: move this data to be inline with the vert loop points ? // actually also profile if that is worth doing
     bool* culledFlags = SNZ_ARENA_PUSH_ARR(scratch, l->pts.count, bool);
     int culledCount = 0;
 
@@ -159,14 +158,23 @@ static geo_MeshFace* _skt_vertLoopToMeshFace(_skt_VertLoop* l, geo_BSPTriList* l
 
         geo_Tri t = { 0 };
         for (int i = 0; i < 3; i++) {
-            t.elems[i].XY = l->pts.elems[ptIndexes[i]];
+            HMM_Vec2 pt = l->pts.elems[ptIndexes[i]];
+            t.elems[i].XY = pt;
+        }
+
+        HMM_Vec2 diffB = HMM_Sub(t.b.XY, t.a.XY);
+        HMM_Vec2 diffC = HMM_Sub(t.c.XY, t.a.XY);
+        float angle = atan2f(diffC.Y, diffC.X) - atan2f(diffB.Y, diffB.X);
+        // don't gap it if AC is more CW than AB (would cross a gap)
+        if (angle < 0) {
+            // FIXME: could cause an infinite loop, guard please
+            continue;
         }
 
         geo_BSPTriListPushNew(out, list, t.a, t.b, t.c, f);
         culledFlags[ptIndexes[1]] = true;
         culledCount++;
     }
-
     return f;
 }
 
@@ -227,16 +235,16 @@ geo_Mesh skt_sketchTriangulate(const sk_Sketch* sketch, snz_Arena* arena, snz_Ar
         }
     } // end generating adj. lists
 
-    { // dbg print adj lists in a readable way
-        for (int i = 0; i < points.count; i++) {
-            _skt_Point* p = &points.elems[i];
-            printf("Pt: %d\n", p->dbgIndex);
-            for (int j = 0; j < p->edges.count; j++) {
-                printf("\t%d\n", p->edges.elems[j].other->dbgIndex);
-            }
-        }
-        printf("\n");
-    }
+    // { // dbg print adj lists in a readable way
+    //     for (int i = 0; i < points.count; i++) {
+    //         _skt_Point* p = &points.elems[i];
+    //         printf("Pt: %d\n", p->dbgIndex);
+    //         for (int j = 0; j < p->edges.count; j++) {
+    //             printf("\t%d\n", p->edges.elems[j].other->dbgIndex);
+    //         }
+    //     }
+    //     printf("\n");
+    // }
 
     _skt_Island* firstIsland = NULL;
     { // island marking / list gen
@@ -292,6 +300,7 @@ geo_Mesh skt_sketchTriangulate(const sk_Sketch* sketch, snz_Arena* arena, snz_Ar
         SNZ_ARENA_ARR_BEGIN(scratch, HMM_Vec2);
         *SNZ_ARENA_PUSH(scratch, HMM_Vec2) = currentPt->pos;
 
+        float angleSum = 0;
         while (currentPt != startPt) { // FIXME: emergency cutoff
             _skt_Edge* selected = NULL;
             float maxAngle = -INFINITY;
@@ -301,7 +310,7 @@ geo_Mesh skt_sketchTriangulate(const sk_Sketch* sketch, snz_Arena* arena, snz_Ar
                     continue;
                 }
                 HMM_Vec2 diff = HMM_Sub(edge->other->pos, currentPt->pos);
-                float angle = dir - atan2f(diff.Y, diff.X);
+                float angle = atan2f(diff.Y, diff.X) - dir;
                 while (angle < 0) {
                     angle += HMM_AngleDeg(360);
                 }
@@ -315,6 +324,7 @@ geo_Mesh skt_sketchTriangulate(const sk_Sketch* sketch, snz_Arena* arena, snz_Ar
                     maxAngle = angle;
                 }
             }
+            angleSum += maxAngle;
             prevPt = currentPt;
             selected->traversed = true;
             currentPt = selected->other;
@@ -327,54 +337,41 @@ geo_Mesh skt_sketchTriangulate(const sk_Sketch* sketch, snz_Arena* arena, snz_Ar
         _skt_VertLoop* loop = SNZ_ARENA_PUSH(scratch, _skt_VertLoop);
         *loop = (_skt_VertLoop){
             .pts = loopPoints,
-            .next = island->firstLoop,
         };
-        island->firstLoop = loop;
 
+        float area = 0;
         for (int i = 0; i < loop->pts.count; i++) {
             HMM_Vec2 p0 = loop->pts.elems[i];
             HMM_Vec2 p1 = loop->pts.elems[(i + 1) % loop->pts.count];
-            loop->area += p0.X * p1.Y - p1.X * p0.Y;
+            area += p0.X * p1.Y - p1.X * p0.Y;
         }
-        loop->area = fabsf(loop->area) / 2;
+        area /= 2;
+        SNZ_ASSERT(!geo_floatEqual(area, 0), "loop with zero area.");
+
+        // less than zero indicates CW wrapping, which is the opposite of how loops should have wrapped
+        // the only case that happens in is when it is a perimeter loop, so we skip inserting it here
+        if (area < 0) {
+            island->perimeterLoop = loop;
+        } else {
+            loop->next = island->firstLoop;
+            island->firstLoop = loop;
+        }
     } // end loop loop
     // all of vert loop gen
 
-    // finding & removing the perimeter loop that happens to get generated per island (which has the largest area)
-    for (_skt_Island* island = firstIsland; island; island = island->next) {
-        // find and remove the loop with the maximum area
-        float maxArea = 0;
-        _skt_VertLoop* nodeBefore = NULL;
-        _skt_VertLoop* prev = NULL;
-        for (_skt_VertLoop* loop = island->firstLoop; loop; loop = loop->next) {
-            if (loop->area > maxArea) {
-                maxArea = loop->area;
-                nodeBefore = prev;
-            }
-            prev = loop;
-        }
-
-        _skt_VertLoop* maxLoop = nodeBefore ? nodeBefore->next : island->firstLoop;
-        if (nodeBefore) {
-            nodeBefore->next = maxLoop->next;
-        } else {
-            island->firstLoop = maxLoop->next;
-        }
-        maxLoop->next = NULL;
-        island->perimeterLoop = maxLoop;
-
-        // Debug printing islands
-        printf("Island:\n");
-        printf("perimeter:\n");
-        _skt_vertLoopPrint(island->perimeterLoop);
-        int i = 0;
-        for (_skt_VertLoop* l = island->firstLoop; l; l = l->next) {
-            printf("%d:\n", i);
-            _skt_vertLoopPrint(l);
-            i++;
-        }
-        printf("\n");
-    }
+    // // Debug printing islands
+    // for (_skt_Island* island = firstIsland; island; island = island->next) {
+    //     printf("Island:\n");
+    //     printf("perimeter:\n");
+    //     _skt_vertLoopPrint(island->perimeterLoop);
+    //     int i = 0;
+    //     for (_skt_VertLoop* l = island->firstLoop; l; l = l->next) {
+    //         printf("%d:\n", i);
+    //         _skt_vertLoopPrint(l);
+    //         i++;
+    //     }
+    //     printf("\n");
+    // }
 
     // // hole / seam gen // FIXME: make this work :)
     // for (_skt_Island* island = firstIsland; island; island = island->next) {
