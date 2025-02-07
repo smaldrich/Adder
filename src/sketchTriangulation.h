@@ -14,9 +14,10 @@ typedef struct {
 SNZ_SLICE(_skt_Edge);
 
 struct _skt_Point {
+    _skt_Point* next;
+    _skt_Island* island;
     _skt_EdgeSlice edges;
     HMM_Vec2 pos;
-    _skt_Island* island;
     int dbgIndex;
 };
 
@@ -44,7 +45,7 @@ void _skt_markIsland(_skt_Point* pt, _skt_Island* island, snz_Arena* arena) {
 }
 
 // FIXME: tests
-bool _skt_lineLineIntersection(HMM_Vec2 l1a, HMM_Vec2 l1b, HMM_Vec2 l2a, HMM_Vec2 l2b) {
+bool _skt_lineLineIntersection(HMM_Vec2 l1a, HMM_Vec2 l1b, HMM_Vec2 l2a, HMM_Vec2 l2b, float* outT) {
     HMM_Vec2 l1Dir = HMM_Norm(HMM_Sub(l1b, l1a));
     HMM_Vec2 l2Dir = HMM_Norm(HMM_Sub(l2b, l2a));
     if (geo_v2Equal(l1a, l2a) && geo_v2Equal(l1Dir, l2Dir)) {
@@ -68,16 +69,17 @@ bool _skt_lineLineIntersection(HMM_Vec2 l1a, HMM_Vec2 l1b, HMM_Vec2 l2a, HMM_Vec
 
     float u = (x1 - x3) * (y3 - y4) - (y1 - y3) * (x3 - x4);
     u /= denom;
-    if (!geo_floatGreaterEqual(u, 0) || !geo_floatLessEqual(u, 1)) {
-        return false; // past bounds on one line, doesn't trip on ~equal to ends
+    if (!geo_floatGreater(u, 0) || !geo_floatLess(u, 1)) {
+        return false; // past bounds on one line, will trip on ~equal to ends
     }
 
     float v = (x1 - x2) * (y1 - y3) - (y1 - y2) * (x1 - x3);
     v /= denom;
-    if (!geo_floatGreaterEqual(v, 0) || !geo_floatLessEqual(v, 1)) {
+    if (!geo_floatGreater(v, 0) || !geo_floatLess(v, 1)) {
         return false;
     }
 
+    *outT = u;
     return true;
 }
 
@@ -89,7 +91,8 @@ bool _skt_vertLoopContainsPoint(_skt_VertLoop* l, HMM_Vec2 pt) {
     for (int i = 0; i < l->pts.count; i++) {
         HMM_Vec2 l1a = l->pts.elems[i];
         HMM_Vec2 l1b = l->pts.elems[(i + 1) % l->pts.count];
-        if (_skt_lineLineIntersection(rayOrigin, rayOther, l1a, l1b)) {
+        float t = 0;
+        if (_skt_lineLineIntersection(rayOrigin, rayOther, l1a, l1b, &t)) {
             hitCount++;
         }
     }
@@ -112,7 +115,8 @@ bool _skt_vertLoopContainsVertLoop(_skt_VertLoop* a, _skt_VertLoop* b) {
         for (int j = 0; j < b->pts.count; j++) {
             HMM_Vec2 l2a = b->pts.elems[j];
             HMM_Vec2 l2b = b->pts.elems[(j + 1) % b->pts.count];
-            if (!_skt_lineLineIntersection(l1a, l1b, l2a, l2b)) {
+            float t = 0;
+            if (!_skt_lineLineIntersection(l1a, l1b, l2a, l2b, &t)) {
                 return false;
             }
         }
@@ -166,6 +170,7 @@ static geo_MeshFace* _skt_vertLoopToMeshFace(_skt_VertLoop* l, geo_BSPTriList* l
         HMM_Vec2 diffC = HMM_Sub(t.c.XY, t.a.XY);
         float angle = atan2f(diffC.Y, diffC.X) - atan2f(diffB.Y, diffB.X);
         // don't gap it if AC is more CW than AB (would cross a gap)
+        // FIXME: skippies if this goes over another pt in the sketch
         if (!geo_floatGreaterEqual(angle, 0)) {
             continue;
         }
@@ -189,55 +194,119 @@ static geo_MeshFace* _skt_vertLoopToMeshFace(_skt_VertLoop* l, geo_BSPTriList* l
     return f;
 }
 
+typedef struct _skt_IntersectionEdge _skt_IntersectionEdge;
+struct _skt_IntersectionEdge {
+    _skt_Point* p1;
+    _skt_Point* p2;
+    _skt_IntersectionEdge* next;
+    bool clean;
+};
+
 // FIXME: does this function gauranteed crash on a malformed sketch??
 // arena and scratch can be the same arena
 // only fills out BSPTri list for a new mesh
+// FIXME: exhaustive checks to make sure that there aren't any colinear & fully overlapped edges in the sketch before starting this
 geo_Mesh skt_sketchTriangulate(const sk_Sketch* sketch, snz_Arena* arena, snz_Arena* scratch) {
-    assert(arena || !arena);
-    // // arcs -> lines
-    // lines -> intersections
-    // sketch -> graph
-    // graph -> vert loops (don't forget holes!!)
-    // vert loops -> tris
-    // done!!
+    _skt_Point* firstPoint = NULL;
+    _skt_IntersectionEdge* firstIntersectionEdge = NULL;
+    { // intersections
 
-    _skt_PointSlice points = { 0 };
-    { // imports
+        // import pts
         SNZ_ARENA_ARR_BEGIN(scratch, _skt_Point);
         int i = 0;
-        for (sk_Point* p = sketch->firstPoint; p; (p = p->next, i++)) {
+        for (sk_Point* p = sketch->firstPoint; p; p = p->next) {
             p->indexIntoSketch = i;
-            _skt_Point* new = SNZ_ARENA_PUSH(scratch, _skt_Point);
-            new->pos = p->pos;
-            new->dbgIndex = i;
+            _skt_Point* pt = SNZ_ARENA_PUSH(scratch, _skt_Point);
+            *pt = (_skt_Point){
+                .pos = p->pos,
+                .dbgIndex = i,
+                .next = firstPoint, // storing as a LL as well because of appends happening down the road
+            };
+            firstPoint = pt;
+            i++;
         }
-        points = SNZ_ARENA_ARR_END(scratch, _skt_Point);
-    }
+        _skt_PointSlice initialPointsArr = SNZ_ARENA_ARR_END(scratch, _skt_Point);
 
-    if (!points.count) {
-        return (geo_Mesh) { 0 };
-    }
+        // import lines
+        int edgeCount = 0;
+        for (sk_Line* l = sketch->firstLine; l;l = l->next) {
+            _skt_IntersectionEdge* e = SNZ_ARENA_PUSH(scratch, _skt_IntersectionEdge);
+            *e = (_skt_IntersectionEdge){
+                .p1 = &initialPointsArr.elems[l->p1->indexIntoSketch],
+                .p2 = &initialPointsArr.elems[l->p2->indexIntoSketch],
+                .next = firstIntersectionEdge,
+            };
+            firstIntersectionEdge = e;
+            edgeCount++;
+        }
 
-    { // intersections
+        int cleanCount = 0;
+        _skt_IntersectionEdge* edge = firstIntersectionEdge;
+        while (cleanCount < edgeCount) {
+            if (!edge->clean) {
+                bool anyIntersection = false;
+                for (_skt_IntersectionEdge* other = edge->next; other; other = other->next) {
+                    if (other->clean) {
+                        continue;
+                    }
+
+                    float t = 0;
+                    if (!_skt_lineLineIntersection(edge->p1->pos, edge->p2->pos, other->p1->pos, other->p2->pos, &t)) {
+                        continue;
+                    }
+
+                    _skt_Point* newPt = SNZ_ARENA_PUSH(scratch, _skt_Point);
+                    newPt->next = firstPoint;
+                    firstPoint = newPt;
+                    newPt->pos = HMM_Lerp(edge->p1->pos, t, edge->p2->pos);
+
+                    // add to LL
+                    _skt_IntersectionEdge* newEdges = SNZ_ARENA_PUSH_ARR(scratch, 2, _skt_IntersectionEdge);
+                    edgeCount += 2;
+
+                    newEdges[0].next = firstIntersectionEdge;
+                    newEdges[1].next = &newEdges[0];
+                    firstIntersectionEdge = &newEdges[1];
+
+                    // swap around where things are pointing to form the new edges
+                    newEdges[0].p1 = edge->p1;
+                    newEdges[0].p2 = newPt;
+                    newEdges[1].p1 = edge->p2;
+                    newEdges[1].p2 = newPt;
+                    edge->p1 = other->p1;
+                    edge->p2 = newPt;
+                    other->p1 = other->p2;
+                    other->p2 = newPt;
+
+                    anyIntersection = true;
+                    break;
+                }
+
+                if (!anyIntersection) {
+                    edge->clean = true;
+                    cleanCount++;
+                }
+            } // end clean check
+
+            edge = edge->next;
+            if (edge == NULL) {
+                edge = firstIntersectionEdge;
+            }
+        }
     }
 
     { // iteratively cull pts with one or none adj.
     }
 
     { // adj. lists
-        for (int i = 0; i < points.count; i++) {
-            _skt_Point* p = &points.elems[i];
+        for (_skt_Point* p = firstPoint; p; p = p->next) {
             SNZ_ARENA_ARR_BEGIN(scratch, _skt_Edge);
-            for (sk_Line* line = sketch->firstLine; line; line = line->next) {
-                bool p1Matches = line->p1->indexIntoSketch == i;
-                bool p2Matches = line->p2->indexIntoSketch == i;
-                if (!p1Matches && !p2Matches) {
+            for (_skt_IntersectionEdge* e = firstIntersectionEdge; e; e = e->next) {
+                if (e->p1 != p && e->p2 != p) {
                     continue;
                 }
-
-                int idx = (p1Matches ? line->p2->indexIntoSketch : line->p1->indexIntoSketch);
                 *SNZ_ARENA_PUSH(scratch, _skt_Edge) = (_skt_Edge){
-                    .other = &points.elems[idx],
+                    .other = ((e->p1 == p) ? e->p2 : e->p1),
                     .traversed = false,
                 };
             }
@@ -259,27 +328,24 @@ geo_Mesh skt_sketchTriangulate(const sk_Sketch* sketch, snz_Arena* arena, snz_Ar
 
     _skt_Island* firstIsland = NULL;
     { // island marking / list gen
-        for (int i = 0; i < points.count; i++) {
-            _skt_Point* pt = &points.elems[i];
-            if (pt->island) {
+        for (_skt_Point* p = firstPoint; p; p = p->next) {
+            if (p->island) {
                 continue;
             }
             _skt_Island* island = SNZ_ARENA_PUSH(scratch, _skt_Island);
             island->next = firstIsland;
             firstIsland = island;
-            _skt_markIsland(pt, island, scratch);
+            _skt_markIsland(p, island, scratch);
         }
     }
-
-    SNZ_ASSERTF(points.count > 0, "points count was: %lld", points.count);
 
     // vert loop gen
     while (true) { // FIXME: emergency cutoff
         _skt_Point* prevPt = NULL;
         _skt_Point* currentPt = NULL;
         { // find the seed for the next loop
-            for (int i = 0; i < points.count; i++) {
-                _skt_Point* p = &points.elems[i];
+            // FIXME: the check in the loop is probs bad for perf, but I don't feel like keeping track of the last one rn
+            for (_skt_Point* p = firstPoint; p; p = p ? p->next : NULL) {
                 for (int j = 0; j < p->edges.count; j++) {
                     _skt_Edge* edge = &p->edges.elems[j];
                     if (edge->traversed) {
@@ -289,7 +355,7 @@ geo_Mesh skt_sketchTriangulate(const sk_Sketch* sketch, snz_Arena* arena, snz_Ar
                     prevPt = p;
                     currentPt = edge->other;
 
-                    i = points.count; // break outer
+                    p = NULL; // break outer
                     break;
                 }
             }
@@ -410,16 +476,15 @@ geo_Mesh skt_sketchTriangulate(const sk_Sketch* sketch, snz_Arena* arena, snz_Ar
         }
     } // end island loop
 
-    // move points nad lines over to the mesh
-    // FIXME: this will have to change when intersections get dealt with
+    // move points and lines over to the mesh
     geo_MeshEdge* firstEdge = NULL;
     geo_MeshCornerSlice corners = { 0 };
     {
-        for (sk_Line* l = sketch->firstLine; l; l = l->next) {
+        for (_skt_IntersectionEdge* edge = firstIntersectionEdge; edge; edge = edge->next) {
             geo_MeshEdge* e = SNZ_ARENA_PUSH(arena, geo_MeshEdge);
             geo_MeshEdgeSegment* segment = SNZ_ARENA_PUSH(arena, geo_MeshEdgeSegment);
-            segment->a.XY = l->p1->pos;
-            segment->b.XY = l->p2->pos;
+            segment->a.XY = edge->p1->pos;
+            segment->b.XY = edge->p2->pos;
             *e = (geo_MeshEdge){
                 .next = firstEdge,
                 .segments = (geo_MeshEdgeSegmentSlice) {
@@ -431,7 +496,7 @@ geo_Mesh skt_sketchTriangulate(const sk_Sketch* sketch, snz_Arena* arena, snz_Ar
         }
 
         SNZ_ARENA_ARR_BEGIN(arena, geo_MeshCorner);
-        for (sk_Point* p = sketch->firstPoint; p; p = p->next) {
+        for (_skt_Point* p = firstPoint; p; p = p->next) {
             *SNZ_ARENA_PUSH(arena, geo_MeshCorner) = (geo_MeshCorner){
                 .pos.XY = p->pos,
             };

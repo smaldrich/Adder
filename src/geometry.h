@@ -103,6 +103,14 @@ bool geo_floatEqual(float a, float b) {
     return geo_floatZero(a - b);
 }
 
+bool geo_floatGreater(float a, float b) {
+    return !geo_floatEqual(a, b) && a > b;
+}
+
+bool geo_floatLess(float a, float b) {
+    return !geo_floatEqual(a, b) && a < b;
+}
+
 bool geo_floatLessEqual(float a, float b) {
     return geo_floatEqual(a, b) || a < b;
 }

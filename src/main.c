@@ -124,6 +124,10 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
         // sk_Point* rightRightUp = sk_sketchAddPoint(&sketch, HMM_V2(2, 1));
         // sk_Point* rightRightDown = sk_sketchAddPoint(&sketch, HMM_V2(2, 0));
 
+        sk_Point* intruderLeft = sk_sketchAddPoint(&sketch, HMM_V2(-1, 0.75));
+        sk_Point* intruderRight = sk_sketchAddPoint(&sketch, HMM_V2(2, 0.75));
+        sk_sketchAddLine(&sketch, intruderLeft, intruderRight);
+
         sk_sketchAddLine(&sketch, leftUpper, middle);
         sk_sketchAddLine(&sketch, rightUpper, middle);
         sk_sketchAddLine(&sketch, left, right);
