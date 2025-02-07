@@ -74,7 +74,7 @@ bool _skt_lineLineIntersection(HMM_Vec2 l1a, HMM_Vec2 l1b, HMM_Vec2 l2a, HMM_Vec
     }
 
     float v = (x1 - x2) * (y1 - y3) - (y1 - y2) * (x1 - x3);
-    v /= denom;
+    v /= -denom;
     if (!geo_floatGreater(v, 0) || !geo_floatLess(v, 1)) {
         return false;
     }
@@ -124,12 +124,12 @@ bool _skt_vertLoopContainsVertLoop(_skt_VertLoop* a, _skt_VertLoop* b) {
     return true;
 }
 
-// static void _skt_vertLoopPrint(_skt_VertLoop* l) {
-//     for (int i = 0; i < l->pts.count; i++) {
-//         HMM_Vec2 p = l->pts.elems[i];
-//         printf("\t%.2f, %.2f\n", p.X, p.Y);
-//     }
-// }
+static void _skt_vertLoopPrint(_skt_VertLoop* l) {
+    for (int i = 0; i < l->pts.count; i++) {
+        HMM_Vec2 p = l->pts.elems[i];
+        printf("\t%.2f, %.2f\n", p.X, p.Y);
+    }
+}
 
 static geo_MeshFace* _skt_vertLoopToMeshFace(_skt_VertLoop* l, geo_BSPTriList* list, snz_Arena* scratch, snz_Arena* out) {
     geo_MeshFace* f = SNZ_ARENA_PUSH(out, geo_MeshFace);
@@ -169,6 +169,7 @@ static geo_MeshFace* _skt_vertLoopToMeshFace(_skt_VertLoop* l, geo_BSPTriList* l
         HMM_Vec2 diffB = HMM_Sub(t.b.XY, t.a.XY);
         HMM_Vec2 diffC = HMM_Sub(t.c.XY, t.a.XY);
         float angle = atan2f(diffC.Y, diffC.X) - atan2f(diffB.Y, diffB.X);
+        angle = geo_normalizeAngle(angle);
         // don't gap it if AC is more CW than AB (would cross a gap)
         // FIXME: skippies if this goes over another pt in the sketch
         if (!geo_floatGreaterEqual(angle, 0)) {
@@ -200,12 +201,14 @@ struct _skt_IntersectionEdge {
     _skt_Point* p2;
     _skt_IntersectionEdge* next;
     bool clean;
+    bool culled;
 };
 
 // FIXME: does this function gauranteed crash on a malformed sketch??
 // arena and scratch can be the same arena
 // only fills out BSPTri list for a new mesh
 // FIXME: exhaustive checks to make sure that there aren't any colinear & fully overlapped edges in the sketch before starting this
+// FIXME: decide whether we are going to cope with T intersections here, and if not, add checks to make sure they don't exist on inputs
 geo_Mesh skt_sketchTriangulate(const sk_Sketch* sketch, snz_Arena* arena, snz_Arena* scratch) {
     _skt_Point* firstPoint = NULL;
     _skt_IntersectionEdge* firstIntersectionEdge = NULL;
@@ -240,13 +243,20 @@ geo_Mesh skt_sketchTriangulate(const sk_Sketch* sketch, snz_Arena* arena, snz_Ar
             edgeCount++;
         }
 
+        printf("initial edges: \n");
+        for (_skt_IntersectionEdge* e = firstIntersectionEdge; e; e = e->next) {
+            printf("Edge:\n");
+            printf("\tA: %f, %f\n", e->p1->pos.X, e->p1->pos.Y);
+            printf("\tB: %f, %f\n", e->p2->pos.X, e->p2->pos.Y);
+        }
+
         int cleanCount = 0;
         _skt_IntersectionEdge* edge = firstIntersectionEdge;
         while (cleanCount < edgeCount) {
             if (!edge->clean) {
                 bool anyIntersection = false;
-                for (_skt_IntersectionEdge* other = edge->next; other; other = other->next) {
-                    if (other->clean) {
+                for (_skt_IntersectionEdge* other = firstIntersectionEdge; other; other = other->next) {
+                    if (other->clean || other == edge) {
                         continue;
                     }
 
@@ -256,14 +266,14 @@ geo_Mesh skt_sketchTriangulate(const sk_Sketch* sketch, snz_Arena* arena, snz_Ar
                     }
 
                     _skt_Point* newPt = SNZ_ARENA_PUSH(scratch, _skt_Point);
+                    newPt->dbgIndex = (int)(uint64_t)newPt;
+                    newPt->pos = HMM_Lerp(edge->p1->pos, t, edge->p2->pos);
                     newPt->next = firstPoint;
                     firstPoint = newPt;
-                    newPt->pos = HMM_Lerp(edge->p1->pos, t, edge->p2->pos);
 
-                    // add to LL
+                    // create new edges
                     _skt_IntersectionEdge* newEdges = SNZ_ARENA_PUSH_ARR(scratch, 2, _skt_IntersectionEdge);
                     edgeCount += 2;
-
                     newEdges[0].next = firstIntersectionEdge;
                     newEdges[1].next = &newEdges[0];
                     firstIntersectionEdge = &newEdges[1];
@@ -295,36 +305,79 @@ geo_Mesh skt_sketchTriangulate(const sk_Sketch* sketch, snz_Arena* arena, snz_Ar
         }
     }
 
-    { // iteratively cull pts with one or none adj.
+    { // iteratively cull connections to pts with exactly one adj
+        // FIXME: time complexity of this is pretty bad
+        // profile to see if improving this via a edge 'neighbor changed flag' would be better on an avg sketch
+        while (true) {
+            bool anyCulled = false;
+            for (_skt_Point* p = firstPoint; p; p = p->next) {
+                int adjCount = 0;
+                _skt_IntersectionEdge* lastEdge = NULL;
+                for (_skt_IntersectionEdge* e = firstIntersectionEdge; e; e = e->next) {
+                    if (e->culled) {
+                        continue;
+                    } else if (e->p1 == p || e->p2 == p) {
+                        adjCount++;
+                        lastEdge = e;
+                    }
+                }
+
+                if (adjCount == 1) {
+                    anyCulled = true;
+                    lastEdge->culled = true;
+                }
+            }
+
+            if (!anyCulled) {
+                break;
+            }
+        }
     }
 
     { // adj. lists
-        for (_skt_Point* p = firstPoint; p; p = p->next) {
+        _skt_Point* newFirstPt = NULL;
+        _skt_Point* next = NULL;
+        for (_skt_Point* p = firstPoint; p; p = next) {
+            next = p->next;
+
             SNZ_ARENA_ARR_BEGIN(scratch, _skt_Edge);
             for (_skt_IntersectionEdge* e = firstIntersectionEdge; e; e = e->next) {
-                if (e->p1 != p && e->p2 != p) {
+                if (e->culled) {
                     continue;
                 }
+
+                int matchCount = (e->p1 == p) + (e->p2 == p);
+                if (matchCount == 0) {
+                    continue;
+                }
+                SNZ_ASSERT(matchCount == 1, "edge connecting to itself.");
                 *SNZ_ARENA_PUSH(scratch, _skt_Edge) = (_skt_Edge){
                     .other = ((e->p1 == p) ? e->p2 : e->p1),
                     .traversed = false,
                 };
             }
             p->edges = SNZ_ARENA_ARR_END(scratch, _skt_Edge);
-            SNZ_ASSERTF(p->edges.count >= 2, "point had only %lld adjacents.", p->edges.count);
+
+            if (p->edges.count == 0) {
+                continue;
+            }
+            SNZ_ASSERTF(p->edges.count >= 2, "Pt with only %lld adj.", p->edges.count);
+            p->next = newFirstPt;
+            newFirstPt = p;
         }
+
+        firstPoint = newFirstPt;
     } // end generating adj. lists
 
-    // { // dbg print adj lists in a readable way
-    //     for (int i = 0; i < points.count; i++) {
-    //         _skt_Point* p = &points.elems[i];
-    //         printf("Pt: %d\n", p->dbgIndex);
-    //         for (int j = 0; j < p->edges.count; j++) {
-    //             printf("\t%d\n", p->edges.elems[j].other->dbgIndex);
-    //         }
-    //     }
-    //     printf("\n");
-    // }
+    { // dbg print adj lists in a readable way
+        for (_skt_Point* p = firstPoint; p; p = p->next) {
+            printf("Pt: %d\n", p->dbgIndex);
+            for (int j = 0; j < p->edges.count; j++) {
+                printf("\t%d\n", p->edges.elems[j].other->dbgIndex);
+            }
+        }
+        printf("\n");
+    }
 
     _skt_Island* firstIsland = NULL;
     { // island marking / list gen
@@ -377,34 +430,30 @@ geo_Mesh skt_sketchTriangulate(const sk_Sketch* sketch, snz_Arena* arena, snz_Ar
         SNZ_ARENA_ARR_BEGIN(scratch, HMM_Vec2);
         *SNZ_ARENA_PUSH(scratch, HMM_Vec2) = currentPt->pos;
 
-        float angleSum = 0;
         while (currentPt != startPt) { // FIXME: emergency cutoff
             _skt_Edge* selected = NULL;
-            float maxAngle = -INFINITY;
+            float maxAngle = 0;
+            float maxAngleDiff = -INFINITY;
             for (int i = 0; i < currentPt->edges.count; i++) {
                 _skt_Edge* edge = &currentPt->edges.elems[i];
                 if (edge->other == prevPt) {
                     continue;
                 }
                 HMM_Vec2 diff = HMM_Sub(edge->other->pos, currentPt->pos);
-                float angle = atan2f(diff.Y, diff.X) - dir;
-                while (angle < 0) {
-                    angle += HMM_AngleDeg(360);
-                }
-                while (angle > 360) {
-                    angle -= HMM_AngleDeg(360);
-                }
+                float angle = atan2f(diff.Y, diff.X);
+                float angleDiff = geo_normalizeAngle(angle - dir);
 
                 // select the most CCW next point to go to
-                if (angle > maxAngle) {
+                if (angleDiff > maxAngleDiff) {
                     selected = edge;
+                    maxAngleDiff = angleDiff;
                     maxAngle = angle;
                 }
             }
-            angleSum += maxAngle;
             prevPt = currentPt;
             selected->traversed = true;
             currentPt = selected->other;
+            dir = maxAngle;
             *SNZ_ARENA_PUSH(scratch, HMM_Vec2) = currentPt->pos;
         } // end finding points for a loop
         HMM_Vec2Slice loopPoints = SNZ_ARENA_ARR_END(scratch, HMM_Vec2);
@@ -436,19 +485,19 @@ geo_Mesh skt_sketchTriangulate(const sk_Sketch* sketch, snz_Arena* arena, snz_Ar
     } // end loop loop
     // all of vert loop gen
 
-    // // Debug printing islands
-    // for (_skt_Island* island = firstIsland; island; island = island->next) {
-    //     printf("Island:\n");
-    //     printf("perimeter:\n");
-    //     _skt_vertLoopPrint(island->perimeterLoop);
-    //     int i = 0;
-    //     for (_skt_VertLoop* l = island->firstLoop; l; l = l->next) {
-    //         printf("%d:\n", i);
-    //         _skt_vertLoopPrint(l);
-    //         i++;
-    //     }
-    //     printf("\n");
-    // }
+    // Debug printing islands + vert loops
+    for (_skt_Island* island = firstIsland; island; island = island->next) {
+        printf("Island:\n");
+        printf("perimeter:\n");
+        _skt_vertLoopPrint(island->perimeterLoop);
+        int i = 0;
+        for (_skt_VertLoop* l = island->firstLoop; l; l = l->next) {
+            printf("%d:\n", i);
+            _skt_vertLoopPrint(l);
+            i++;
+        }
+        printf("\n");
+    }
 
     // // hole / seam gen // FIXME: make this work :)
     // for (_skt_Island* island = firstIsland; island; island = island->next) {
@@ -481,6 +530,9 @@ geo_Mesh skt_sketchTriangulate(const sk_Sketch* sketch, snz_Arena* arena, snz_Ar
     geo_MeshCornerSlice corners = { 0 };
     {
         for (_skt_IntersectionEdge* edge = firstIntersectionEdge; edge; edge = edge->next) {
+            if (edge->culled) {
+                continue;
+            }
             geo_MeshEdge* e = SNZ_ARENA_PUSH(arena, geo_MeshEdge);
             geo_MeshEdgeSegment* segment = SNZ_ARENA_PUSH(arena, geo_MeshEdgeSegment);
             segment->a.XY = edge->p1->pos;
@@ -522,33 +574,13 @@ geo_Mesh skt_sketchTriangulate(const sk_Sketch* sketch, snz_Arena* arena, snz_Ar
 // }
 
 void skt_tests() {
-    // snz_testPrintSection("sketch triangulation");
-    // snz_Arena a = snz_arenaInit(10000000, "skt test arena");
+    snz_testPrintSection("sketch triangulation");
 
-    // { // pt in vert loop
-
-    // }
-
-    // { // vert loop contains vert loop
-
-    // }
-
-    // { // triangulate vertloop
-    //     HMM_Vec2 pts[] = {
-    //         HMM_V2(0, 0),
-    //         HMM_V2(1, 1),
-    //         HMM_V2(2, 0),
-    //         HMM_V2(2, 2),
-    //         HMM_V2(0, 2),
-    //     };
-
-    //     _skt_VertLoop loop = (_skt_VertLoop){
-    //         .pts = (HMM_Vec2Slice) {
-    //             .elems = pts,
-    //             .count = sizeof(pts) / sizeof(*pts),
-    //         },
-    //     };
-    // } // end vert loop trianuglation tests
-
-    // snz_arenaDeinit(&a);
+    {
+        float t = 0;
+        _skt_lineLineIntersection(
+            HMM_V2(-1, 0), HMM_V2(1, 0),
+            HMM_V2(0, 1), HMM_V2(0, -1), &t);
+        snz_testPrint(geo_floatEqual(t, .5), "line/line 0");
+    }
 }

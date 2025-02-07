@@ -648,9 +648,9 @@ ren3d_Mesh geo_BSPTriListToRenderMesh(geo_BSPTriList list, snz_Arena* scratch) {
 // uses a meshes BSPTriList to regenerate the face tri arrays
 // assumes valid mesh->bspTris and and old but non-null mesh->faces data.
 void geo_BSPTriListToFaceTris(PoolAlloc* pool, geo_Mesh* mesh) {
-
     for (geo_MeshFace* f = mesh->firstFace; f; f = f->next) {
         f->tris = (geo_TriSlice){ 0 };
+        f->tris.elems = poolAllocAlloc(pool, 0);
     }
     for (geo_BSPTri* tri = mesh->bspTris.first; tri; tri = tri->next) {
         // REMOVE THIS PLEASE PLEASE PLEASE
