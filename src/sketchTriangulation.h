@@ -166,8 +166,19 @@ static geo_MeshFace* _skt_vertLoopToMeshFace(_skt_VertLoop* l, geo_BSPTriList* l
         HMM_Vec2 diffC = HMM_Sub(t.c.XY, t.a.XY);
         float angle = atan2f(diffC.Y, diffC.X) - atan2f(diffB.Y, diffB.X);
         // don't gap it if AC is more CW than AB (would cross a gap)
-        if (angle < 0) {
-            // FIXME: could cause an infinite loop, guard please
+        if (!geo_floatGreaterEqual(angle, 0)) {
+            continue;
+        }
+
+        // any zero area triangles we skip
+        angle = fmodf(angle, HMM_AngleDeg(180));
+        if (geo_floatEqual(angle, 0) || geo_floatEqual(angle, HMM_AngleDeg(180))) {
+            culledFlags[ptIndexes[1]] = true; // FIXME: I haven't thought thru whether this is actually correct, but fuck it
+            culledCount++;
+            continue;
+        } else if (geo_v3Equal(t.a, t.b) || geo_v3Equal(t.a, t.c)) {
+            culledFlags[ptIndexes[1]] = true; // FIXME: I haven't thought thru whether this is actually correct, but fuck it
+            culledCount++;
             continue;
         }
 
