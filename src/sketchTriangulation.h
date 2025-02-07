@@ -124,12 +124,12 @@ bool _skt_vertLoopContainsVertLoop(_skt_VertLoop* a, _skt_VertLoop* b) {
     return true;
 }
 
-static void _skt_vertLoopPrint(_skt_VertLoop* l) {
-    for (int i = 0; i < l->pts.count; i++) {
-        HMM_Vec2 p = l->pts.elems[i];
-        printf("\t%.2f, %.2f\n", p.X, p.Y);
-    }
-}
+// static void _skt_vertLoopPrint(_skt_VertLoop* l) {
+//     for (int i = 0; i < l->pts.count; i++) {
+//         HMM_Vec2 p = l->pts.elems[i];
+//         printf("\t%.2f, %.2f\n", p.X, p.Y);
+//     }
+// }
 
 static geo_MeshFace* _skt_vertLoopToMeshFace(_skt_VertLoop* l, geo_BSPTriList* list, snz_Arena* scratch, snz_Arena* out) {
     geo_MeshFace* f = SNZ_ARENA_PUSH(out, geo_MeshFace);
@@ -243,12 +243,12 @@ geo_Mesh skt_sketchTriangulate(const sk_Sketch* sketch, snz_Arena* arena, snz_Ar
             edgeCount++;
         }
 
-        printf("initial edges: \n");
-        for (_skt_IntersectionEdge* e = firstIntersectionEdge; e; e = e->next) {
-            printf("Edge:\n");
-            printf("\tA: %f, %f\n", e->p1->pos.X, e->p1->pos.Y);
-            printf("\tB: %f, %f\n", e->p2->pos.X, e->p2->pos.Y);
-        }
+        // printf("initial edges: \n");
+        // for (_skt_IntersectionEdge* e = firstIntersectionEdge; e; e = e->next) {
+        //     printf("Edge:\n");
+        //     printf("\tA: %f, %f\n", e->p1->pos.X, e->p1->pos.Y);
+        //     printf("\tB: %f, %f\n", e->p2->pos.X, e->p2->pos.Y);
+        // }
 
         int cleanCount = 0;
         _skt_IntersectionEdge* edge = firstIntersectionEdge;
@@ -369,15 +369,15 @@ geo_Mesh skt_sketchTriangulate(const sk_Sketch* sketch, snz_Arena* arena, snz_Ar
         firstPoint = newFirstPt;
     } // end generating adj. lists
 
-    { // dbg print adj lists in a readable way
-        for (_skt_Point* p = firstPoint; p; p = p->next) {
-            printf("Pt: %d\n", p->dbgIndex);
-            for (int j = 0; j < p->edges.count; j++) {
-                printf("\t%d\n", p->edges.elems[j].other->dbgIndex);
-            }
-        }
-        printf("\n");
-    }
+    // { // dbg print adj lists in a readable way
+    //     for (_skt_Point* p = firstPoint; p; p = p->next) {
+    //         printf("Pt: %d\n", p->dbgIndex);
+    //         for (int j = 0; j < p->edges.count; j++) {
+    //             printf("\t%d\n", p->edges.elems[j].other->dbgIndex);
+    //         }
+    //     }
+    //     printf("\n");
+    // }
 
     _skt_Island* firstIsland = NULL;
     { // island marking / list gen
@@ -485,19 +485,19 @@ geo_Mesh skt_sketchTriangulate(const sk_Sketch* sketch, snz_Arena* arena, snz_Ar
     } // end loop loop
     // all of vert loop gen
 
-    // Debug printing islands + vert loops
-    for (_skt_Island* island = firstIsland; island; island = island->next) {
-        printf("Island:\n");
-        printf("perimeter:\n");
-        _skt_vertLoopPrint(island->perimeterLoop);
-        int i = 0;
-        for (_skt_VertLoop* l = island->firstLoop; l; l = l->next) {
-            printf("%d:\n", i);
-            _skt_vertLoopPrint(l);
-            i++;
-        }
-        printf("\n");
-    }
+    // // Debug printing islands + vert loops
+    // for (_skt_Island* island = firstIsland; island; island = island->next) {
+    //     printf("Island:\n");
+    //     printf("perimeter:\n");
+    //     _skt_vertLoopPrint(island->perimeterLoop);
+    //     int i = 0;
+    //     for (_skt_VertLoop* l = island->firstLoop; l; l = l->next) {
+    //         printf("%d:\n", i);
+    //         _skt_vertLoopPrint(l);
+    //         i++;
+    //     }
+    //     printf("\n");
+    // }
 
     // // hole / seam gen // FIXME: make this work :)
     // for (_skt_Island* island = firstIsland; island; island = island->next) {
@@ -565,22 +565,18 @@ geo_Mesh skt_sketchTriangulate(const sk_Sketch* sketch, snz_Arena* arena, snz_Ar
     return out;
 }
 
-// static int _skt_countFacesInMesh(geo_Mesh* m) {
-//     int faceCount = 0;
-//     for (geo_MeshFace* f = m->firstFace; f; f = f->next) {
-//         faceCount++;
-//     }
-//     return faceCount;
-// }
-
 void skt_tests() {
     snz_testPrintSection("sketch triangulation");
 
     {
+        // FIXME: more tests for this
         float t = 0;
         _skt_lineLineIntersection(
             HMM_V2(-1, 0), HMM_V2(1, 0),
             HMM_V2(0, 1), HMM_V2(0, -1), &t);
         snz_testPrint(geo_floatEqual(t, .5), "line/line 0");
     }
+
+    // FIXME: more tests for triangulating a vertloop
+    // FIXME: many more tests + maybe a fuzzer for skt_sketchTriangulate
 }
