@@ -650,14 +650,9 @@ ren3d_Mesh geo_BSPTriListToRenderMesh(geo_BSPTriList list, snz_Arena* scratch) {
 void geo_BSPTriListToFaceTris(PoolAlloc* pool, geo_Mesh* mesh) {
     for (geo_MeshFace* f = mesh->firstFace; f; f = f->next) {
         f->tris = (geo_TriSlice){ 0 };
-        f->tris.elems = poolAllocAlloc(pool, 0);
     }
     for (geo_BSPTri* tri = mesh->bspTris.first; tri; tri = tri->next) {
-        // REMOVE THIS PLEASE PLEASE PLEASE
-        // FIXME: FIXME: FIXME: AHHH
-        if (!tri->sourceFace) {
-            continue;
-        }
+        SNZ_ASSERT(tri->sourceFace, "tri with a null source face.");
         geo_Tri* t = poolAllocPushArray(pool, tri->sourceFace->tris.elems, tri->sourceFace->tris.count, geo_Tri);
         *t = tri->tri;
     }

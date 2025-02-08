@@ -96,6 +96,7 @@ void* poolAllocAlloc(PoolAlloc* pool, int64_t size) {
 
     node->allocated = true;
     node->allocation = calloc(1, size + 1);
+    SNZ_ASSERT(node->allocation, "pool alloc alloc failed.");
     node->capacity = size;
     return node->allocation;
 }
@@ -123,19 +124,25 @@ void poolAllocFree(PoolAlloc* pool, void* alloc) {
 
 // count and arrayPtr should be int64_t and T* respectively, they are writen to as output, returns the addr of the new elt
 // pushes 1 elt to the array, count should be the counter for the length of the arr
+// array may be null, in which case a new one will be allocated
 #define poolAllocPushArray(poolPtr, arrayPtr, count, T) (_poolAllocPushArray((poolPtr), (void**)(&(arrayPtr)), &(count), sizeof(T)), &arrayPtr[count - 1])
 void _poolAllocPushArray(PoolAlloc* pool, void** array, int64_t* count, int64_t sizeOfElt) {
-    PoolAllocNode* node = _poolAllocFindAlloc(pool, *array);
-    SNZ_ASSERTF(node != NULL, "allocation to grow was not found. ptr: %p", *array);
-    SNZ_ASSERTF(node != NULL, "allocation node to grow was not allocated. ptr: %p", *array);
+    if (*array != NULL) {
+        PoolAllocNode* node = _poolAllocFindAlloc(pool, *array);
+        SNZ_ASSERTF(node != NULL, "allocation to grow was not found. ptr: %p", *array);
 
-    int64_t newSize = (*count * 2 + 1) * sizeOfElt;
-    node->capacity = newSize;
-    (*count)++;
+        int64_t newSize = (*count * 2 + 1) * sizeOfElt;
+        node->capacity = newSize;
+        (*count)++;
 
-    node->allocation = realloc(node->allocation, newSize);
-    SNZ_ASSERTF(node->allocation != NULL, "Realloc returned NULL. ptr: %d", *array);
-    *array = node->allocation;  // write to the output :) // FIXME: this shit very dangerous, typecheck at least
+        node->allocation = realloc(node->allocation, newSize);
+        SNZ_ASSERTF(node->allocation != NULL, "Realloc returned NULL. ptr: %d", *array);
+        *array = node->allocation;  // write to the output :) // FIXME: this shit very dangerous, typecheck at least
+    } else {
+        SNZ_ASSERT(*count == 0, "uninitialized arr with non-zero count.");
+        *array = poolAllocAlloc(pool, sizeOfElt);
+        *count = 1;
+    }
 }
 
 void _poolAllocTests() {
