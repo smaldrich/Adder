@@ -152,16 +152,16 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
     //     tl_timelinePushGeometry(&main_timeline, HMM_V2(400, 100), m);
     // }
 
-    {
-        PoolAlloc p = poolAllocInit();
-        geo_Mesh m = { 0 };
-        snz_arenaClear(scratch);
-        geo_stlFileToMesh("res/demos/bracket.stl", &main_meshArena, scratch, &p, &m);
-        // geo_stlFileToMesh("testing/intersection.stl", &main_meshArena, scratch, &p, &m);
-        poolAllocDeinit(&p);
+    // {
+    //     PoolAlloc p = poolAllocInit();
+    //     geo_Mesh m = { 0 };
+    //     snz_arenaClear(scratch);
+    //     geo_stlFileToMesh("res/demos/bracket.stl", &main_meshArena, scratch, &p, &m);
+    //     // geo_stlFileToMesh("testing/intersection.stl", &main_meshArena, scratch, &p, &m);
+    //     poolAllocDeinit(&p);
 
-        tl_timelinePushGeometry(&main_timeline, HMM_V2(0, -200), m);
-    }
+    //     tl_timelinePushGeometry(&main_timeline, HMM_V2(0, -200), m);
+    // }
 }
 
 // returns the normal of the ray starting at cameraPos

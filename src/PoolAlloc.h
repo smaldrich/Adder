@@ -38,10 +38,10 @@ typedef struct {
 // FIXME: this whole thing could be O(1) instead of o(n) if lookup metadata was stored at the allocation :)
 
 PoolAlloc poolAllocInit() {
-    PoolAlloc out;
-    memset(&out, 0, sizeof(out));
-    out.nodeCount = 16;
-    out.nodes = calloc(1, out.nodeCount * sizeof(*out.nodes));
+    PoolAlloc out = {
+        .nodeCount = 16,
+        .nodes = calloc(1, out.nodeCount * sizeof(*out.nodes)),
+    };
     return out;
 }
 
@@ -53,12 +53,22 @@ void poolAllocClear(PoolAlloc* pool) {
         }
         memset(node, 0, sizeof(*node));
     }
+    printf("pool cleared!\n");
 }
 
 void poolAllocDeinit(PoolAlloc* pool) {
     poolAllocClear(pool);
     free(pool->nodes);
     memset(pool, 0, sizeof(*pool));
+}
+
+// new and old size should be in bytes
+// asserts on failure
+static void* _poolAllocReallocZeroed(void* ptr, uint64_t oldSize, uint64_t newSize) {
+    void* outPtr = realloc(ptr, newSize);
+    memset((char*)outPtr + oldSize, 0, newSize - oldSize);
+    SNZ_ASSERTF(outPtr != NULL, "realloc failed. New size: %lld, old size: %lld", newSize, oldSize);
+    return outPtr;
 }
 
 static PoolAllocNode* _poolAllocFindAlloc(PoolAlloc* pool, void* alloc) {
@@ -86,10 +96,10 @@ void* poolAllocAlloc(PoolAlloc* pool, int64_t size) {
 
     if (node == NULL) {
         int64_t newCount = 2 * pool->nodeCount + 1;
-        pool->nodes = realloc(pool->nodes, newCount * sizeof(*pool->nodes));
-        if (pool->nodes == NULL) {
-            return NULL;
-        }
+        pool->nodes = _poolAllocReallocZeroed(
+            pool->nodes,
+            pool->nodeCount * sizeof(*pool->nodes),
+            newCount * sizeof(*pool->nodes));
         node = &pool->nodes[pool->nodeCount];
         pool->nodeCount = newCount;
     }
@@ -98,6 +108,13 @@ void* poolAllocAlloc(PoolAlloc* pool, int64_t size) {
     node->allocation = calloc(1, size + 1);
     SNZ_ASSERT(node->allocation, "pool alloc alloc failed.");
     node->capacity = size;
+
+    printf("NEW POOL ALLOCATION!!!\n");
+    for (int i = 0; i < pool->nodeCount; i++) {
+        PoolAllocNode* node = &pool->nodes[i];
+        printf("\tNode: allocated: %d, alloc: %p, size: %lld\n", node->allocated, node->allocation, node->capacity);
+    }
+
     return node->allocation;
 }
 
