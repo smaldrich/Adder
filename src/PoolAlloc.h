@@ -38,9 +38,10 @@ typedef struct {
 // FIXME: this whole thing could be O(1) instead of o(n) if lookup metadata was stored at the allocation :)
 
 PoolAlloc poolAllocInit() {
+    int nodeCount = 16;
     PoolAlloc out = {
-        .nodeCount = 16,
-        .nodes = calloc(1, out.nodeCount * sizeof(*out.nodes)),
+        .nodeCount = nodeCount,
+        .nodes = calloc(1, nodeCount * sizeof(*out.nodes)),
     };
     return out;
 }
