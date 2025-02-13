@@ -110,11 +110,11 @@ void* poolAllocAlloc(PoolAlloc* pool, int64_t size) {
     SNZ_ASSERT(node->allocation, "pool alloc alloc failed.");
     node->capacity = size;
 
-    printf("NEW POOL ALLOCATION!!!\n");
-    for (int i = 0; i < pool->nodeCount; i++) {
-        PoolAllocNode* node = &pool->nodes[i];
-        printf("\tNode: allocated: %d, alloc: %p, size: %lld\n", node->allocated, node->allocation, node->capacity);
-    }
+    // printf("NEW POOL ALLOCATION!!!\n");
+    // for (int i = 0; i < pool->nodeCount; i++) {
+    //     PoolAllocNode* node = &pool->nodes[i];
+    //     printf("\tNode: allocated: %d, alloc: %p, size: %lld\n", node->allocated, node->allocation, node->capacity);
+    // }
 
     return node->allocation;
 }
