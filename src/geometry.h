@@ -103,6 +103,14 @@ bool geo_floatEqual(float a, float b) {
     return geo_floatZero(a - b);
 }
 
+bool geo_floatGreater(float a, float b) {
+    return !geo_floatEqual(a, b) && a > b;
+}
+
+bool geo_floatLess(float a, float b) {
+    return !geo_floatEqual(a, b) && a < b;
+}
+
 bool geo_floatLessEqual(float a, float b) {
     return geo_floatEqual(a, b) || a < b;
 }
@@ -640,16 +648,11 @@ ren3d_Mesh geo_BSPTriListToRenderMesh(geo_BSPTriList list, snz_Arena* scratch) {
 // uses a meshes BSPTriList to regenerate the face tri arrays
 // assumes valid mesh->bspTris and and old but non-null mesh->faces data.
 void geo_BSPTriListToFaceTris(PoolAlloc* pool, geo_Mesh* mesh) {
-
     for (geo_MeshFace* f = mesh->firstFace; f; f = f->next) {
         f->tris = (geo_TriSlice){ 0 };
     }
     for (geo_BSPTri* tri = mesh->bspTris.first; tri; tri = tri->next) {
-        // REMOVE THIS PLEASE PLEASE PLEASE
-        // FIXME: FIXME: FIXME: AHHH
-        if (!tri->sourceFace) {
-            continue;
-        }
+        SNZ_ASSERT(tri->sourceFace, "tri with a null source face.");
         geo_Tri* t = poolAllocPushArray(pool, tri->sourceFace->tris.elems, tri->sourceFace->tris.count, geo_Tri);
         *t = tri->tri;
     }

@@ -380,6 +380,7 @@ bool scc_sceneLookAt(_sc_CommandArgs args) {
     if (selectedFace) {
         SNZ_ASSERT(selectedFace->tris.count > 0, "face with no tris??");
         HMM_Vec3 newNorm = geo_triNormal(selectedFace->tris.elems[0]); // FIXME: what about curved faces??
+        SNZ_ASSERT(isfinite(newNorm.X), "invalid (likely zero area) tri.");
 
         // adjust so that vertical is 90 off the new normal
         HMM_Vec3 newVert = origin->vertical;
