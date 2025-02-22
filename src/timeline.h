@@ -40,15 +40,9 @@ tl_Scene tl_sceneInit() {
     return out;
 }
 
-typedef enum {
-    TL_OPS_INVALIDATED,
-    TL_OPS_SOLVED,
-    TL_OPS_MARKED_FOR_DELETE,
-} tl_OpStatus;
-
 struct tl_Op {
     tl_Op* next;
-    tl_OpStatus status;
+    bool markedForDeletion;
 
     struct {
         HMM_Vec2 pos;
@@ -66,12 +60,15 @@ struct tl_Op {
     tl_Scene scene;
 };
 
+SNZ_SLICE_NAMED(tl_Op*, tl_OpPtrSlice);
+
 typedef struct {
     tl_Op* firstOp;
     tl_Op* activeOp;
     HMM_Vec2 camPos;
     float camHeight;
     snz_Arena* operationArena;
+
     snz_Arena* generatedArena;
     PoolAlloc* generatedPool;
 } tl_Timeline;
@@ -130,84 +127,76 @@ static bool tl_timelineAnySelected(tl_Timeline* tl) {
     return false;
 }
 
-void tl_solve(tl_Timeline* t, snz_Arena* scratch) {
-    while (true) { // FIXME: emergency cutoff
-        bool anyChanged = false;
-        for (tl_Op* op = t->firstOp; op; op = op->next) {
-            if (op->status == TL_OPS_MARKED_FOR_DELETE) {
-                continue;
-            }
-
-            tl_Op* dep = op->dependencies[0];
-            if (dep) {
-                if (dep->status == TL_OPS_MARKED_FOR_DELETE) {
-                    op->dependencies[0] = NULL;
-                } else if (dep->status == TL_OPS_INVALIDATED) {
-                    op->status = TL_OPS_INVALIDATED;
-                }
-                anyChanged = true;
-            } // end dep check
-        }
-
-        if (anyChanged) {
-            break;
-        }
-    }
-
+void tl_solveForNode(tl_Timeline* t, tl_Op* targetOp, snz_Arena* scratch) {
     { // cull elts marked for delete
         tl_Op* newFirst = NULL;
         tl_Op* next = NULL;
         for (tl_Op* op = t->firstOp; op; op = next) {
             next = op->next;
-            if (op->status == TL_OPS_MARKED_FOR_DELETE) {
+            if (op->markedForDeletion) {
                 continue;
             }
             op->next = newFirst;
             newFirst = op;
         }
         t->firstOp = newFirst;
+        // FIXME: free list for these
     }
 
-    // collect render meshes
-    for (tl_Op* op = t->firstOp; op; op = op->next) {
-        if (op->status != TL_OPS_INVALIDATED) {
-            continue;
-        }
-
-        if (op->scene.mesh) {
-            ren3d_meshDeinit(&op->scene.mesh->renderMesh);
-        }
-        op->scene.mesh = NULL;
-    }
-
-    // FIXME: free arenas and pools with generated data
-
-    // resolve
-    while (true) { // FIXME: emergency cutoff
-        bool anySolved = false;
+    SNZ_ARENA_ARR_BEGIN(scratch, tl_Op*);
+    *SNZ_ARENA_PUSH(scratch, tl_Op*) = targetOp;
+    while (true) { // FIXME: cutoff
+        bool anyAdded = false;
         for (tl_Op* op = t->firstOp; op; op = op->next) {
-            SNZ_ASSERT(op->status != TL_OPS_MARKED_FOR_DELETE, "tl op marked for delete made it to the solving stage");
-            if (!op->status != TL_OPS_INVALIDATED) {
-                continue;
-            } else if (op->dependencies[0] && op->dependencies[0]->status != TL_OPS_SOLVED) {
-                continue;
+            tl_OpPtrSlice added = (tl_OpPtrSlice){
+                .count = scratch->arrModeElemCount,
+                .elems = (tl_Op**)(scratch->end) - scratch->arrModeElemCount,
+            };
+
+            bool addToList = false;
+            for (int i = 0; i < added.count; i++) {
+                tl_Op* other = added.elems[i];
+                if (op == other) {
+                    addToList = false;
+                    break;
+                } else if (other == op->dependencies[0]) {
+                    addToList = true;
+                }
             }
-
-            if (op->kind == TL_OPK_SKETCH) {
-                sk_sketchSolve(&op->val.sketch.sketch);
-                op->status = TL_OPS_SOLVED;
-            } else if (op->kind == TL_OPK_SKETCH_GEOMETRY) {
-                tl_Op* other = op->val.sketchGeometry.sketch;
-                SNZ_ASSERTF(other->kind == TL_OPK_SKETCH, "dependent op wasn't expected kind. Was: %d, expected %d.", other->kind, TL_OPK_SKETCH);
-                SNZ_ASSERT(op->val.sketchGeometry.sketch, "dependent was null.");
-
-                geo_Mesh* m = SNZ_ARENA_PUSH(t->generatedArena, geo_Mesh);
-                *m = skt_sketchTriangulate(&other->val.sketch.sketch, t->generatedArena, scratch);
-                m->renderMesh = geo_BSPTriListToRenderMesh(m->bspTris, scratch);
-                geo_BSPTriListToFaceTris(t->generatedPool, m);
-                other->scene.mesh = m;
-                op->status = TL_OPS_SOLVED;
+            if (addToList) {
+                *SNZ_ARENA_PUSH(scratch, tl_Op*) = op;
+                anyAdded = true;
             }
         }
-    } // end loop to iteratvely solve
+
+        if (!anyAdded) {
+            break;
+        }
+    }
+    tl_OpPtrSlice dependencies = SNZ_ARENA_ARR_END_NAMED(scratch, tl_Op*, tl_OpPtrSlice);
+
+    snz_arenaClear(t->generatedArena);
+    poolAllocClear(t->generatedPool);
+
+    for (int i = dependencies.count - 1; i >= 0; i--) {
+        tl_Op* op = dependencies.elems[i];
+        SNZ_ASSERT(!op->markedForDeletion, "tl op marked for delete made it to the solving stage");
+
+        if (op->kind == TL_OPK_SKETCH) {
+            sk_sketchSolve(&op->val.sketch.sketch);
+        } else if (op->kind == TL_OPK_SKETCH_GEOMETRY) {
+            tl_Op* other = op->dependencies[0];
+            SNZ_ASSERTF(other->kind == TL_OPK_SKETCH, "dependent op wasn't expected kind. Was: %d, expected %d.", other->kind, TL_OPK_SKETCH);
+
+            geo_Mesh* m = SNZ_ARENA_PUSH(t->generatedArena, geo_Mesh);
+            *m = skt_sketchTriangulate(&other->val.sketch.sketch, t->generatedArena, scratch);
+            if (m->renderMesh.vaId) { // FIXME: get a decent check for null rendermeshes
+                // FIXME: probably shouldnt store one of these per scene if solves only happen for one op
+                ren3d_meshDeinit(&op->scene.mesh->renderMesh);
+            }
+            m->renderMesh = geo_BSPTriListToRenderMesh(m->bspTris, scratch);
+            geo_BSPTriListToFaceTris(t->generatedPool, m);
+            other->scene.mesh = m;
+        }
+    } // end loop solving
 }

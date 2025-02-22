@@ -291,7 +291,7 @@ bool scc_timelineAddGeometry(_sc_CommandArgs args) {
 
 bool scc_timelineAddSketch(_sc_CommandArgs args) {
     *args.currentView = SC_VIEW_TIMELINE;
-    snz_Arena* arena = SNZ_ARENA_PUSH(args.timeline->arena, snz_Arena); // FIXME: this is a memory leak without a good solution :(
+    snz_Arena* arena = SNZ_ARENA_PUSH(args.timeline->operationArena, snz_Arena); // FIXME: freelist
     *arena = snz_arenaInit(1000000, "sketch arena");
     tl_Op* newOp = tl_timelinePushSketch(args.timeline, HMM_V2(0, 0), sk_sketchInit(arena));
     // FIXME: should be on the mouse, isn't // enter move mode?

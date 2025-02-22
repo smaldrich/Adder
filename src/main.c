@@ -58,7 +58,7 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
 
     main_sceneFB = snzr_frameBufferInit(snzr_textureInitRBGA(500, 500, NULL));
 
-    main_timeline = tl_timelineInit(&main_tlArena);
+    main_timeline = tl_timelineInit(&main_tlArena, );
     {
         geo_BSPTriList* bspTris = NULL;
         geo_MeshFace* faces = NULL;
