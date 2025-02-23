@@ -1391,6 +1391,17 @@ bool geo_stlFileToMesh(const char* path, snz_Arena* arena, snz_Arena* scratch, P
         fclose(f);
     }
 
+    HMM_Vec3 center = HMM_V3(0, 0, 0);
+    int ptCount = 0;
+    for (geo_BSPTri* t = tris.first; t; t = t->next) {
+        center = HMM_Add(center, t->tri.a);
+        center = HMM_Add(center, t->tri.b);
+        center = HMM_Add(center, t->tri.c);
+        ptCount += 3;
+    }
+    center = HMM_DivV3F(center, -ptCount);
+    geo_BSPTriListTransform(&tris, HMM_Translate(center));
+
     *outMesh = (geo_Mesh){
         .bspTris = tris,
         .firstFace = _geo_groupBSPTriListToFaces(tris, pool, arena),
