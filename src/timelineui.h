@@ -170,6 +170,8 @@ void tl_build(tl_Timeline* timeline, snz_Arena* scratch, HMM_Vec2 panelSize, HMM
             } else if (op->kind == TL_OPK_BASE_GEOMETRY) {
                 // FIXME: put a render here
                 labelStr = "geometry";
+            } else if (op->kind == TL_OPK_SKETCH_GEOMETRY) {
+                labelStr = "sketch geo";
             } else {
                 SNZ_ASSERTF(false, "unreachable. kind: %d", op->kind);
             }

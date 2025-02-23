@@ -7,6 +7,7 @@
 #include "ui.h"
 
 typedef enum {
+    TL_OPK_NONE,
     TL_OPK_SKETCH,
     TL_OPK_BASE_GEOMETRY,
     TL_OPK_SKETCH_GEOMETRY,
@@ -112,6 +113,23 @@ tl_Op* tl_timelinePushBaseGeometry(tl_Timeline* tl, HMM_Vec2 pos, geo_Mesh mesh)
     return out;
 }
 
+tl_Op* tl_timelinePushSketchGeometry(tl_Timeline* tl, HMM_Vec2 pos, tl_Op* sketch) {
+    SNZ_ASSERTF(sketch->kind == TL_OPK_SKETCH, "tried to add sketch geo for op with kind %d.", sketch->kind);
+
+    tl_Op* out = SNZ_ARENA_PUSH(tl->operationArena, tl_Op);
+    *out = (tl_Op){
+        .kind = TL_OPK_SKETCH_GEOMETRY,
+        .dependencies[0] = sketch,
+        .next = tl->firstOp,
+        .ui.pos = pos,
+        .scene = tl_sceneInit(),
+    };
+    out->scene.mesh = &out->val.baseGeometry.mesh;
+
+    tl->firstOp = out;
+    return out;
+}
+
 void tl_timelineDeselectAll(tl_Timeline* tl) {
     for (tl_Op* op = tl->firstOp; op; op = op->next) {
         op->ui.sel.selected = false;
@@ -128,12 +146,23 @@ static bool tl_timelineAnySelected(tl_Timeline* tl) {
 }
 
 void tl_solveForNode(tl_Timeline* t, tl_Op* targetOp, snz_Arena* scratch) {
+    { // cull dependencies to deleted ops
+        for (tl_Op* op = t->firstOp; op; op = op->next) {
+            if (!op->dependencies[0]) {
+                continue;
+            } else if (op->dependencies[0]->markedForDeletion) {
+                op->dependencies[0] = NULL;
+            }
+        }
+    }
+
     { // cull elts marked for delete
         tl_Op* newFirst = NULL;
         tl_Op* next = NULL;
         for (tl_Op* op = t->firstOp; op; op = next) {
             next = op->next;
             if (op->markedForDeletion) {
+                memset(op, 0, sizeof(*op));
                 continue;
             }
             op->next = newFirst;
@@ -143,30 +172,36 @@ void tl_solveForNode(tl_Timeline* t, tl_Op* targetOp, snz_Arena* scratch) {
         // FIXME: free list for these
     }
 
+    if (!targetOp) {
+        return;
+    }
+
     SNZ_ARENA_ARR_BEGIN(scratch, tl_Op*);
     *SNZ_ARENA_PUSH(scratch, tl_Op*) = targetOp;
     while (true) { // FIXME: cutoff
         bool anyAdded = false;
-        for (tl_Op* op = t->firstOp; op; op = op->next) {
-            tl_OpPtrSlice added = (tl_OpPtrSlice){
-                .count = scratch->arrModeElemCount,
-                .elems = (tl_Op**)(scratch->end) - scratch->arrModeElemCount,
-            };
+        tl_OpPtrSlice added = (tl_OpPtrSlice){
+            .count = scratch->arrModeElemCount,
+            .elems = (tl_Op**)(scratch->end) - scratch->arrModeElemCount,
+        };
 
-            bool addToList = false;
-            for (int i = 0; i < added.count; i++) {
-                tl_Op* other = added.elems[i];
-                if (op == other) {
-                    addToList = false;
-                    break;
-                } else if (other == op->dependencies[0]) {
-                    addToList = true;
+        for (int i = 0; i < added.count; i++) {
+            tl_Op* new = added.elems[i];
+            if (!new->dependencies[0]) {
+                continue;
+            }
+            bool inAdded = false;
+            for (int j = 0; j < added.count; j++) {
+                if (added.elems[j] == new) {
+                    inAdded = true;
                 }
             }
-            if (addToList) {
-                *SNZ_ARENA_PUSH(scratch, tl_Op*) = op;
-                anyAdded = true;
+            if (inAdded) {
+                continue;
             }
+
+            *SNZ_ARENA_PUSH(scratch, tl_Op*) = new;
+            anyAdded = true;
         }
 
         if (!anyAdded) {
@@ -197,6 +232,7 @@ void tl_solveForNode(tl_Timeline* t, tl_Op* targetOp, snz_Arena* scratch) {
             m->renderMesh = geo_BSPTriListToRenderMesh(m->bspTris, scratch);
             geo_BSPTriListToFaceTris(t->generatedPool, m);
             other->scene.mesh = m;
+            op->scene.mesh = m;
         }
     } // end loop solving
 }

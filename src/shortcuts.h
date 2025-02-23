@@ -315,7 +315,10 @@ bool scc_timelineMarkActive(_sc_CommandArgs args) {
 
     if (selected != NULL) {
         args.timeline->activeOp = selected;
+        *args.currentView = SC_VIEW_SCENE;
+        tl_solveForNode(args.timeline, args.timeline->activeOp, args.scratch);
     }
+
     return true;
 }
 

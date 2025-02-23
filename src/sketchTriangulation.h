@@ -140,7 +140,13 @@ static geo_MeshFace* _skt_vertLoopToMeshFace(_skt_VertLoop* l, geo_BSPTriList* l
     bool* culledFlags = SNZ_ARENA_PUSH_ARR(scratch, l->pts.count, bool);
     int culledCount = 0;
 
-    for (int startIdx = 0; true; startIdx++) {
+    int iterationsSinceTriWasAdded = 0;
+    for (int startIdx = 0; true; (startIdx++, iterationsSinceTriWasAdded++)) {
+        if (iterationsSinceTriWasAdded > l->pts.count) {
+            // FIXME: this is too loose technically for infinite loop cases, but I don't know why they are happening so this is just gonna be a failsafe when they do
+            break;
+        }
+
         startIdx %= l->pts.count;
 
         if (culledCount >= l->pts.count - 2) {
@@ -193,6 +199,7 @@ static geo_MeshFace* _skt_vertLoopToMeshFace(_skt_VertLoop* l, geo_BSPTriList* l
         geo_BSPTriListPushNew(out, list, t.a, t.b, t.c, f);
         culledFlags[ptIndexes[1]] = true;
         culledCount++;
+        iterationsSinceTriWasAdded = 0;
     }
     return f;
 }

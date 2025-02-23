@@ -54,7 +54,6 @@ void poolAllocClear(PoolAlloc* pool) {
         }
         memset(node, 0, sizeof(*node));
     }
-    printf("pool cleared!\n");
 }
 
 void poolAllocDeinit(PoolAlloc* pool) {

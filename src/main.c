@@ -16,10 +16,13 @@
 #include "ui.h"
 
 snz_Arena main_fontArena;
-snz_Arena main_meshArena;
-snz_Arena main_tlArena;
+snz_Arena main_baseMeshArena;
+PoolAlloc main_baseMeshPool;
 snz_Arena main_sketchArena;
-PoolAlloc main_pool;
+
+snz_Arena main_tlArena;
+PoolAlloc main_tlGeneratedPool;
+snz_Arena main_tlGeneratedArena;
 
 snzu_Instance main_uiInstance;
 snzu_Instance main_sceneUIInstance;
@@ -40,43 +43,47 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
 
     main_fontArena = snz_arenaInit(10000000, "main font arena");
     main_sketchArena = snz_arenaInit(10000000, "main sketch arena");
-    main_meshArena = snz_arenaInit(1000000000, "main mesh arena");
+    main_baseMeshArena = snz_arenaInit(1000000000, "main base mesh arena");
+    main_baseMeshPool = poolAllocInit();
+
     main_tlArena = snz_arenaInit(10000000, "main tl arena");
-    main_pool = poolAllocInit();
+    main_tlGeneratedArena = snz_arenaInit(1000000000, "main tl gen arena");
+    main_tlGeneratedPool = poolAllocInit();
+
     main_uiInstance = snzu_instanceInit();
     snzu_instanceSelect(&main_uiInstance);
     main_sceneUIInstance = snzu_instanceInit();
     main_settings = set_settingsDefault();
 
     sound_init();
-    ui_init(&main_fontArena, scratch);
+    ui_init(&main_fontArena, scratch); // tex loads happen here
     ren3d_init(scratch);
     docs_init();
-    sc_init(&main_pool);
+    sc_init(&main_baseMeshPool);
 
     snz_arenaClear(scratch);
 
     main_sceneFB = snzr_frameBufferInit(snzr_textureInitRBGA(500, 500, NULL));
 
-    main_timeline = tl_timelineInit(&main_tlArena, );
+    main_timeline = tl_timelineInit(&main_tlArena, &main_tlGeneratedArena, &main_tlGeneratedPool);
     {
         geo_BSPTriList* bspTris = NULL;
         geo_MeshFace* faces = NULL;
-        geo_Mesh cubeA = geo_cube(&main_meshArena);
+        geo_Mesh cubeA = geo_cube(&main_baseMeshArena);
         // bspTris = &cubeA.bspTris;
         // faces = cubeA.firstFace;
         {
-            geo_Mesh cubeB = geo_cube(&main_meshArena);
+            geo_Mesh cubeB = geo_cube(&main_baseMeshArena);
             geo_BSPTriListTransform(&cubeB.bspTris, HMM_Rotate_RH(HMM_AngleDeg(30), HMM_V3(1, 1, 1)));
             geo_BSPTriListTransform(&cubeB.bspTris, HMM_Translate(HMM_V3(1, 1, 1)));
 
-            geo_BSPNode* treeA = geo_BSPTriListToBSP(&cubeA.bspTris, &main_meshArena);
-            geo_BSPNode* treeB = geo_BSPTriListToBSP(&cubeB.bspTris, &main_meshArena);
+            geo_BSPNode* treeA = geo_BSPTriListToBSP(&cubeA.bspTris, &main_baseMeshArena);
+            geo_BSPNode* treeB = geo_BSPTriListToBSP(&cubeB.bspTris, &main_baseMeshArena);
 
-            geo_BSPTriList* aClipped = geo_BSPTriListClip(true, &cubeA.bspTris, treeB, &main_meshArena);
-            geo_BSPTriList* bClipped = geo_BSPTriListClip(true, &cubeB.bspTris, treeA, &main_meshArena);
+            geo_BSPTriList* aClipped = geo_BSPTriListClip(true, &cubeA.bspTris, treeB, &main_baseMeshArena);
+            geo_BSPTriList* bClipped = geo_BSPTriListClip(true, &cubeB.bspTris, treeA, &main_baseMeshArena);
             bspTris = geo_BSPTriListJoin(aClipped, bClipped);
-            geo_BSPTriListRecoverNonBroken(&bspTris, &main_meshArena);
+            geo_BSPTriListRecoverNonBroken(&bspTris, &main_baseMeshArena);
 
             geo_MeshFace* bCubeLastFace = cubeB.firstFace;
             for (; bCubeLastFace->next; bCubeLastFace = bCubeLastFace->next) {
@@ -91,9 +98,9 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
             .firstFace = faces,
             .renderMesh = geo_BSPTriListToRenderMesh(*bspTris, scratch),
         };
-        geo_BSPTriListToFaceTris(&main_pool, &mesh);
-        geo_meshGenerateEdges(&mesh, &main_meshArena, scratch);
-        geo_meshGenerateCorners(&mesh, &main_meshArena, scratch);
+        geo_BSPTriListToFaceTris(&main_baseMeshPool, &mesh);
+        geo_meshGenerateEdges(&mesh, &main_baseMeshArena, scratch);
+        geo_meshGenerateCorners(&mesh, &main_baseMeshArena, scratch);
 
         tl_timelinePushBaseGeometry(&main_timeline, HMM_V2(-200, 0), mesh);
     }  // end mesh for testing
@@ -123,12 +130,8 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
         // sk_sketchAddLine(&sketch, rightRightDown, right);
         // sk_sketchAddLine(&sketch, rightRightUp, rightUpper);
         // sk_sketchAddLine(&sketch, rightRightUp, rightRightDown);
-        tl_timelinePushSketch(&main_timeline, HMM_V2(400, 0), sketch);
-
-        geo_Mesh m = skt_sketchTriangulate(&sketch, &main_meshArena, scratch);
-        geo_BSPTriListToFaceTris(&main_pool, &m);
-        m.renderMesh = geo_BSPTriListToRenderMesh(m.bspTris, scratch);
-        tl_timelinePushBaseGeometry(&main_timeline, HMM_V2(400, 100), m);
+        tl_Op* sketchOp = tl_timelinePushSketch(&main_timeline, HMM_V2(400, 0), sketch);
+        tl_timelinePushSketchGeometry(&main_timeline, HMM_V2(400, 100), sketchOp);
     }
 
     // {
@@ -147,21 +150,19 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
     //     tl_timelinePushSketch(&main_timeline, HMM_V2(400, 0), sketch);
 
     //     geo_Mesh m = skt_sketchTriangulate(&sketch, &main_meshArena, scratch);
-    //     geo_BSPTriListToFaceTris(&main_pool, &m);
+    //     geo_BSPTriListToFaceTris(&main_baseMeshPool, &m);
     //     m.renderMesh = geo_BSPTriListToRenderMesh(m.bspTris, scratch);
     //     tl_timelinePushGeometry(&main_timeline, HMM_V2(400, 100), m);
     // }
 
-    // {
-    //     PoolAlloc p = poolAllocInit();
-    //     geo_Mesh m = { 0 };
-    //     snz_arenaClear(scratch);
-    //     geo_stlFileToMesh("res/demos/bracket.stl", &main_meshArena, scratch, &p, &m);
-    //     // geo_stlFileToMesh("testing/intersection.stl", &main_meshArena, scratch, &p, &m);
-    //     poolAllocDeinit(&p);
+    {
+        geo_Mesh m = { 0 };
+        snz_arenaClear(scratch);
+        geo_stlFileToMesh("res/demos/bracket.stl", &main_baseMeshArena, scratch, &main_baseMeshPool, &m);
+        // geo_stlFileToMesh("testing/intersection.stl", &main_meshArena, scratch, &p, &m);
 
-    //     tl_timelinePushBaseGeometry(&main_timeline, HMM_V2(0, -200), m);
-    // }
+        tl_timelinePushBaseGeometry(&main_timeline, HMM_V2(0, -200), m);
+    }
 }
 
 // returns the normal of the ray starting at cameraPos
@@ -335,8 +336,6 @@ float main_getSmoothedSound() {
 void main_frame(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screenSize) {
     snzu_instanceSelect(&main_uiInstance);
     snzu_frameStart(scratch, screenSize, dt);
-
-    tl_timelineClearOpsMarkedForDelete(&main_timeline);
 
     if (main_timeline.activeOp) {
         tl_Op* op = main_timeline.activeOp;
@@ -560,6 +559,6 @@ void main_frame(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screen
 int main() {
     snz_main("ADDER V0.0", "res/textures/icon.bmp", main_init, main_frame);
     sound_deinit();
-    poolAllocDeinit(&main_pool);
+    poolAllocDeinit(&main_baseMeshPool);
     return 0;
 }
