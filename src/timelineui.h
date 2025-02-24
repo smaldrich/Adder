@@ -185,24 +185,30 @@ void tl_build(tl_Timeline* timeline, snz_Arena* scratch, HMM_Vec2 panelSize, HMM
             snzu_boxSetCornerRadius(radius);
             snzu_boxSetStart(HMM_Sub(op->ui.pos, HMM_V2(radius, radius)));
             snzu_boxSetEnd(HMM_Add(op->ui.pos, HMM_V2(radius, radius)));
-            snzu_boxSetBorder(ui_borderThickness, textColor);
             snzu_boxSetColor(ui_colorTransparentPanel);
-            if (op->dependencies[0]) {
-                HMM_Vec4 pts[2] = { 0 };
-                pts[0].XY = op->ui.pos;
-                pts[1].XY = op->dependencies[0]->ui.pos;
 
-                { // instead of clipping the line like this, use alpha magic to clip it GPU side
-                    HMM_Vec4 diff = HMM_Norm(HMM_Sub(pts[1], pts[0]));
-                    diff = HMM_MulV4F(diff, radius);
-                    pts[0] = HMM_Add(pts[0], diff);
+            snzu_boxSetBorder(ui_borderThickness, textColor);
 
-                    diff = HMM_Norm(HMM_Sub(pts[0], pts[1]));
-                    diff = HMM_MulV4F(diff, _tl_radiusOfNode(op->dependencies[0], sound));
-                    pts[1] = HMM_Add(pts[1], diff);
+            // dep lines
+            if (op->expectedDependencies[0]) {
+                if (!op->dependencies[0]) {
+                    snzu_boxSetBorder(ui_borderThickness, ui_colorErr);
+                } else {
+                    HMM_Vec4 pts[2] = { 0 };
+                    pts[0].XY = op->ui.pos;
+                    pts[1].XY = op->dependencies[0]->ui.pos;
+
+                    { // instead of clipping the line like this, use alpha magic to clip it GPU side
+                        HMM_Vec4 diff = HMM_Norm(HMM_Sub(pts[1], pts[0]));
+                        diff = HMM_MulV4F(diff, radius);
+                        pts[0] = HMM_Add(pts[0], diff);
+
+                        diff = HMM_Norm(HMM_Sub(pts[0], pts[1]));
+                        diff = HMM_MulV4F(diff, _tl_radiusOfNode(op->dependencies[0], sound));
+                        pts[1] = HMM_Add(pts[1], diff);
+                    }
+                    snzr_drawLine(pts, 2, ui_colorText, ui_borderThickness, vp);
                 }
-
-                snzr_drawLine(pts, 2, ui_colorText, ui_borderThickness, vp);
             }
 
             if (op == timeline->activeOp) {

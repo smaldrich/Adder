@@ -344,7 +344,9 @@ void main_frame(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screen
             sk_sketchClearElementsMarkedForDelete(sketch);
             sk_sketchSolve(sketch);
         }
-    } // FIXME: timeline solve/ui update fn (i have no idea where clear elts should go lol)
+    }
+
+    tl_timelineCullOpsMarkedForDelete(&main_timeline);
 
     if (main_settings.darkMode) {
         ui_setThemeDark();

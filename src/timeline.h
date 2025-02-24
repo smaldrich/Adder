@@ -57,6 +57,7 @@ struct tl_Op {
         tl_OpBaseGeometry baseGeometry;
     } val;
     tl_Op* dependencies[1];
+    bool expectedDependencies[1];
 
     tl_Scene scene;
 };
@@ -120,6 +121,7 @@ tl_Op* tl_timelinePushSketchGeometry(tl_Timeline* tl, HMM_Vec2 pos, tl_Op* sketc
     *out = (tl_Op){
         .kind = TL_OPK_SKETCH_GEOMETRY,
         .dependencies[0] = sketch,
+        .expectedDependencies[0] = true,
         .next = tl->firstOp,
         .ui.pos = pos,
         .scene = tl_sceneInit(),
@@ -145,33 +147,36 @@ static bool tl_timelineAnySelected(tl_Timeline* tl) {
     return false;
 }
 
+void tl_timelineCullOpsMarkedForDelete(tl_Timeline* t) {
+    // cull dependencies to deleted ops
+    for (tl_Op* op = t->firstOp; op; op = op->next) {
+        if (!op->dependencies[0]) {
+            continue;
+        } else if (op->dependencies[0]->markedForDeletion) {
+            op->dependencies[0] = NULL;
+        }
+    }
+
+    // cull elts marked for delete
+    tl_Op* next = NULL;
+    tl_Op* prev = NULL;
+    for (tl_Op* op = t->firstOp; op; op = next) {
+        next = op->next;
+        if (op->markedForDeletion) {
+            if (prev) {
+                prev->next = op->next;
+            } else {
+                t->firstOp = op->next;
+            }
+            memset(op, 0, sizeof(*op));
+            continue;
+        }
+        prev = op;
+    }
+    // FIXME: free list
+}
+
 void tl_solveForNode(tl_Timeline* t, tl_Op* targetOp, snz_Arena* scratch) {
-    { // cull dependencies to deleted ops
-        for (tl_Op* op = t->firstOp; op; op = op->next) {
-            if (!op->dependencies[0]) {
-                continue;
-            } else if (op->dependencies[0]->markedForDeletion) {
-                op->dependencies[0] = NULL;
-            }
-        }
-    }
-
-    { // cull elts marked for delete
-        tl_Op* newFirst = NULL;
-        tl_Op* next = NULL;
-        for (tl_Op* op = t->firstOp; op; op = next) {
-            next = op->next;
-            if (op->markedForDeletion) {
-                memset(op, 0, sizeof(*op));
-                continue;
-            }
-            op->next = newFirst;
-            newFirst = op;
-        }
-        t->firstOp = newFirst;
-        // FIXME: free list for these
-    }
-
     if (!targetOp) {
         return;
     }

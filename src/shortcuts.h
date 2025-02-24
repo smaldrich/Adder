@@ -313,11 +313,13 @@ bool scc_timelineMarkActive(_sc_CommandArgs args) {
     }
     tl_timelineDeselectAll(args.timeline);
 
-    if (selected != NULL) {
-        args.timeline->activeOp = selected;
-        *args.currentView = SC_VIEW_SCENE;
-        tl_solveForNode(args.timeline, args.timeline->activeOp, args.scratch);
+    if (selected == NULL) {
+        return true;
     }
+
+    args.timeline->activeOp = selected;
+    *args.currentView = SC_VIEW_SCENE;
+    tl_solveForNode(args.timeline, args.timeline->activeOp, args.scratch);
 
     return true;
 }
