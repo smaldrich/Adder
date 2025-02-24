@@ -11,6 +11,10 @@ HMM_Vec2 _tl_pixelToWorldSpace(HMM_Vec2 mousePosPx, HMM_Vec2 panelSize, HMM_Mat4
     return mousePos;
 }
 
+float _tl_radiusOfNode(tl_Op* op, float sound) {
+    return 60 + (10 * op->ui.sel.hoverAnim) + (20 * sound); // FIXME: why are these big on load??
+}
+
 // returns mouse position in world space and a vp matrix to use ending the instances frame
 // mouse panel should be the input to send to the instance at the end of the frame
 void tl_build(tl_Timeline* timeline, snz_Arena* scratch, HMM_Vec2 panelSize, HMM_Vec2 mousePosInPanel, float sound, HMM_Vec2* outMousePos, HMM_Mat4* outVP) {
@@ -177,14 +181,32 @@ void tl_build(tl_Timeline* timeline, snz_Arena* scratch, HMM_Vec2 panelSize, HMM
             }
             HMM_Vec4 textColor = HMM_Lerp(ui_colorText, op->ui.sel.selectionAnim, ui_colorAccent);
             snzu_boxSetDisplayStr(&ui_labelFont, textColor, labelStr);
-            float radius = 60 + (10 * op->ui.sel.hoverAnim) + (20 * sound); // FIXME: why are these big on load??
+            float radius = _tl_radiusOfNode(op, sound);
             snzu_boxSetCornerRadius(radius);
             snzu_boxSetStart(HMM_Sub(op->ui.pos, HMM_V2(radius, radius)));
             snzu_boxSetEnd(HMM_Add(op->ui.pos, HMM_V2(radius, radius)));
             snzu_boxSetBorder(ui_borderThickness, textColor);
+            snzu_boxSetColor(ui_colorTransparentPanel);
+            if (op->dependencies[0]) {
+                HMM_Vec4 pts[2] = { 0 };
+                pts[0].XY = op->ui.pos;
+                pts[1].XY = op->dependencies[0]->ui.pos;
+
+                { // instead of clipping the line like this, use alpha magic to clip it GPU side
+                    HMM_Vec4 diff = HMM_Norm(HMM_Sub(pts[1], pts[0]));
+                    diff = HMM_MulV4F(diff, radius);
+                    pts[0] = HMM_Add(pts[0], diff);
+
+                    diff = HMM_Norm(HMM_Sub(pts[0], pts[1]));
+                    diff = HMM_MulV4F(diff, _tl_radiusOfNode(op->dependencies[0], sound));
+                    pts[1] = HMM_Add(pts[1], diff);
+                }
+
+                snzr_drawLine(pts, 2, ui_colorText, ui_borderThickness, vp);
+            }
 
             if (op == timeline->activeOp) {
-                snzu_boxSetColor(ui_colorTransparentAccent); // FIXME: hate how this looks
+                snzu_boxSetColor(ui_colorTransparentAccent);
             }
         }
 
