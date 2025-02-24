@@ -159,19 +159,15 @@ void tl_timelineCullOpsMarkedForDelete(tl_Timeline* t) {
 
     // cull elts marked for delete
     tl_Op* next = NULL;
-    tl_Op* prev = NULL;
+    tl_Op** lastNextPtr = &t->firstOp;
     for (tl_Op* op = t->firstOp; op; op = next) {
         next = op->next;
         if (op->markedForDeletion) {
-            if (prev) {
-                prev->next = op->next;
-            } else {
-                t->firstOp = op->next;
-            }
+            *lastNextPtr = op->next;
             memset(op, 0, sizeof(*op));
             continue;
         }
-        prev = op;
+        lastNextPtr = &op->next;
     }
     // FIXME: free list
 }
