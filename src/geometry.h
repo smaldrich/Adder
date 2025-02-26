@@ -67,6 +67,9 @@ struct geo_MeshEdge {
     geo_MeshEdge* next;
     geo_MeshEdgeSegmentSlice segments;
     ui_SelectionState sel;
+
+    geo_MeshFace* faceA;
+    geo_MeshFace* faceB;
 };
 
 typedef struct {
@@ -1015,8 +1018,8 @@ typedef struct {
 SNZ_SLICE(_geo_MeshEdgeSegmentPair);
 
 typedef struct {
-    geo_MeshFace a;
-    geo_MeshFace b;
+    geo_MeshFace* a;
+    geo_MeshFace* b;
 } _geo_MeshFacePair;
 
 SNZ_SLICE(_geo_MeshFacePair);
@@ -1097,8 +1100,8 @@ void geo_meshGenerateEdges(geo_Mesh* mesh, snz_Arena* out, snz_Arena* scratch) {
     for (geo_MeshFace* faceA = mesh->firstFace; faceA; faceA = faceA->next) {
         for (geo_MeshFace* faceB = faceA->next; faceB; faceB = faceB->next) {
             *SNZ_ARENA_PUSH(scratch, _geo_MeshFacePair) = (_geo_MeshFacePair){
-                .a = *faceA,
-                .b = *faceB,
+                .a = faceA,
+                .b = faceB,
             };
             // FIXME: bounding box checks to cut pair count down
         }
@@ -1107,14 +1110,14 @@ void geo_meshGenerateEdges(geo_Mesh* mesh, snz_Arena* out, snz_Arena* scratch) {
 
     for (int pairIdx = 0; pairIdx < facePairs.count; pairIdx++) {
         _geo_MeshFacePair p = facePairs.elems[pairIdx];
-        geo_MeshFace faceA = p.a;
-        geo_MeshFace faceB = p.b;
+        geo_MeshFace* faceA = p.a;
+        geo_MeshFace* faceB = p.b;
 
         SNZ_ARENA_ARR_BEGIN(scratch, _geo_MeshEdgeSegmentPair);
-        for (int aIdx = 0; aIdx < faceA.tris.count; aIdx++) {
-            for (int bIdx = 0; bIdx < faceB.tris.count; bIdx++) {
-                geo_Tri aTri = faceA.tris.elems[aIdx];
-                geo_Tri bTri = faceB.tris.elems[bIdx];
+        for (int aIdx = 0; aIdx < faceA->tris.count; aIdx++) {
+            for (int bIdx = 0; bIdx < faceB->tris.count; bIdx++) {
+                geo_Tri aTri = faceA->tris.elems[aIdx];
+                geo_Tri bTri = faceB->tris.elems[bIdx];
 
                 for (int i = 0; i < 3; i++) {
                     for (int j = 0; j < 3; j++) {
@@ -1162,11 +1165,49 @@ void geo_meshGenerateEdges(geo_Mesh* mesh, snz_Arena* out, snz_Arena* scratch) {
             *edge = (geo_MeshEdge){
                 .segments = clipped,
                 .next = mesh->firstEdge,
+
+                .faceA = faceA,
+                .faceB = faceB,
             };
             mesh->firstEdge = edge;
         }
     } // end face pair loop
 }
+
+// expects facetris to be filled out
+bool geo_meshIsFaceFlat(geo_MeshFace* f) {
+    SNZ_ASSERTF(f->tris.count > 0, "face with %lld tris.", f->tris.count);
+    HMM_Vec3 normal = geo_triNormal(f->tris.elems[0]);
+    for (int i = 1; i < f->tris.count; i++) {
+        geo_Tri t = f->tris.elems[i];
+        if (!geo_v3Equal(geo_triNormal(t), normal)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+SNZ_SLICE_NAMED(geo_MeshEdge*, geo_MeshEdgePtrSlice);
+
+void geo_meshFaceToVertLoops(geo_Mesh* m, geo_MeshFace* f, snz_Arena* scratch) {
+    SNZ_ARENA_ARR_BEGIN(scratch, geo_MeshEdge*);
+    for (geo_MeshEdge* e = m->firstEdge; e; e = e->next) {
+        if (e->faceA != f && e->faceB != f) {
+            continue;
+        }
+        *SNZ_ARENA_PUSH(scratch, geo_MeshEdge*) = e;
+    }
+    geo_MeshEdgePtrSlice edges = SNZ_ARENA_ARR_END_NAMED(scratch, geo_MeshEdge*, geo_MeshEdgePtrSlice);
+
+    while (true) {
+        int i = 0;
+        if (i > edges.count) {
+            i = 0;
+        }
+        geo_MeshEdge* edge = edges.elems[i];
+    }
+}
+
 
 static bool _geo_meshEdgeSegmentsAdjacent(geo_MeshEdgeSegment a, geo_MeshEdgeSegment b, HMM_Vec3* outPt) {
     if (geo_v3Equal(a.a, b.a)) {
