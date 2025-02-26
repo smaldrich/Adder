@@ -543,14 +543,15 @@ geo_Mesh skt_sketchTriangulate(const sk_Sketch* sketch, snz_Arena* arena, snz_Ar
                 continue;
             }
             geo_MeshEdge* e = SNZ_ARENA_PUSH(arena, geo_MeshEdge);
-            geo_MeshEdgeSegment* segment = SNZ_ARENA_PUSH(arena, geo_MeshEdgeSegment);
-            segment->a.XY = edge->p1->pos;
-            segment->b.XY = edge->p2->pos;
+            HMM_Vec3* points = SNZ_ARENA_PUSH_ARR(arena, 2, HMM_Vec3);
+            points[0].XY = edge->p1->pos;
+            points[1].XY = edge->p2->pos;
+
             *e = (geo_MeshEdge){
                 .next = firstEdge,
-                .segments = (geo_MeshEdgeSegmentSlice) {
-                    .count = 1,
-                    .elems = segment,
+                .points = (HMM_Vec3Slice) {
+                    .count = 2,
+                    .elems = points,
                 },
             };
             firstEdge = e;

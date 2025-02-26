@@ -409,8 +409,10 @@ bool scc_sceneLookAt(_sc_CommandArgs args) {
         op->scene.orbitOrigin.pt = selectedCorner->pos;
     } else if (selectedEdge) {
         // FIXME: what about curved edges??
-        geo_MeshEdgeSegment s = selectedEdge->segments.elems[0];
-        HMM_Vec3 dir = HMM_Norm(HMM_Sub(s.b, s.a));
+        SNZ_ASSERTF(selectedEdge->points.count >= 2, "edge with only %lld point(s)", selectedEdge->points.count);
+        HMM_Vec3 p1 = selectedEdge->points.elems[0];
+        HMM_Vec3 p2 = selectedEdge->points.elems[1];
+        HMM_Vec3 dir = HMM_Norm(HMM_Sub(p2, p1));
         dir = HMM_Norm(HMM_Cross(HMM_Cross(origin->normal, dir), origin->normal));
 
         HMM_Vec3 closest = dir;
