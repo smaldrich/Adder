@@ -1097,6 +1097,50 @@ static bool _geo_linePairAdjacent(geo_Line a, geo_Line b, geo_Line* outClipped) 
     return true;
 }
 
+// returns zero len slice if all lines in lines have been marked NaN - signaling they are collected into edges
+// marks any used lines NaN
+// FIXME: this isn't able to group up things from both sides of an edge
+HMM_Vec3Slice _geo_orderedPointsFromLineSet(geo_LineSlice lines, snz_Arena* arena) {
+    HMM_Vec3 startPt = HMM_V3(NAN, NAN, NAN);
+    for (int i = 0; i < lines.count; i++) {
+        if (isnan(lines.elems[i].a.X)) {
+            continue;
+        }
+        startPt = lines.elems[i].a;
+        break;
+    }
+    if (isnan(startPt.X)) {
+        return (HMM_Vec3Slice) { 0 };
+    }
+
+    SNZ_ARENA_ARR_BEGIN(arena, HMM_Vec3);
+    HMM_Vec3 pt = startPt;
+    *SNZ_ARENA_PUSH(arena, HMM_Vec3) = pt;
+    while (true) {
+        bool found = false;
+        for (int i = 0; i < lines.count; i++) {
+            geo_Line l = lines.elems[i];
+            bool aEqual = geo_v3Equal(l.a, pt);
+            if (aEqual || geo_v3Equal(l.b, pt)) {
+                pt = aEqual ? l.b : l.a;
+                lines.elems[i].a = HMM_V3(NAN, NAN, NAN);
+                lines.elems[i].b = HMM_V3(NAN, NAN, NAN);
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            break;
+        }
+
+        *SNZ_ARENA_PUSH(arena, HMM_Vec3) = pt;
+        if (geo_v3Equal(pt, startPt) || arena->arrModeElemCount >= lines.count + 1) {
+            break;
+        }
+    }
+    return SNZ_ARENA_ARR_END(arena, HMM_Vec3);
+}
+
 // expects valid face tris on the mesh
 // no issue if out and scratch are the same arena
 void geo_meshGenerateEdges(geo_Mesh* mesh, snz_Arena* out, snz_Arena* scratch) {
@@ -1136,15 +1180,6 @@ void geo_meshGenerateEdges(geo_Mesh* mesh, snz_Arena* out, snz_Arena* scratch) {
                             },
                         };
                         *SNZ_ARENA_PUSH(scratch, _geo_LinePair) = pair;
-
-                        // const char* path = snz_arenaFormatStr(out, "testing/facePair%d_%d.stl", pairIdx, scratch->arrModeElemCount - 1);
-                        // geo_BSPTriList l = { 0 };
-                        // geo_BSPTriListPushNew(out, &l, pair.a.a, pair.a.b, HMM_V3(0, 0, 0), NULL);
-                        // geo_BSPTriListPushNew(out, &l, pair.b.a, pair.b.b, HMM_V3(0, 0, 0), NULL);
-
-                        // geo_BSPTriListPushNew(out, &l, aTri.a, aTri.b, aTri.c, NULL);
-                        // geo_BSPTriListPushNew(out, &l, bTri.a, bTri.b, bTri.c, NULL);
-                        // geo_BSPTriListToSTLFile(&l, path);
                     } // end 2nd tri edge loop
                 } // end 1st tri edge loop
             }
@@ -1162,45 +1197,21 @@ void geo_meshGenerateEdges(geo_Mesh* mesh, snz_Arena* out, snz_Arena* scratch) {
             }
         }
         geo_LineSlice clipped = SNZ_ARENA_ARR_END(out, geo_Line);
+        if (clipped.count <= 0) {
+            continue;
+        }
 
-        if (clipped.count > 0) {
-            // order points into smth that actually represents an edge
-            // FIXME: this will fucking crash and die if the face is not contiguous, but also if there are any islands of edges (holes, etc.)
-            SNZ_ARENA_ARR_BEGIN(out, HMM_Vec3);
-            HMM_Vec3 startPt = clipped.elems[0].a;
-            HMM_Vec3 pt = startPt;
-            *SNZ_ARENA_PUSH(out, HMM_Vec3) = pt;
-            while (true) {
-                bool found = false;
-                for (int i = 0; i < clipped.count; i++) {
-                    geo_Line l = clipped.elems[i];
-                    bool aEqual = geo_v3Equal(l.a, pt);
-                    if (aEqual || geo_v3Equal(l.b, pt)) {
-                        pt = aEqual ? l.b : l.a;
-                        clipped.elems[i].a = HMM_V3(NAN, NAN, NAN); // make it so this vec won't match anything else ever
-                        clipped.elems[i].b = HMM_V3(NAN, NAN, NAN);
-                        found = true;
-                        break;
-                    }
-                }
-                SNZ_ASSERT(found, "non-adj part of an edge. cry about it.");
-
-                *SNZ_ARENA_PUSH(out, HMM_Vec3) = pt;
-                if (geo_v3Equal(pt, startPt) || out->arrModeElemCount >= clipped.count + 1) {
-                    break;
-                }
-            } // end while to group edge segments
-            HMM_Vec3Slice points = SNZ_ARENA_ARR_END(out, HMM_Vec3);
-
-            geo_MeshEdge* edge = SNZ_ARENA_PUSH(out, geo_MeshEdge);
-            *edge = (geo_MeshEdge){
-                .points = points,
-                .next = mesh->firstEdge,
-
+        HMM_Vec3Slice points = _geo_orderedPointsFromLineSet(clipped, out);
+        while (points.count) { // FIXME: cutoff
+            geo_MeshEdge* e = SNZ_ARENA_PUSH(out, geo_MeshEdge);
+            *e = (geo_MeshEdge){
                 .faceA = faceA,
                 .faceB = faceB,
+                .points = points,
+                .next = mesh->firstEdge,
             };
-            mesh->firstEdge = edge;
+            mesh->firstEdge = e;
+            points = _geo_orderedPointsFromLineSet(clipped, out);
         }
     } // end face pair loop
 }

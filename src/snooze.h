@@ -181,6 +181,7 @@ char* snz_arenaFormatStr(snz_Arena* arena, const char* fmt, ...) {
     return out;
 }
 
+// FIXME: give access to slice info during construction, don't hold it hostage
 #define SNZ_ARENA_ARR_BEGIN(arena, T) _snz_arenaArrBegin(arena, sizeof(T), #T)
 void _snz_arenaArrBegin(snz_Arena* a, int64_t elemSize, const char* elemName) {
     SNZ_ASSERTF(a->arrModeElemSize == 0,
