@@ -876,25 +876,11 @@ static bool _mesh_linePairAdjacent(geo_Line a, geo_Line b, geo_Line* outClipped)
     return true;
 }
 
-// returns zero len slice if all lines in lines have been marked NaN - signaling they are collected into edges
-// marks any used lines NaN
-// FIXME: this isn't able to group up things from both sides of an edge
-HMM_Vec3Slice _mesh_orderedPointsFromLineSet(geo_LineSlice lines, snz_Arena* arena) {
-    HMM_Vec3 startPt = HMM_V3(NAN, NAN, NAN);
-    for (int i = 0; i < lines.count; i++) {
-        if (isnan(lines.elems[i].a.X)) {
-            continue;
-        }
-        startPt = lines.elems[i].a;
-        break;
-    }
-    if (isnan(startPt.X)) {
-        return (HMM_Vec3Slice) { 0 };
-    }
-
+// only does one direction from the start point, marks any used lines NaN
+// doesn't push the start point to the outputted slice, will push end point
+static HMM_Vec3Slice _mesh_groupPointsAdjacent(geo_LineSlice lines, HMM_Vec3 start, snz_Arena* arena) {
+    HMM_Vec3 pt = start;
     SNZ_ARENA_ARR_BEGIN(arena, HMM_Vec3);
-    HMM_Vec3 pt = startPt;
-    *SNZ_ARENA_PUSH(arena, HMM_Vec3) = pt;
     while (true) {
         bool found = false;
         for (int i = 0; i < lines.count; i++) {
@@ -913,11 +899,72 @@ HMM_Vec3Slice _mesh_orderedPointsFromLineSet(geo_LineSlice lines, snz_Arena* are
         }
 
         *SNZ_ARENA_PUSH(arena, HMM_Vec3) = pt;
-        if (geo_v3Equal(pt, startPt) || arena->arrModeElemCount >= lines.count + 1) {
+        if (geo_v3Equal(pt, start)) {
             break;
         }
     }
     return SNZ_ARENA_ARR_END(arena, HMM_Vec3);
+}
+
+static HMM_Vec3Slice _mesh_orderedPointsFromLineSet(geo_LineSlice lines, snz_Arena* scratch, snz_Arena* arena) {
+    HMM_Vec3 startPt = HMM_V3(NAN, NAN, NAN);
+    for (int i = 0; i < lines.count; i++) {
+        if (isnan(lines.elems[i].a.X)) {
+            continue;
+        }
+        startPt = lines.elems[i].a;
+        break;
+    }
+    if (isnan(startPt.X)) {
+        return (HMM_Vec3Slice) { 0 };
+    }
+
+    FILE* f = fopen("HELLO", "w");
+    fprintf(f, "initial");
+    for (int i = 0; i < lines.count; i++) {
+        if (isnan(lines.elems[i].a.X)) {
+            fprintf(f, "X");
+        } else {
+            fprintf(f, "O");
+        }
+    }
+    fprintf(f, "\n");
+
+    HMM_Vec3Slice forward = _mesh_groupPointsAdjacent(lines, startPt, scratch);
+    fprintf(f, "post-fwd");
+    for (int i = 0; i < lines.count; i++) {
+        if (isnan(lines.elems[i].a.X)) {
+            fprintf(f, "X");
+        } else {
+            fprintf(f, "O");
+        }
+    }
+    fprintf(f, "\n");
+    HMM_Vec3Slice reverse = _mesh_groupPointsAdjacent(lines, startPt, scratch);
+    fprintf(f, "post-rev");
+    for (int i = 0; i < lines.count; i++) {
+        if (isnan(lines.elems[i].a.X)) {
+            fprintf(f, "X");
+        } else {
+            fprintf(f, "O");
+        }
+    }
+    fprintf(f, "\n");
+    fclose(f);
+    HMM_Vec3Slice extra = _mesh_groupPointsAdjacent(lines, startPt, scratch);
+    SNZ_ASSERT(!extra.count, "edge points can't be ordered, there are three segments adjacent.");
+
+    HMM_Vec3Slice out = { 0 };
+    // add one for center point, which has not been pushed by either call to group adj
+    out.count = forward.count + 1 + reverse.count;
+    out.elems = SNZ_ARENA_PUSH_ARR(arena, out.count, HMM_Vec3);
+
+    for (int i = 0; i < reverse.count; i++) {
+        out.elems[i] = reverse.elems[(reverse.count - 1) - i];
+    }
+    out.elems[reverse.count] = startPt;
+    memcpy(&out.elems[reverse.count + 1], forward.elems, sizeof(HMM_Vec3) * forward.count);
+    return out;
 }
 
 // expects valid face tris on the mesh
@@ -981,7 +1028,7 @@ void mesh_meshGenerateEdges(mesh_Mesh* mesh, snz_Arena* out, snz_Arena* scratch)
             continue;
         }
 
-        HMM_Vec3Slice points = _mesh_orderedPointsFromLineSet(clipped, out);
+        HMM_Vec3Slice points = _mesh_orderedPointsFromLineSet(clipped, scratch, out);
         while (points.count) { // FIXME: cutoff
             mesh_Edge* e = SNZ_ARENA_PUSH(out, mesh_Edge);
             *e = (mesh_Edge){
@@ -991,7 +1038,7 @@ void mesh_meshGenerateEdges(mesh_Mesh* mesh, snz_Arena* out, snz_Arena* scratch)
                 .next = mesh->firstEdge,
             };
             mesh->firstEdge = e;
-            points = _mesh_orderedPointsFromLineSet(clipped, out);
+            points = _mesh_orderedPointsFromLineSet(clipped, scratch, out);
         }
     } // end face pair loop
 }
