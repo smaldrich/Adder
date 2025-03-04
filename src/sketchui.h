@@ -446,7 +446,7 @@ static void _sku_draw(sk_Sketch* sketch, snzu_Interaction* inter, HMM_Mat4 model
 // factored out because the logic to get the mouse pos is a little verbose for main_
 void sku_endFrameForUIInstance(snzu_Input input, geo_Align align, HMM_Mat4 vp, HMM_Vec3 cameraPos, HMM_Vec3 mouseDir) {
     float t = 0;
-    bool hit = geo_planeLineIntersection(align.pt, align.normal, cameraPos, mouseDir, &t);
+    bool hit = geo_rayPlaneIntersection(align.pt, align.normal, cameraPos, mouseDir, &t);
     HMM_Vec3 point = HMM_Add(cameraPos, HMM_Mul(mouseDir, t));
     if (!hit || geo_floatLessEqual(t, 0)) {
         point = HMM_V3(100000, 100000, 100000);

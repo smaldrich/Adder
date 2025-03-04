@@ -6,6 +6,7 @@
 #include "geometry.h"
 #include "snooze.h"
 #include "ui.h"
+#include "mesh.h"
 
 typedef enum {
     SK_MK_ANY,

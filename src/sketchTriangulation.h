@@ -2,6 +2,7 @@
 
 #include "snooze.h"
 #include "sketches2.h"
+#include "mesh.h"
 
 typedef struct _skt_Island _skt_Island;
 typedef struct _skt_Point _skt_Point;
@@ -133,8 +134,8 @@ bool _skt_vertLoopContainsVertLoop(_skt_VertLoop* a, _skt_VertLoop* b) {
 //     }
 // }
 
-static geo_MeshFace* _skt_vertLoopToMeshFace(_skt_VertLoop* l, geo_BSPTriList* list, snz_Arena* scratch, snz_Arena* out) {
-    geo_MeshFace* f = SNZ_ARENA_PUSH(out, geo_MeshFace);
+static mesh_Face* _skt_vertLoopToMeshFace(_skt_VertLoop* l, mesh_BSPTriList* list, snz_Arena* scratch, snz_Arena* out) {
+    mesh_Face* f = SNZ_ARENA_PUSH(out, mesh_Face);
 
     // FIXME: move this data to be inline with the vert loop points ? // actually also profile if that is worth doing
     bool* culledFlags = SNZ_ARENA_PUSH_ARR(scratch, l->pts.count, bool);
@@ -196,7 +197,7 @@ static geo_MeshFace* _skt_vertLoopToMeshFace(_skt_VertLoop* l, geo_BSPTriList* l
             continue;
         }
 
-        geo_BSPTriListPushNew(out, list, t.a, t.b, t.c, f);
+        mesh_BSPTriListPushNew(out, list, t.a, t.b, t.c, f);
         culledFlags[ptIndexes[1]] = true;
         culledCount++;
         iterationsSinceTriWasAdded = 0;
@@ -218,7 +219,7 @@ struct _skt_IntersectionEdge {
 // only fills out BSPTri list for a new mesh
 // FIXME: exhaustive checks to make sure that there aren't any colinear & fully overlapped edges in the sketch before starting this
 // FIXME: decide whether we are going to cope with T intersections here, and if not, add checks to make sure they don't exist on inputs
-geo_Mesh skt_sketchTriangulate(const sk_Sketch* sketch, snz_Arena* arena, snz_Arena* scratch) {
+mesh_Mesh skt_sketchTriangulate(const sk_Sketch* sketch, snz_Arena* arena, snz_Arena* scratch) {
     _skt_Point* firstPoint = NULL;
     _skt_IntersectionEdge* firstIntersectionEdge = NULL;
     { // intersections
@@ -523,31 +524,31 @@ geo_Mesh skt_sketchTriangulate(const sk_Sketch* sketch, snz_Arena* arena, snz_Ar
     // }
 
     // triangulation
-    geo_BSPTriList tris = geo_BSPTriListInit();
-    geo_MeshFace* firstFace = NULL;
+    mesh_BSPTriList tris = mesh_BSPTriListInit();
+    mesh_Face* firstFace = NULL;
 
     for (_skt_Island* island = firstIsland; island; island = island->next) {
         for (_skt_VertLoop* l = island->firstLoop; l; l = l->next) {
-            geo_MeshFace* new = _skt_vertLoopToMeshFace(l, &tris, scratch, arena);
+            mesh_Face* new = _skt_vertLoopToMeshFace(l, &tris, scratch, arena);
             new->next = firstFace;
             firstFace = new;
         }
     } // end island loop
 
     // move points and lines over to the mesh
-    geo_MeshEdge* firstEdge = NULL;
-    geo_MeshCornerSlice corners = { 0 };
+    mesh_Edge* firstEdge = NULL;
+    mesh_CornerSlice corners = { 0 };
     {
         for (_skt_IntersectionEdge* edge = firstIntersectionEdge; edge; edge = edge->next) {
             if (edge->culled) {
                 continue;
             }
-            geo_MeshEdge* e = SNZ_ARENA_PUSH(arena, geo_MeshEdge);
+            mesh_Edge* e = SNZ_ARENA_PUSH(arena, mesh_Edge);
             HMM_Vec3* points = SNZ_ARENA_PUSH_ARR(arena, 2, HMM_Vec3);
             points[0].XY = edge->p1->pos;
             points[1].XY = edge->p2->pos;
 
-            *e = (geo_MeshEdge){
+            *e = (mesh_Edge){
                 .next = firstEdge,
                 .points = (HMM_Vec3Slice) {
                     .count = 2,
@@ -557,16 +558,16 @@ geo_Mesh skt_sketchTriangulate(const sk_Sketch* sketch, snz_Arena* arena, snz_Ar
             firstEdge = e;
         }
 
-        SNZ_ARENA_ARR_BEGIN(arena, geo_MeshCorner);
+        SNZ_ARENA_ARR_BEGIN(arena, mesh_Corner);
         for (_skt_Point* p = firstPoint; p; p = p->next) {
-            *SNZ_ARENA_PUSH(arena, geo_MeshCorner) = (geo_MeshCorner){
+            *SNZ_ARENA_PUSH(arena, mesh_Corner) = (mesh_Corner){
                 .pos.XY = p->pos,
             };
         }
-        corners = SNZ_ARENA_ARR_END(arena, geo_MeshCorner);
+        corners = SNZ_ARENA_ARR_END(arena, mesh_Corner);
     }
 
-    geo_Mesh out = (geo_Mesh){
+    mesh_Mesh out = (mesh_Mesh){
         .firstFace = firstFace,
         .firstEdge = firstEdge,
         .corners = corners,
@@ -577,7 +578,6 @@ geo_Mesh skt_sketchTriangulate(const sk_Sketch* sketch, snz_Arena* arena, snz_Ar
 
 void skt_tests() {
     snz_testPrintSection("sketch triangulation");
-
     {
         // FIXME: more tests for this
         float t = 0;
@@ -586,7 +586,6 @@ void skt_tests() {
             HMM_V2(0, 1), HMM_V2(0, -1), &t);
         snz_testPrint(geo_floatEqual(t, .5), "line/line 0");
     }
-
     // FIXME: more tests for triangulating a vertloop
     // FIXME: many more tests + maybe a fuzzer for skt_sketchTriangulate
 }

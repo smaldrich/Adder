@@ -282,7 +282,7 @@ bool scc_timelineRotate(_sc_CommandArgs args) {
 
 bool scc_timelineAddGeometry(_sc_CommandArgs args) {
     *args.currentView = SC_VIEW_TIMELINE;
-    tl_Op* newOp = tl_timelinePushBaseGeometry(args.timeline, HMM_V2(0, 0), (geo_Mesh) { 0 });
+    tl_Op* newOp = tl_timelinePushBaseGeometry(args.timeline, HMM_V2(0, 0), (mesh_Mesh) { 0 });
     // FIXME: should be on the mouse, isn't // enter move mode?
     newOp->ui.sel.selected = true;
     newOp->ui.sel.selectionAnim = 1;
@@ -326,10 +326,10 @@ bool scc_timelineMarkActive(_sc_CommandArgs args) {
 
 // FIXME: move to geo.h
 void _scc_sceneDeselectAll(tl_Scene* scene) {
-    for (geo_MeshFace* f = scene->mesh->firstFace; f; f = f->next) {
+    for (mesh_Face* f = scene->mesh->firstFace; f; f = f->next) {
         f->sel.selected = false;
     }
-    for (geo_MeshEdge* e = scene->mesh->firstEdge; e; e = e->next) {
+    for (mesh_Edge* e = scene->mesh->firstEdge; e; e = e->next) {
         e->sel.selected = false;
     }
     for (int i = 0; i < scene->mesh->corners.count; i++) {
@@ -344,10 +344,10 @@ bool scc_sceneLookAt(_sc_CommandArgs args) {
     } else if (!op->scene.mesh) {
         return true;
     }
-    geo_Mesh* m = op->scene.mesh;
+    mesh_Mesh* m = op->scene.mesh;
 
-    geo_MeshFace* selectedFace = NULL;
-    for (geo_MeshFace* f = m->firstFace; f; f = f->next) {
+    mesh_Face* selectedFace = NULL;
+    for (mesh_Face* f = m->firstFace; f; f = f->next) {
         if (f->sel.selected) {
             if (selectedFace) {
                 return true;
@@ -356,9 +356,9 @@ bool scc_sceneLookAt(_sc_CommandArgs args) {
         }
     }
 
-    geo_MeshCorner* selectedCorner = NULL;
+    mesh_Corner* selectedCorner = NULL;
     for (int i = 0; i < m->corners.count; i++) {
-        geo_MeshCorner* c = &m->corners.elems[i];
+        mesh_Corner* c = &m->corners.elems[i];
         if (c->sel.selected) {
             if (selectedCorner || selectedFace) {
                 return true;
@@ -367,8 +367,8 @@ bool scc_sceneLookAt(_sc_CommandArgs args) {
         }
     }
 
-    geo_MeshEdge* selectedEdge = NULL;
-    for (geo_MeshEdge* e = m->firstEdge; e; e = e->next) {
+    mesh_Edge* selectedEdge = NULL;
+    for (mesh_Edge* e = m->firstEdge; e; e = e->next) {
         if (e->sel.selected) {
             if (selectedCorner || selectedFace || selectedEdge) {
                 return true;
@@ -400,7 +400,7 @@ bool scc_sceneLookAt(_sc_CommandArgs args) {
         // adjusting orbit center to be on the new plane
         float t = 0;
         HMM_Vec3 lineOrigin = HMM_Add(origin->pt, newNorm);
-        bool hit = geo_planeLineIntersection(
+        bool hit = geo_rayPlaneIntersection(
             selectedFace->tris.elems[0].a, newNorm,
             lineOrigin, newNorm, &t);
         SNZ_ASSERT(hit, "can't find a point to move orbit origin to.");

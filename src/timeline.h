@@ -20,7 +20,7 @@ typedef struct {
 } tl_OpSketch;
 
 typedef struct {
-    geo_Mesh mesh;
+    mesh_Mesh mesh;
 } tl_OpBaseGeometry;
 
 typedef struct {
@@ -28,7 +28,7 @@ typedef struct {
     HMM_Vec2 orbitAngle;
     float orbitDist;
 
-    geo_Mesh* mesh;
+    mesh_Mesh* mesh;
 } tl_Scene;
 
 tl_Scene tl_sceneInit() {
@@ -99,7 +99,7 @@ tl_Op* tl_timelinePushSketch(tl_Timeline* tl, HMM_Vec2 pos, sk_Sketch sketch) {
     return out;
 }
 
-tl_Op* tl_timelinePushBaseGeometry(tl_Timeline* tl, HMM_Vec2 pos, geo_Mesh mesh) {
+tl_Op* tl_timelinePushBaseGeometry(tl_Timeline* tl, HMM_Vec2 pos, mesh_Mesh mesh) {
     tl_Op* out = SNZ_ARENA_PUSH(tl->operationArena, tl_Op);
     *out = (tl_Op){
         .ui.pos = pos,
@@ -224,14 +224,14 @@ void tl_solveForNode(tl_Timeline* t, tl_Op* targetOp, snz_Arena* scratch) {
             tl_Op* other = op->dependencies[0];
             SNZ_ASSERTF(other->kind == TL_OPK_SKETCH, "dependent op wasn't expected kind. Was: %d, expected %d.", other->kind, TL_OPK_SKETCH);
 
-            geo_Mesh* m = SNZ_ARENA_PUSH(t->generatedArena, geo_Mesh);
+            mesh_Mesh* m = SNZ_ARENA_PUSH(t->generatedArena, mesh_Mesh);
             *m = skt_sketchTriangulate(&other->val.sketch.sketch, t->generatedArena, scratch);
             if (m->renderMesh.vaId) { // FIXME: get a decent check for null rendermeshes
                 // FIXME: probably shouldnt store one of these per scene if solves only happen for one op
                 ren3d_meshDeinit(&op->scene.mesh->renderMesh);
             }
-            m->renderMesh = geo_BSPTriListToRenderMesh(m->bspTris, scratch);
-            geo_BSPTriListToFaceTris(t->generatedPool, m);
+            m->renderMesh = mesh_BSPTriListToRenderMesh(m->bspTris, scratch);
+            mesh_BSPTriListToFaceTris(t->generatedPool, m);
             other->scene.mesh = m;
             op->scene.mesh = m;
         }

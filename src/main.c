@@ -14,6 +14,8 @@
 #include "timeline.h"
 #include "timelineui.h"
 #include "ui.h"
+#include "mesh.h"
+#include "geometry.h"
 
 snz_Arena main_fontArena;
 snz_Arena main_baseMeshArena;
@@ -39,7 +41,7 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
     sk_tests();
     skt_tests();
     ser_tests();
-    geo_tests();
+    mesh_tests();
 
     main_fontArena = snz_arenaInit(10000000, "main font arena");
     main_sketchArena = snz_arenaInit(10000000, "main sketch arena");
@@ -67,25 +69,25 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
 
     main_timeline = tl_timelineInit(&main_tlArena, &main_tlGeneratedArena, &main_tlGeneratedPool);
     {
-        geo_BSPTriList* bspTris = NULL;
-        geo_MeshFace* faces = NULL;
-        geo_Mesh cubeA = geo_cube(&main_baseMeshArena);
+        mesh_BSPTriList* bspTris = NULL;
+        mesh_Face* faces = NULL;
+        mesh_Mesh cubeA = mesh_cube(&main_baseMeshArena);
         // bspTris = &cubeA.bspTris;
         // faces = cubeA.firstFace;
         {
-            geo_Mesh cubeB = geo_cube(&main_baseMeshArena);
-            geo_BSPTriListTransform(&cubeB.bspTris, HMM_Rotate_RH(HMM_AngleDeg(30), HMM_V3(1, 1, 1)));
-            geo_BSPTriListTransform(&cubeB.bspTris, HMM_Translate(HMM_V3(1, 1, 1)));
+            mesh_Mesh cubeB = mesh_cube(&main_baseMeshArena);
+            mesh_BSPTriListTransform(&cubeB.bspTris, HMM_Rotate_RH(HMM_AngleDeg(30), HMM_V3(1, 1, 1)));
+            mesh_BSPTriListTransform(&cubeB.bspTris, HMM_Translate(HMM_V3(1, 1, 1)));
 
-            geo_BSPNode* treeA = geo_BSPTriListToBSP(&cubeA.bspTris, &main_baseMeshArena);
-            geo_BSPNode* treeB = geo_BSPTriListToBSP(&cubeB.bspTris, &main_baseMeshArena);
+            mesh_BSPNode* treeA = mesh_BSPTriListToBSP(&cubeA.bspTris, &main_baseMeshArena);
+            mesh_BSPNode* treeB = mesh_BSPTriListToBSP(&cubeB.bspTris, &main_baseMeshArena);
 
-            geo_BSPTriList* aClipped = geo_BSPTriListClip(true, &cubeA.bspTris, treeB, &main_baseMeshArena);
-            geo_BSPTriList* bClipped = geo_BSPTriListClip(true, &cubeB.bspTris, treeA, &main_baseMeshArena);
-            bspTris = geo_BSPTriListJoin(aClipped, bClipped);
-            geo_BSPTriListRecoverNonBroken(&bspTris, &main_baseMeshArena);
+            mesh_BSPTriList* aClipped = mesh_BSPTriListClip(true, &cubeA.bspTris, treeB, &main_baseMeshArena);
+            mesh_BSPTriList* bClipped = mesh_BSPTriListClip(true, &cubeB.bspTris, treeA, &main_baseMeshArena);
+            bspTris = mesh_BSPTriListJoin(aClipped, bClipped);
+            mesh_BSPTriListRecoverNonBroken(&bspTris, &main_baseMeshArena);
 
-            geo_MeshFace* bCubeLastFace = cubeB.firstFace;
+            mesh_Face* bCubeLastFace = cubeB.firstFace;
             for (; bCubeLastFace->next; bCubeLastFace = bCubeLastFace->next) {
             }  // FIXME: gross
             bCubeLastFace->next = cubeA.firstFace;
@@ -93,14 +95,14 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
             faces = cubeB.firstFace;
         }
 
-        geo_Mesh mesh = (geo_Mesh){
+        mesh_Mesh mesh = (mesh_Mesh){
             .bspTris = *bspTris,
             .firstFace = faces,
-            .renderMesh = geo_BSPTriListToRenderMesh(*bspTris, scratch),
+            .renderMesh = mesh_BSPTriListToRenderMesh(*bspTris, scratch),
         };
-        geo_BSPTriListToFaceTris(&main_baseMeshPool, &mesh);
-        geo_meshGenerateEdges(&mesh, &main_baseMeshArena, scratch);
-        geo_meshGenerateCorners(&mesh, &main_baseMeshArena, scratch);
+        mesh_BSPTriListToFaceTris(&main_baseMeshPool, &mesh);
+        mesh_meshGenerateEdges(&mesh, &main_baseMeshArena, scratch);
+        mesh_meshGenerateCorners(&mesh, &main_baseMeshArena, scratch);
 
         tl_timelinePushBaseGeometry(&main_timeline, HMM_V2(-200, 0), mesh);
     }  // end mesh for testing
@@ -149,17 +151,17 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
 
     //     tl_timelinePushSketch(&main_timeline, HMM_V2(400, 0), sketch);
 
-    //     geo_Mesh m = skt_sketchTriangulate(&sketch, &main_meshArena, scratch);
-    //     geo_BSPTriListToFaceTris(&main_baseMeshPool, &m);
-    //     m.renderMesh = geo_BSPTriListToRenderMesh(m.bspTris, scratch);
+    //     mesh_Mesh m = skt_sketchTriangulate(&sketch, &main_meshArena, scratch);
+    //     mesh_BSPTriListToFaceTris(&main_baseMeshPool, &m);
+    //     m.renderMesh = mesh_BSPTriListToRenderMesh(m.bspTris, scratch);
     //     tl_timelinePushGeometry(&main_timeline, HMM_V2(400, 100), m);
     // }
 
     {
-        geo_Mesh m = { 0 };
+        mesh_Mesh m = { 0 };
         snz_arenaClear(scratch);
-        geo_stlFileToMesh("res/demos/bracket.stl", &main_baseMeshArena, scratch, &main_baseMeshPool, &m);
-        // geo_stlFileToMesh("testing/intersection.stl", &main_meshArena, scratch, &p, &m);
+        mesh_stlFileToMesh("res/demos/bracket.stl", &main_baseMeshArena, scratch, &main_baseMeshPool, &m);
+        // mesh_stlFileToMesh("testing/intersection.stl", &main_meshArena, scratch, &p, &m);
 
         tl_timelinePushBaseGeometry(&main_timeline, HMM_V2(0, -200), m);
     }
@@ -475,7 +477,7 @@ void main_frame(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screen
                             sku_endFrameForUIInstance(inputs, alignOfSketch, vp, cameraPos, mouseDir);
                         } else {
                             if (op->scene.mesh) {
-                                geo_meshBuild(op->scene.mesh, vp, cameraPos, mouseDir, inter, HMM_V2(w, h), scratch);
+                                mesh_meshBuild(op->scene.mesh, vp, cameraPos, mouseDir, inter, HMM_V2(w, h), scratch);
                                 snzu_frameDrawAndGenInteractions(inputs, HMM_M4D(1.0f));
                             }
                         }
@@ -497,7 +499,7 @@ void main_frame(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screen
                     }
                 } else if (main_currentView == SC_VIEW_TIMELINE) {
                     if (main_timeline.activeOp) {
-                        geo_Mesh* mesh = main_timeline.activeOp->scene.mesh;
+                        mesh_Mesh* mesh = main_timeline.activeOp->scene.mesh;
                         if (mesh) {
                             ren3d_Mesh* renderMesh = &mesh->renderMesh;
                             main_drawTimelineMeshPreview(dt, HMM_V2(w, h), renderMesh);
