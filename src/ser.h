@@ -170,7 +170,10 @@ void _ser_addStruct(ser_Spec* spec, const char* name) {
     s->tag = name;
 }
 
-void ser_addStructField(ser_Spec* spec) {
+// FIXME: assert that active struct name == struct name?
+#define ser_addStructField(specPtr, kindPtr, structName, name) \
+    _ser_addStructField(specPtr, kind, name, offsetof(structName, name))
+void _ser_addStructField(ser_Spec* spec, ser_T* kind, const char* tag, int offsetIntoStruct) {
     _ser_specAssertUnlocked(spec);
     SNZ_ASSERT(spec->activeStructSpec, "There was no active struct to add a field to.");
 }
