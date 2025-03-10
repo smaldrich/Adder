@@ -2,7 +2,6 @@
 #include "docs.h"
 #include "geometry.h"
 #include "render3d.h"
-#include "serialization2.h"
 #include "settings.h"
 #include "shortcuts.h"
 #include "sketches2.h"
@@ -16,6 +15,7 @@
 #include "ui.h"
 #include "mesh.h"
 #include "geometry.h"
+#include "ser.h"
 
 snz_Arena main_fontArena;
 snz_Arena main_baseMeshArena;

@@ -30,7 +30,7 @@ FILE SIDE:
 typedef enum {
     SER_TK_INVALID,
 
-    SER_TK_OTHER,
+    SER_TK_STRUCT,
     SER_TK_PTR,
     SER_TK_ARRAY,
 
@@ -45,16 +45,39 @@ typedef enum {
 
     SER_TK_FLOAT32,
     SER_TK_FLOAT64,
+
+    SER_TK_COUNT,
 } ser_TKind;
 
+const char* ser_tKindStrs[] = {
+    "SER_TK_INVALID",
+    "SER_TK_STRUCT",
+    "SER_TK_PTR",
+    "SER_TK_ARRAY",
+
+    "SER_TK_INT8",
+    "SER_TK_INT16",
+    "SER_TK_INT32",
+    "SER_TK_INT64",
+    "SER_TK_UINT8",
+    "SER_TK_UINT16",
+    "SER_TK_UINT32",
+    "SER_TK_UINT64",
+    "SER_TK_FLOAT32",
+    "SER_TK_FLOAT64",
+};
+
 typedef struct ser_T ser_T;
+typedef struct ser_SpecField ser_SpecField;
+typedef struct ser_SpecStruct ser_SpecStruct;
+
 struct ser_T {
     ser_TKind kind;
     ser_T* inner;
     const char* referencedName;
+    ser_SpecStruct* referencedStruct;
 };
 
-typedef struct ser_SpecField ser_SpecField;
 struct ser_SpecField {
     ser_SpecField* next;
     const char* tag;
@@ -63,7 +86,6 @@ struct ser_SpecField {
     int offsetInStruct;
 };
 
-typedef struct ser_SpecStruct ser_SpecStruct;
 struct ser_SpecStruct {
     ser_SpecStruct* next;
     const char* tag;
@@ -71,124 +93,188 @@ struct ser_SpecStruct {
     ser_SpecField* firstField;
 };
 
-typedef struct {
-    const char* tag;
-
-    const char** ids;
-    int* idValues;
-    int idCount;
-} ser_SpecEnum;
-
-typedef struct {
+static struct {
     bool validated; // when true indicates all specs have been added and that no more will, also that the entire thing has been validated.
     ser_SpecStruct* firstStructSpec;
-    ser_SpecEnum* firstEnumSpec;
 
     snz_Arena* arena;
     ser_SpecStruct* activeStructSpec;
-} ser_Spec;
+} _ser_globs;
 
-static void _ser_specPushActiveStructSpecIfAny(ser_Spec* spec) {
-    if (spec->activeStructSpec) {
-        spec->activeStructSpec->next = spec->firstStructSpec;
-        spec->firstStructSpec = spec->activeStructSpec;
-        spec->activeStructSpec = NULL;
+static void _ser_pushActiveStructSpecIfAny() {
+    if (_ser_globs.activeStructSpec) {
+        _ser_globs.activeStructSpec->next = _ser_globs.firstStructSpec;
+        _ser_globs.firstStructSpec = _ser_globs.activeStructSpec;
+        _ser_globs.activeStructSpec = NULL;
     }
 }
 
-static void _ser_specAssertUnlocked(ser_Spec* spec) {
-    SNZ_ASSERT(!spec->validated, "Spec has already been validated.");
+static void _ser_assertInstanceValidForAddingToSpec() {
+    SNZ_ASSERT(!_ser_globs.validated, "ser_begin hasn't been called yet.");
+    SNZ_ASSERT(!_ser_globs.validated, "ser_end already called.");
 }
 
-ser_T* ser_tBase(ser_Spec* s, ser_TKind kind) {
-    _ser_specAssertUnlocked(s);
+ser_T* ser_tBase(ser_TKind kind) {
+    _ser_assertInstanceValidForAddingToSpec();
     SNZ_ASSERT(kind != SER_TK_INVALID, "Kind of 0 (SER_TK_INVALID) isn't a base kind.");
-    SNZ_ASSERT(kind != SER_TK_OTHER, "Kind of 1 (SER_TK_OTHER) isn't a base kind.");
+    SNZ_ASSERT(kind != SER_TK_STRUCT, "Kind of 1 (SER_TK_STRUCT) isn't a base kind.");
     SNZ_ASSERT(kind != SER_TK_PTR, "Kind of 2 (SER_TK_PTR) isn't a base kind.");
     SNZ_ASSERT(kind != SER_TK_ARRAY, "Kind of 3 (SER_TK_ARRAY) isn't a base kind.");
-    ser_T* out = SNZ_ARENA_PUSH(s->arena, ser_T);
+    ser_T* out = SNZ_ARENA_PUSH(_ser_globs.arena, ser_T);
     out->kind = kind;
     return out;
 }
 
-#define ser_tStruct(specPtr, T) _ser_tStruct(specPtr, #T)
-ser_T* _ser_tStruct(ser_Spec* s, const char* name) {
-    _ser_specAssertUnlocked(s);
-    ser_T* out = SNZ_ARENA_PUSH(s->arena, ser_T);
-    out->kind = SER_TK_OTHER;
+#define ser_tStruct(T) _ser_tStruct(#T)
+ser_T* _ser_tStruct(const char* name) {
+    _ser_assertInstanceValidForAddingToSpec();
+    ser_T* out = SNZ_ARENA_PUSH(_ser_globs.arena, ser_T);
+    out->kind = SER_TK_STRUCT;
     out->referencedName = name;
     return out;
 }
 
-#define ser_tEnum(specPtr, T) _ser_tEnum(specPtr, #T)
-ser_T* _ser_tEnum(ser_Spec* s, const char* name) {
-    _ser_specAssertUnlocked(s);
-    ser_T* out = SNZ_ARENA_PUSH(s->arena, ser_T);
-    out->kind = SER_TK_OTHER;
-    out->referencedName = name;
-    return out;
-}
-
-ser_T* ser_tPtr(ser_Spec* s, ser_T* innerT) {
-    _ser_specAssertUnlocked(s);
-    ser_T* out = SNZ_ARENA_PUSH(s->arena, ser_T);
+ser_T* ser_tPtr(ser_T* innerT) {
+    _ser_assertInstanceValidForAddingToSpec();
+    ser_T* out = SNZ_ARENA_PUSH(_ser_globs.arena, ser_T);
     out->kind = SER_TK_PTR;
     SNZ_ASSERT(innerT, "Can't point to a null type.");
     out->inner = innerT;
     return out;
 }
 
-ser_T* ser_tArray(ser_Spec* s, ser_T* innerT) {
-    _ser_specAssertUnlocked(s);
-    ser_T* out = SNZ_ARENA_PUSH(s->arena, ser_T);
+ser_T* ser_tArray(ser_T* innerT) {
+    _ser_assertInstanceValidForAddingToSpec();
+    ser_T* out = SNZ_ARENA_PUSH(_ser_globs.arena, ser_T);
     out->kind = SER_TK_ARRAY;
     SNZ_ASSERT(innerT, "Can't point to a null type.");
     out->inner = innerT;
     return out;
 }
 
-ser_Spec ser_begin(snz_Arena* arena) {
-    ser_Spec out = (ser_Spec){
-        .arena = arena,
-        .validated = false,
-    };
-    return out;
-}
-
-void ser_addEnum(ser_Spec* s) {
-    _ser_specAssertUnlocked(s);
-    // FIXME: impl
-    SNZ_ASSERT(false, "no impl :(");
-}
-
-#define ser_addStruct(specPtr, T) _ser_addStruct(specPtr, #T)
-void _ser_addStruct(ser_Spec* spec, const char* name) {
-    _ser_specAssertUnlocked(spec);
-    _ser_specPushActiveStructSpecIfAny(spec);
-    ser_SpecStruct* s = SNZ_ARENA_PUSH(spec->arena, ser_SpecStruct);
-    spec->activeStructSpec = s;
+#define ser_addStruct(T) _ser_addStruct(#T)
+void _ser_addStruct(const char* name) {
+    _ser_assertInstanceValidForAddingToSpec();
+    _ser_pushActiveStructSpecIfAny();
+    ser_SpecStruct* s = SNZ_ARENA_PUSH(_ser_globs.arena, ser_SpecStruct);
+    _ser_globs.activeStructSpec = s;
     s->tag = name;
 }
 
 // FIXME: assert that active struct name == struct name?
-#define ser_addStructField(specPtr, kindPtr, structName, name) \
-    _ser_addStructField(specPtr, kind, name, offsetof(structName, name))
-void _ser_addStructField(ser_Spec* spec, ser_T* kind, const char* tag, int offsetIntoStruct) {
-    _ser_specAssertUnlocked(spec);
-    SNZ_ASSERT(spec->activeStructSpec, "There was no active struct to add a field to.");
+// FIXME: assert that size of kind is same as sizeof prop named
+#define ser_addStructField(kindPtr, structName, name) \
+    _ser_addStructField(kindPtr, #name, offsetof(structName, name))
+void _ser_addStructField(ser_T* kind, const char* tag, int offsetIntoStruct) {
+    _ser_assertInstanceValidForAddingToSpec();
+    SNZ_ASSERT(_ser_globs.activeStructSpec, "There was no active struct to add a field to.");
+
+    ser_SpecField* field = SNZ_ARENA_PUSH(_ser_globs.arena, ser_SpecField);
+    *field = (ser_SpecField){
+        .offsetInStruct = offsetIntoStruct,
+        .tag = tag,
+        .type = kind,
+        .next = _ser_globs.activeStructSpec->firstField,
+    };
+    _ser_globs.activeStructSpec->firstField = field;
 }
 
-void ser_end(ser_Spec* spec) {
-    _ser_specAssertUnlocked(spec);
-    _ser_specPushActiveStructSpecIfAny(spec);
-    spec->validated = true;
+void ser_begin(snz_Arena* arena) {
+    _ser_globs.arena = arena;
+    _ser_globs.validated = false;
 }
 
-void main() {
+ser_SpecStruct* _ser_getStructSpecByName(const char* name) {
+    for (ser_SpecStruct* s = _ser_globs.firstStructSpec; s; s = s->next) {
+        if (strcmp(s->tag, name) == 0) {
+            return s;
+        }
+    }
+    return NULL;
+}
+
+bool _ser_kindNonTerminal(ser_TKind kind) {
+    SNZ_ASSERTF(kind > SER_TK_INVALID || kind < SER_TK_COUNT, "invalid kind '%d'", kind);
+    if (kind == SER_TK_PTR) {
+        return true;
+    } else if (kind == SER_TK_ARRAY) {
+        return true;
+    }
+    return false;
+}
+
+void ser_end() {
+    _ser_assertInstanceValidForAddingToSpec();
+    _ser_pushActiveStructSpecIfAny();
+
+    // FIXME: could double check that offsets are within the size of a given struct
+    for (ser_SpecStruct* s = _ser_globs.firstStructSpec; s; s = s->next) {
+        // FIXME: good error reporting here, trace of type, line no., etc.
+        SNZ_ASSERT(s->tag, "struct with no tag.");
+        for (ser_SpecField* f = s->firstField; f; f = f->next) {
+            SNZ_ASSERT(f->tag, "struct field with no tag.");
+            for (ser_T* inner = f->type; inner; inner = inner->inner) {
+                if (inner->kind == SER_TK_STRUCT) {
+                    inner->referencedStruct = _ser_getStructSpecByName(inner->referencedName);
+                    SNZ_ASSERTF(inner->referencedStruct, "no definition with the name '%s' found.", inner->referencedName);
+                }
+
+                if (_ser_kindNonTerminal(inner->kind)) {
+                    SNZ_ASSERT(inner->inner, "non-terminal kind with no inner kind");
+                } else {
+                    SNZ_ASSERT(!inner->inner, "terminal kind with an inner kind");
+                }
+            } // end validating inners on field
+        } // end fields
+    } // end all structs
+    _ser_globs.validated = true;
+}
+
+void _ser_printSpec() {
+    for (ser_SpecStruct* s = _ser_globs.firstStructSpec; s; s = s->next) {
+        printf("%s:\n", s->tag);
+        for (ser_SpecField* f = s->firstField; f; f = f->next) {
+            printf("\t%s:\n", f->tag);
+            for (ser_T* inner = f->type; inner; inner = inner->inner) {
+                const char* str = ser_tKindStrs[inner->kind];
+                printf("\t\t%s\n", str);
+            }
+        }
+    }
+}
+
+#include "geometry.h"
+
+void ser_tests() {
+    snz_testPrintSection("ser 3");
     snz_Arena testArena = snz_arenaInit(10000000, "test arena");
-    ser_Spec spec = ser_begin(&testArena);
-    ser_Spec* s = &spec;
 
-    ser_addStruct(s, HMM_Vec2);
-    ser_addStructField(s, );
+    ser_begin(&testArena);
+
+    ser_addStruct(HMM_Vec2);
+    ser_addStructField(ser_tBase(SER_TK_FLOAT32), HMM_Vec2, X);
+    ser_addStructField(ser_tBase(SER_TK_FLOAT32), HMM_Vec2, Y);
+
+    ser_addStruct(HMM_Vec3);
+    ser_addStructField(ser_tBase(SER_TK_FLOAT32), HMM_Vec3, X);
+    ser_addStructField(ser_tBase(SER_TK_FLOAT32), HMM_Vec3, Y);
+    ser_addStructField(ser_tBase(SER_TK_FLOAT32), HMM_Vec3, Z);
+
+    ser_addStruct(geo_Tri);
+    ser_addStructField(ser_tBase(SER_TK_FLOAT32), geo_Tri, a);
+    ser_addStructField(ser_tBase(SER_TK_FLOAT32), geo_Tri, b);
+    ser_addStructField(ser_tBase(SER_TK_FLOAT32), geo_Tri, c);
+
+    ser_addStruct(geo_TriSlice);
+    ser_addStructField(ser_tArray(ser_tStruct(geo_Tri)), geo_TriSlice, elems);
+
+    ser_addStruct(geo_Line);
+    ser_addStructField(ser_tStruct(HMM_Vec3), geo_Line, a);
+    ser_addStructField(ser_tStruct(HMM_Vec3), geo_Line, b);
+
+    ser_addStruct(geo_LineSlice);
+    ser_addStructField(ser_tArray(ser_tStruct(geo_Line)), geo_LineSlice, elems);
+
+    ser_end();
+    // _ser_printSpec();
 }
