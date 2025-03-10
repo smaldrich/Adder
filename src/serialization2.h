@@ -172,8 +172,7 @@ bool _ser_isGlobalSetLocked;
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 _ser_SpecSet _ser_specSetInit(const char* arenaName) {
-    _ser_SpecSet out;
-    memset(&out, 0, sizeof(out));
+    _ser_SpecSet out = { 0 };
     out.arena = snz_arenaInit(1000000, arenaName);
     return out;
 }
@@ -1306,8 +1305,7 @@ ser_Error _ser_test_multipleVec2RoundTrip() {
     _ser_test_ArrayStruct vecArr = { .elems = vecs, .count = 5 };
     _SER_EXPECT_OK(ser_writeObj(_ser_test_ArrayStruct, &vecArr, "./testing/v2RoundTrip"));
 
-    _ser_test_ArrayStruct outArr;
-    memset(&outArr, 0, sizeof(outArr));
+    _ser_test_ArrayStruct outArr = { 0 };
     snz_Arena arena = snz_arenaInit(1000000, "v2 round trip arena");
     _SER_EXPECT_OK(ser_readObj(_ser_test_ArrayStruct, &outArr, "./testing/v2RoundTrip", &arena));
 
