@@ -89,13 +89,16 @@ struct ser_SpecField {
 struct ser_SpecStruct {
     ser_SpecStruct* next;
     const char* tag;
+    int indexIntoSpec;
 
     ser_SpecField* firstField;
+    int fieldCount;
 };
 
 static struct {
     bool validated; // when true indicates all specs have been added and that no more will, also that the entire thing has been validated.
     ser_SpecStruct* firstStructSpec;
+    int structSpecCount;
 
     snz_Arena* arena;
     ser_SpecStruct* activeStructSpec;
@@ -103,6 +106,7 @@ static struct {
 
 static void _ser_pushActiveStructSpecIfAny() {
     if (_ser_globs.activeStructSpec) {
+        _ser_globs.structSpecCount++;
         _ser_globs.activeStructSpec->next = _ser_globs.firstStructSpec;
         _ser_globs.firstStructSpec = _ser_globs.activeStructSpec;
         _ser_globs.activeStructSpec = NULL;
@@ -112,6 +116,10 @@ static void _ser_pushActiveStructSpecIfAny() {
 static void _ser_assertInstanceValidForAddingToSpec() {
     SNZ_ASSERT(!_ser_globs.validated, "ser_begin hasn't been called yet.");
     SNZ_ASSERT(!_ser_globs.validated, "ser_end already called.");
+}
+
+static void _ser_assertInstanceValidated() {
+    SNZ_ASSERT(_ser_globs.validated, "ser_end hasn't been called yet.");
 }
 
 ser_T* ser_tBase(ser_TKind kind) {
@@ -177,6 +185,7 @@ void _ser_addStructField(ser_T* kind, const char* tag, int offsetIntoStruct) {
         .next = _ser_globs.activeStructSpec->firstField,
     };
     _ser_globs.activeStructSpec->firstField = field;
+    _ser_globs.activeStructSpec->fieldCount++;
 }
 
 void ser_begin(snz_Arena* arena) {
@@ -208,6 +217,7 @@ void ser_end() {
     _ser_pushActiveStructSpecIfAny();
 
     // FIXME: could double check that offsets are within the size of a given struct
+    int i = 0;
     for (ser_SpecStruct* s = _ser_globs.firstStructSpec; s; s = s->next) {
         // FIXME: good error reporting here, trace of type, line no., etc.
         SNZ_ASSERT(s->tag, "struct with no tag.");
@@ -226,6 +236,9 @@ void ser_end() {
                 }
             } // end validating inners on field
         } // end fields
+
+        s->indexIntoSpec = i;
+        i++;
     } // end all structs
     _ser_globs.validated = true;
 }
@@ -240,6 +253,80 @@ void _ser_printSpec() {
                 printf("\t\t%s\n", str);
             }
         }
+    }
+}
+
+void _ser_writeSpec(FILE* f) {
+    _ser_assertInstanceValidated();
+
+    fprintf(f, "beginning spec\n");
+    fprintf(f, "decl count: %d\n", _ser_globs.structSpecCount);
+    for (ser_SpecStruct* s = _ser_globs.firstStructSpec; s; s = s->next) {
+        fprintf(f, "\tname: %lld %s\n", strlen(s->tag), s->tag);
+
+        fprintf(f, "\tfield count: %d\n", s->fieldCount);
+        for (ser_SpecField* field = s->firstField; field; field = field->next) {
+            fprintf(f, "\t\tname: %lld %s\n", strlen(field->tag), field->tag);
+            for (ser_T* inner = field->type; inner; inner = inner->inner) {
+                fprintf(f, "\t\t\tkind: %d\n", inner->kind);
+                if (inner->kind == SER_TK_STRUCT) {
+                    fprintf(f, "\t\t\tpointing at: %d\n", inner->referencedStruct->indexIntoSpec);
+                }
+            }
+        }
+    }
+}
+
+void _ser_writeField(FILE* f, ser_SpecField* field, void* obj, int indentLevel) {
+    ser_TKind kind = field->type->kind;
+    if (_ser_kindNonTerminal(kind)) {
+        fprintf(f, "no idea what to do w this one tbh.\n");
+        return;
+    } else if (kind == SER_TK_STRUCT) {
+        ser_SpecStruct* s = field->type->referencedStruct;
+        for (ser_SpecField* innerField = s->firstField; innerField; innerField = innerField->next) {
+            _ser_writeField(f, innerField, obj, indentLevel + 1);
+        }
+        return;
+    }
+
+    // base types
+    fprintf(f, "%*s", indentLevel * 2, "");
+
+    void* ptr = ((char*)obj) + field->offsetInStruct;
+    if (kind == SER_TK_FLOAT32) {
+        fprintf(f, "%f", *(float*)ptr);
+    } else if (kind == SER_TK_FLOAT64) {
+        fprintf(f, "%f", *(double*)ptr);
+    } else if (kind == SER_TK_INT8) {
+        fprintf(f, "%d", *(int8_t*)ptr);
+    } else if (kind == SER_TK_INT16) {
+        fprintf(f, "%d", *(int16_t*)ptr);
+    } else if (kind == SER_TK_INT32) {
+        fprintf(f, "%d", *(int32_t*)ptr);
+    } else if (kind == SER_TK_INT64) {
+        fprintf(f, "%lld", *(int64_t*)ptr);
+    } else if (kind == SER_TK_UINT8) {
+        fprintf(f, "%u", *(uint8_t*)ptr);
+    } else if (kind == SER_TK_UINT16) {
+        fprintf(f, "%u", *(uint16_t*)ptr);
+    } else if (kind == SER_TK_UINT32) {
+        fprintf(f, "%u", *(uint32_t*)ptr);
+    } else if (kind == SER_TK_UINT64) {
+        fprintf(f, "%llu", *(uint64_t*)ptr);
+    }
+    fprintf(f, "\n");
+}
+
+#define ser_writeStruct(F, T, obj) _ser_writeStruct(F, #T, obj)
+void _ser_writeStruct(FILE* f, const char* typename, void* obj) {
+    _ser_assertInstanceValidated();
+    ser_SpecStruct* spec = _ser_getStructSpecByName(typename);
+    SNZ_ASSERTF(spec, "No definition for struct '%s'", typename);
+
+    fprintf(f, "struct, kind: %d\n", spec->indexIntoSpec);
+    for (ser_SpecField* field = spec->firstField; field; field = field->next) {
+        _ser_writeField(f, field, obj, 1);
     }
 }
 
@@ -276,5 +363,12 @@ void ser_tests() {
     ser_addStructField(ser_tArray(ser_tStruct(geo_Line)), geo_LineSlice, elems);
 
     ser_end();
+
+    FILE* f = fopen("testing/ser3.adder", "w");
+    HMM_Vec2 v = HMM_V2(20, 25);
+
+    _ser_writeSpec(f);
+    ser_writeStruct(f, HMM_Vec2, &v);
+    ser_writeStruct(f, HMM_Vec2, &v);
     // _ser_printSpec();
 }
