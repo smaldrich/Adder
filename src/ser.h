@@ -284,8 +284,9 @@ void _ser_writeField(FILE* f, ser_SpecField* field, void* obj, int indentLevel) 
         return;
     } else if (kind == SER_TK_STRUCT) {
         ser_SpecStruct* s = field->type->referencedStruct;
+        void* innerStruct = (char*)obj + field->offsetInStruct;
         for (ser_SpecField* innerField = s->firstField; innerField; innerField = innerField->next) {
-            _ser_writeField(f, innerField, obj, indentLevel + 1);
+            _ser_writeField(f, innerField, innerStruct, indentLevel + 1);
         }
         return;
     }
@@ -343,14 +344,13 @@ void ser_tests() {
     ser_addStructField(ser_tBase(SER_TK_FLOAT32), HMM_Vec2, Y);
 
     ser_addStruct(HMM_Vec3);
-    ser_addStructField(ser_tBase(SER_TK_FLOAT32), HMM_Vec3, X);
-    ser_addStructField(ser_tBase(SER_TK_FLOAT32), HMM_Vec3, Y);
+    ser_addStructField(ser_tStruct(HMM_Vec2), HMM_Vec3, XY);
     ser_addStructField(ser_tBase(SER_TK_FLOAT32), HMM_Vec3, Z);
 
     ser_addStruct(geo_Tri);
-    ser_addStructField(ser_tBase(SER_TK_FLOAT32), geo_Tri, a);
-    ser_addStructField(ser_tBase(SER_TK_FLOAT32), geo_Tri, b);
-    ser_addStructField(ser_tBase(SER_TK_FLOAT32), geo_Tri, c);
+    ser_addStructField(ser_tStruct(HMM_Vec3), geo_Tri, a);
+    ser_addStructField(ser_tStruct(HMM_Vec3), geo_Tri, b);
+    ser_addStructField(ser_tStruct(HMM_Vec3), geo_Tri, c);
 
     ser_addStruct(geo_TriSlice);
     ser_addStructField(ser_tArray(ser_tStruct(geo_Tri)), geo_TriSlice, elems);
@@ -365,10 +365,13 @@ void ser_tests() {
     ser_end();
 
     FILE* f = fopen("testing/ser3.adder", "w");
-    HMM_Vec2 v = HMM_V2(20, 25);
-
+    geo_Tri t = (geo_Tri){
+        .a = HMM_V3(0, 1, 2),
+        .b = HMM_V3(3, 4, 5),
+        .c = HMM_V3(6, 7, 8),
+    };
     _ser_writeSpec(f);
-    ser_writeStruct(f, HMM_Vec2, &v);
-    ser_writeStruct(f, HMM_Vec2, &v);
+    ser_writeStruct(f, geo_Tri, &t);
     // _ser_printSpec();
+    fclose(f);
 }
