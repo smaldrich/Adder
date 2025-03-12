@@ -294,16 +294,16 @@ void _ser_writeField(_ser_WriteInst* write, ser_SpecField* field, void* obj, int
     fprintf(write->file, "%*s", indentLevel * 4, "");
 
     ser_TKind kind = field->type->kind;
-    if (kind == SER_TK_PTR) {
-        fprintf(write->file, ">> ptr\n");
-        // FIXME: dedup deps
-        return;
-    } else if (kind == SER_TK_PTR_VIEW) {
-        fprintf(write->file, ">> slice, ");
-        int64_t len = *(int64_t*)((char*)obj + field->type->offsetOfPtrViewLengthIntoStruct);
+    if (kind == SER_TK_PTR || kind == SER_TK_PTR_VIEW) {
         void* innerPtr = *(void**)((char*)obj + field->offsetInStruct);
-        fprintf(write->file, "%lld elems @ %p\n", len, innerPtr);
-        // FIXME: ptr patching
+        fprintf(write->file, "0x%p", innerPtr);
+        // FIXME: dedup deps
+        // FIXME: patching
+        if (kind == SER_TK_PTR_VIEW) {
+            int64_t len = *(int64_t*)((char*)obj + field->type->offsetOfPtrViewLengthIntoStruct);
+            fprintf(write->file, ", %lld elems", len);
+        }
+        fprintf(write->file, "\n");
         return;
     } else if (kind == SER_TK_STRUCT) {
         fprintf(write->file, ">> struct\n");
