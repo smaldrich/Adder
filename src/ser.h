@@ -218,6 +218,7 @@ void ser_end() {
 
     // FIXME: could double check that offsets are within the size of a given struct
     int i = 0;
+    // FIXME: duplicates check for structs and fields
     for (ser_SpecStruct* s = _ser_globs.firstStructSpec; s; s = s->next) {
         // FIXME: good error reporting here, trace of type, line no., etc.
         SNZ_ASSERT(s->tag, "struct with no tag.");
@@ -256,78 +257,108 @@ void _ser_printSpec() {
     }
 }
 
-void _ser_writeSpec(FILE* f) {
-    _ser_assertInstanceValidated();
+typedef struct _ser_QueuedStruct _ser_QueuedStruct;
+typedef struct {
+    _ser_QueuedStruct* next;
+    ser_SpecStruct* spec;
+    void* obj;
+} _ser_QueuedStruct;
 
-    fprintf(f, "beginning spec\n");
-    fprintf(f, "decl count: %d\n", _ser_globs.structSpecCount);
-    for (ser_SpecStruct* s = _ser_globs.firstStructSpec; s; s = s->next) {
-        fprintf(f, "\tname: %lld %s\n", strlen(s->tag), s->tag);
+typedef struct {
+    _ser_QueuedStruct* nextStruct;
+    // address -> loc in file table
+    // locations of loc stubs in file
+    FILE* file;
+} _ser_WriteInst;
 
-        fprintf(f, "\tfield count: %d\n", s->fieldCount);
-        for (ser_SpecField* field = s->firstField; field; field = field->next) {
-            fprintf(f, "\t\tname: %lld %s\n", strlen(field->tag), field->tag);
-            for (ser_T* inner = field->type; inner; inner = inner->inner) {
-                fprintf(f, "\t\t\tkind: %d\n", inner->kind);
-                if (inner->kind == SER_TK_STRUCT) {
-                    fprintf(f, "\t\t\tpointing at: %d\n", inner->referencedStruct->indexIntoSpec);
-                }
-            }
-        }
-    }
-}
-
-void _ser_writeField(FILE* f, ser_SpecField* field, void* obj, int indentLevel) {
+void _ser_writeField(_ser_WriteInst* write, ser_SpecField* field, void* obj, int indentLevel) {
     ser_TKind kind = field->type->kind;
-    if (_ser_kindNonTerminal(kind)) {
-        fprintf(f, "no idea what to do w this one tbh.\n");
+    if (kind == SER_TK_PTR) {
+        // FIXME: dedup deps
+        fprintf(write->file, "no idea what to do w this one tbh.\n");
+        return;
+    } else if (kind == SER_TK_ARRAY) {
+        fprintf(write->file, "no idea what to do w this one tbh.\n");
         return;
     } else if (kind == SER_TK_STRUCT) {
         ser_SpecStruct* s = field->type->referencedStruct;
         void* innerStruct = (char*)obj + field->offsetInStruct;
         for (ser_SpecField* innerField = s->firstField; innerField; innerField = innerField->next) {
-            _ser_writeField(f, innerField, innerStruct, indentLevel + 1);
+            _ser_writeField(write, innerField, innerStruct, indentLevel + 1);
         }
         return;
+    } else {
+        SNZ_ASSERTF(false, "unreachable. kind: %d.", kind);
     }
 
     // base types
-    fprintf(f, "%*s", indentLevel * 2, "");
+    fprintf(write->file, "%*s", indentLevel * 2, "");
 
     void* ptr = ((char*)obj) + field->offsetInStruct;
     if (kind == SER_TK_FLOAT32) {
-        fprintf(f, "%f", *(float*)ptr);
+        fprintf(write->file, "%f", *(float*)ptr);
     } else if (kind == SER_TK_FLOAT64) {
-        fprintf(f, "%f", *(double*)ptr);
+        fprintf(write->file, "%f", *(double*)ptr);
     } else if (kind == SER_TK_INT8) {
-        fprintf(f, "%d", *(int8_t*)ptr);
+        fprintf(write->file, "%d", *(int8_t*)ptr);
     } else if (kind == SER_TK_INT16) {
-        fprintf(f, "%d", *(int16_t*)ptr);
+        fprintf(write->file, "%d", *(int16_t*)ptr);
     } else if (kind == SER_TK_INT32) {
-        fprintf(f, "%d", *(int32_t*)ptr);
+        fprintf(write->file, "%d", *(int32_t*)ptr);
     } else if (kind == SER_TK_INT64) {
-        fprintf(f, "%lld", *(int64_t*)ptr);
+        fprintf(write->file, "%lld", *(int64_t*)ptr);
     } else if (kind == SER_TK_UINT8) {
-        fprintf(f, "%u", *(uint8_t*)ptr);
+        fprintf(write->file, "%u", *(uint8_t*)ptr);
     } else if (kind == SER_TK_UINT16) {
-        fprintf(f, "%u", *(uint16_t*)ptr);
+        fprintf(write->file, "%u", *(uint16_t*)ptr);
     } else if (kind == SER_TK_UINT32) {
-        fprintf(f, "%u", *(uint32_t*)ptr);
+        fprintf(write->file, "%u", *(uint32_t*)ptr);
     } else if (kind == SER_TK_UINT64) {
-        fprintf(f, "%llu", *(uint64_t*)ptr);
+        fprintf(write->file, "%llu", *(uint64_t*)ptr);
     }
-    fprintf(f, "\n");
+    fprintf(write->file, "\n");
 }
 
-#define ser_writeStruct(F, T, obj) _ser_writeStruct(F, #T, obj)
-void _ser_writeStruct(FILE* f, const char* typename, void* obj) {
+#define ser_write(F, T, obj, scratch) _ser_write(F, #T, obj, scratch)
+void _ser_write(FILE* f, const char* typename, void* obj, snz_Arena* scratch) {
     _ser_assertInstanceValidated();
-    ser_SpecStruct* spec = _ser_getStructSpecByName(typename);
-    SNZ_ASSERTF(spec, "No definition for struct '%s'", typename);
 
-    fprintf(f, "struct, kind: %d\n", spec->indexIntoSpec);
-    for (ser_SpecField* field = spec->firstField; field; field = field->next) {
-        _ser_writeField(f, field, obj, 1);
+    _ser_WriteInst write = { 0 };
+    write.file = f;
+
+    write.nextStruct = SNZ_ARENA_PUSH(scratch, _ser_QueuedStruct);
+    write.nextStruct->obj = obj;
+    write.nextStruct->spec = _ser_getStructSpecByName(typename);
+    SNZ_ASSERTF(write.nextStruct->spec, "No definition for struct '%s'", typename);
+
+    { // writing spec
+        fprintf(f, "beginning spec\n");
+        fprintf(f, "decl count: %d\n", _ser_globs.structSpecCount);
+        for (ser_SpecStruct* s = _ser_globs.firstStructSpec; s; s = s->next) {
+            fprintf(f, "\tname: %lld %s\n", strlen(s->tag), s->tag);
+
+            fprintf(f, "\tfield count: %d\n", s->fieldCount);
+            for (ser_SpecField* field = s->firstField; field; field = field->next) {
+                fprintf(f, "\t\tname: %lld %s\n", strlen(field->tag), field->tag);
+                for (ser_T* inner = field->type; inner; inner = inner->inner) {
+                    fprintf(f, "\t\t\tkind: %d\n", inner->kind);
+                    if (inner->kind == SER_TK_STRUCT) {
+                        fprintf(f, "\t\t\tpointing at: %d\n", inner->referencedStruct->indexIntoSpec);
+                    }
+                }
+            }
+        }
+    } // end writing spec
+
+    // write all structs and their deps
+    while (write.nextStruct) { // FIXME: cutoff
+        _ser_QueuedStruct* s = write.nextStruct;
+        write.nextStruct = s->next;
+
+        fprintf(f, "struct, kind: %d\n", s->spec->indexIntoSpec);
+        for (ser_SpecField* field = s->spec->firstField; field; field = field->next) {
+            _ser_writeField(&write, field, obj, 1);
+        }
     }
 }
 
@@ -370,8 +401,7 @@ void ser_tests() {
         .b = HMM_V3(3, 4, 5),
         .c = HMM_V3(6, 7, 8),
     };
-    _ser_writeSpec(f);
-    ser_writeStruct(f, geo_Tri, &t);
+    ser_write(f, geo_Tri, &t, &testArena);
     // _ser_printSpec();
     fclose(f);
 }
