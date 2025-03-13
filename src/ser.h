@@ -253,8 +253,8 @@ void ser_end() {
                     SNZ_ASSERT(inner->inner, "ptr with no inner kind");
                     SNZ_ASSERT(inner->inner->kind == SER_TK_STRUCT, "ptr that doesn't point to struct type");
                 } else if (inner->kind == SER_TK_PTR_VIEW) {
-                    SNZ_ASSERT(inner->inner, "ptr with no inner kind");
-                    SNZ_ASSERT(inner->inner->kind != SER_TK_PTR_VIEW, "nested ptr view.");
+                    SNZ_ASSERT(inner->inner, "ptr view with no inner kind");
+                    SNZ_ASSERT(inner->inner->kind == SER_TK_STRUCT, "ptr view that doesn't point to struct type");
                 } else {
                     SNZ_ASSERT(!inner->inner, "terminal kind with an inner kind");
                 }
@@ -267,47 +267,34 @@ void ser_end() {
     _ser_globs.validated = true;
 }
 
-void _ser_printSpec() {
-    for (ser_SpecStruct* s = _ser_globs.firstStructSpec; s; s = s->next) {
-        printf("%s:\n", s->tag);
-        for (ser_SpecField* f = s->firstField; f; f = f->next) {
-            printf("\t%s:\n", f->tag);
-            for (ser_T* inner = f->type; inner; inner = inner->inner) {
-                const char* str = ser_tKindStrs[inner->kind];
-                printf("\t\t%s\n", str);
-            }
-        }
-    }
-}
-
-typedef struct _ser_WriteAddressNode _ser_WriteAddressNode;
-struct _ser_WriteAddressNode {
+typedef struct _ser_AddressNode _ser_AddressNode;
+struct _ser_AddressNode {
     uint64_t key;
     uint64_t value;
-    _ser_WriteAddressNode* nextCollided;
+    _ser_AddressNode* nextCollided;
 };
 
-typedef struct _ser_QueuedStruct _ser_QueuedStruct;
-struct _ser_QueuedStruct {
-    _ser_QueuedStruct* next;
+typedef struct _serw_QueuedStructs _serw_QueuedStructs;
+struct _serw_QueuedStructs {
+    _serw_QueuedStructs* next;
     ser_SpecStruct* spec;
     void* obj;
     int64_t count;
 };
 
 // FIXME: dyn size for large files
-#define _SER_WRITE_ADDRESS_BUCKET_COUNT 2048
-#define _SER_WRITE_ADDRESS_NODE_COUNT 2048
+#define _SERW_ADDRESS_BUCKET_COUNT 2048
+#define _SERW_ADDRESS_NODE_COUNT 2048
 
 typedef struct {
-    _ser_QueuedStruct* nextStruct;
-    _ser_WriteAddressNode* addressBuckets[_SER_WRITE_ADDRESS_BUCKET_COUNT];
-    _ser_WriteAddressNode addresses[_SER_WRITE_ADDRESS_NODE_COUNT];
+    _serw_QueuedStructs* nextStruct;
+    _ser_AddressNode* addressBuckets[_SERW_ADDRESS_BUCKET_COUNT];
+    _ser_AddressNode addresses[_SERW_ADDRESS_NODE_COUNT];
     int64_t addressCount;
     // locations of loc stubs in file
     FILE* file;
     snz_Arena* scratch;
-} _ser_WriteInst;
+} _serw_WriteInst;
 
 // https://zimbry.blogspot.com/2011/09/better-bit-mixing-improving-on.html
 uint64_t _ser_addressHash(uint64_t address) {
@@ -320,19 +307,20 @@ uint64_t _ser_addressHash(uint64_t address) {
 }
 
 // return indicates whether the key didn't exist before & and the val was added
-bool _ser_writeAddressLocSetIfNew(_ser_WriteInst* write, uint64_t key, uint64_t value) {
-    int64_t bucket = _ser_addressHash(key) % _SER_WRITE_ADDRESS_BUCKET_COUNT;
-    _ser_WriteAddressNode* initial = write->addressBuckets[bucket];
-    for (_ser_WriteAddressNode* node = initial; node; node = node->nextCollided) {
+bool _serw_addressLocSet(_serw_WriteInst* write, uint64_t key, uint64_t value) {
+    int64_t bucket = _ser_addressHash(key) % _SERW_ADDRESS_BUCKET_COUNT;
+    _ser_AddressNode* initial = write->addressBuckets[bucket];
+    for (_ser_AddressNode* node = initial; node; node = node->nextCollided) {
         if (node->key == key) {
+            node->value = value;
             return false;
         }
     }
 
-    SNZ_ASSERT(write->addressCount < _SER_WRITE_ADDRESS_NODE_COUNT, "Too many addresses to serialize. see the fixme.");
-    _ser_WriteAddressNode* node = &write->addresses[write->addressCount];
+    SNZ_ASSERT(write->addressCount < _SERW_ADDRESS_NODE_COUNT, "Too many addresses to serialize. see the fixme.");
+    _ser_AddressNode* node = &write->addresses[write->addressCount];
     write->addressCount++;
-    *node = (_ser_WriteAddressNode){
+    *node = (_ser_AddressNode){
         .key = key,
         .value = value,
         .nextCollided = initial,
@@ -341,12 +329,10 @@ bool _ser_writeAddressLocSetIfNew(_ser_WriteInst* write, uint64_t key, uint64_t 
     return true;
 }
 
-// FIXME: prefix serw_, not ser_write
-
 // null if not in table
-uint64_t* _ser_writeAddressLocGet(_ser_WriteInst* write, uint64_t key) {
-    int64_t bucket = _ser_addressHash(key) % _SER_WRITE_ADDRESS_BUCKET_COUNT;
-    for (_ser_WriteAddressNode* node = write->addressBuckets[bucket]; node; node = node->nextCollided) {
+uint64_t* _serw_addressLocGet(_serw_WriteInst* write, uint64_t key) {
+    int64_t bucket = _ser_addressHash(key) % _SERW_ADDRESS_BUCKET_COUNT;
+    for (_ser_AddressNode* node = write->addressBuckets[bucket]; node; node = node->nextCollided) {
         if (node->key == key) {
             return &node->value;
         }
@@ -354,50 +340,41 @@ uint64_t* _ser_writeAddressLocGet(_ser_WriteInst* write, uint64_t key) {
     return NULL;
 }
 
-void _ser_writeField(_ser_WriteInst* write, ser_SpecField* field, void* obj, int indentLevel) {
+void _serw_writeField(_serw_WriteInst* write, ser_SpecField* field, void* obj, int indentLevel) {
     fprintf(write->file, "%*s", indentLevel * 4, "");
 
     ser_TKind kind = field->type->kind;
     if (kind == SER_TK_PTR || kind == SER_TK_PTR_VIEW) {
-        void* innerPtr = *(void**)((char*)obj + field->offsetInStruct);
-        int64_t ptrViewLen = 0;
+        uint64_t pointed = *((char*)obj + field->offsetInStruct);
+        int64_t queuedCount = 1;
         if (kind == SER_TK_PTR_VIEW) {
-            ptrViewLen = *(int64_t*)((char*)obj + field->type->offsetOfPtrViewLengthIntoStruct);
-            if (ptrViewLen == 0) {
-                innerPtr = NULL;
+            queuedCount = *(int64_t*)((char*)obj + field->type->offsetOfPtrViewLengthIntoStruct);
+            if (queuedCount == 0) {
+                pointed = NULL;
             }
         }
 
-        bool addressAlreadyWritten = _ser_writeAddressLocGet(write, (uint64_t)innerPtr);
-        if (addressAlreadyWritten) {
-            // FIXME: write the location within the file
-        } else {
-            _ser_QueuedStruct* queued = SNZ_ARENA_PUSH(write->scratch, _ser_QueuedStruct);
-            SNZ_ASSERT(field->type->inner->kind == SER_TK_STRUCT, "ptr that doesn't point to struct type");
-            SNZ_ASSERT(field->type->inner->referencedStruct != NULL, "struct def from ptr not found");
-
-            *queued = (_ser_QueuedStruct){
-                .count = 1,
+        if (!_serw_addressLocGet(write, pointed)) {
+            _serw_QueuedStructs* queued = SNZ_ARENA_PUSH(write->scratch, _serw_QueuedStructs);
+            *queued = (_serw_QueuedStructs){
+                .count = queuedCount,
                 .next = write->nextStruct,
-                .obj = innerPtr,
+                .obj = pointed,
                 .spec = field->type->inner->referencedStruct,
             };
             write->nextStruct = queued;
 
-            SNZ_ASSERT(_ser_writeAddressLocSetIfNew(write, (uint64_t)innerPtr, -1), "huh");
-            // FIXME: loop over all addrs in a slice
-            // FIXME: write the location within the file to this node instead of just leaving it to die
-            // FIXME: add this file location to pointer patch table
-
-            if (kind == SER_TK_PTR_VIEW) {
-                queued->count = ptrViewLen;
+            uint64_t structStart = pointed;
+            for (int i = 0; i < queued->count; i++) {
+                SNZ_ASSERT(_serw_addressLocSet(write, structStart, 0), "huh");
+                structStart += queued->spec->size;
             }
         }
 
-
-        fprintf(write->file, "0x%p", innerPtr);
+        // FIXME: put file loc to stub table
+        fprintf(write->file, "0x%p", pointed);
         if (kind == SER_TK_PTR_VIEW) {
-            fprintf(write->file, ", %lld elems", ptrViewLen);
+            fprintf(write->file, ", %lld elems", queuedCount);
         }
         fprintf(write->file, "\n");
         return;
@@ -406,7 +383,7 @@ void _ser_writeField(_ser_WriteInst* write, ser_SpecField* field, void* obj, int
         ser_SpecStruct* s = field->type->referencedStruct;
         void* innerStruct = (char*)obj + field->offsetInStruct;
         for (ser_SpecField* innerField = s->firstField; innerField; innerField = innerField->next) {
-            _ser_writeField(write, innerField, innerStruct, indentLevel + 1);
+            _serw_writeField(write, innerField, innerStruct, indentLevel + 1);
         }
         return;
     }
@@ -444,11 +421,11 @@ void _ser_writeField(_ser_WriteInst* write, ser_SpecField* field, void* obj, int
 void _ser_write(FILE* f, const char* typename, void* seedObj, snz_Arena* scratch) {
     _ser_assertInstanceValidated();
 
-    _ser_WriteInst write = { 0 };
+    _serw_WriteInst write = { 0 };
     write.file = f;
     write.scratch = scratch;
 
-    write.nextStruct = SNZ_ARENA_PUSH(scratch, _ser_QueuedStruct);
+    write.nextStruct = SNZ_ARENA_PUSH(scratch, _serw_QueuedStructs);
     write.nextStruct->obj = seedObj;
     write.nextStruct->count = 1;
     write.nextStruct->spec = _ser_getStructSpecByName(typename);
@@ -475,7 +452,7 @@ void _ser_write(FILE* f, const char* typename, void* seedObj, snz_Arena* scratch
 
     // write all structs and their deps
     while (write.nextStruct) { // FIXME: cutoff
-        _ser_QueuedStruct* s = write.nextStruct;
+        _serw_QueuedStructs* s = write.nextStruct;
         write.nextStruct = s->next;
 
         SNZ_ASSERTF(s->count >= 1, "queued struct with %lld count.", s->count);
@@ -484,7 +461,7 @@ void _ser_write(FILE* f, const char* typename, void* seedObj, snz_Arena* scratch
         for (int i = 0; i < s->count; i++) {
             void* innerStructLoc = (char*)(s->obj) + (i * s->spec->size);
             for (ser_SpecField* field = s->spec->firstField; field; field = field->next) {
-                _ser_writeField(&write, field, innerStructLoc, 1);
+                _serw_writeField(&write, field, innerStructLoc, 1);
             }
         }
     }
@@ -551,6 +528,5 @@ void ser_tests() {
         .count = sizeof(tris) / sizeof(*tris),
     };
     ser_write(f, geo_TriSlice, &slice, &testArena);
-    // _ser_printSpec();
     fclose(f);
 }
