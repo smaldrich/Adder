@@ -96,6 +96,7 @@ struct ser_SpecStruct {
 
     ser_SpecField* firstField;
     int fieldCount;
+    int64_t size;
 };
 
 static struct {
@@ -103,7 +104,7 @@ static struct {
     ser_SpecStruct* firstStructSpec;
     int structSpecCount;
 
-    snz_Arena* arena;
+    snz_Arena* specArena;
     ser_SpecStruct* activeStructSpec;
 } _ser_globs;
 
@@ -131,7 +132,7 @@ ser_T* ser_tBase(ser_TKind kind) {
     SNZ_ASSERT(kind != SER_TK_STRUCT, "Kind of 1 (SER_TK_STRUCT) isn't a base kind.");
     SNZ_ASSERT(kind != SER_TK_PTR, "Kind of 2 (SER_TK_PTR) isn't a base kind.");
     SNZ_ASSERT(kind != SER_TK_PTR_VIEW, "Kind of 3 (SER_TK_PTR_VIEW) isn't a base kind.");
-    ser_T* out = SNZ_ARENA_PUSH(_ser_globs.arena, ser_T);
+    ser_T* out = SNZ_ARENA_PUSH(_ser_globs.specArena, ser_T);
     out->kind = kind;
     return out;
 }
@@ -139,29 +140,31 @@ ser_T* ser_tBase(ser_TKind kind) {
 #define ser_tStruct(T) _ser_tStruct(#T)
 ser_T* _ser_tStruct(const char* name) {
     _ser_assertInstanceValidForAddingToSpec();
-    ser_T* out = SNZ_ARENA_PUSH(_ser_globs.arena, ser_T);
+    ser_T* out = SNZ_ARENA_PUSH(_ser_globs.specArena, ser_T);
     out->kind = SER_TK_STRUCT;
     out->referencedName = name;
     return out;
 }
 
+// FIXME: struct types only in here plz
 ser_T* ser_tPtr(ser_T* innerT) {
     _ser_assertInstanceValidForAddingToSpec();
-    ser_T* out = SNZ_ARENA_PUSH(_ser_globs.arena, ser_T);
+    ser_T* out = SNZ_ARENA_PUSH(_ser_globs.specArena, ser_T);
     out->kind = SER_TK_PTR;
     SNZ_ASSERT(innerT, "Can't point to a null type.");
     out->inner = innerT;
     return out;
 }
 
-// FIXME: add a sizeof in this to typecheck that T is a valid symbol but also for arr deser
-#define ser_addStruct(T) _ser_addStruct(#T)
-void _ser_addStruct(const char* name) {
+// FIXME: pointable flag
+#define ser_addStruct(T) _ser_addStruct(#T, sizeof(T))
+void _ser_addStruct(const char* name, int64_t size) {
     _ser_assertInstanceValidForAddingToSpec();
     _ser_pushActiveStructSpecIfAny();
-    ser_SpecStruct* s = SNZ_ARENA_PUSH(_ser_globs.arena, ser_SpecStruct);
+    ser_SpecStruct* s = SNZ_ARENA_PUSH(_ser_globs.specArena, ser_SpecStruct);
     _ser_globs.activeStructSpec = s;
     s->tag = name;
+    s->size = size;
 }
 
 // FIXME: assert that active struct name == struct name?
@@ -172,7 +175,7 @@ void _ser_addStructField(ser_T* kind, const char* tag, int offsetIntoStruct) {
     _ser_assertInstanceValidForAddingToSpec();
     SNZ_ASSERT(_ser_globs.activeStructSpec, "There was no active struct to add a field to.");
 
-    ser_SpecField* field = SNZ_ARENA_PUSH(_ser_globs.arena, ser_SpecField);
+    ser_SpecField* field = SNZ_ARENA_PUSH(_ser_globs.specArena, ser_SpecField);
     *field = (ser_SpecField){
         .offsetInStruct = offsetIntoStruct,
         .tag = tag,
@@ -190,7 +193,7 @@ void _ser_addStructFieldPtrView(ser_T* innerKind, const char* ptrPropTag, int pt
     _ser_assertInstanceValidForAddingToSpec();
 
     SNZ_ASSERT(innerKind->kind != SER_TK_PTR_VIEW, "can't nest ptr views cause the inner length woudn't exist anywhere. Wrap it in a struct.");
-    ser_T* viewT = SNZ_ARENA_PUSH(_ser_globs.arena, ser_T);
+    ser_T* viewT = SNZ_ARENA_PUSH(_ser_globs.specArena, ser_T);
     *viewT = (ser_T){
         .inner = innerKind,
         .kind = SER_TK_PTR_VIEW,
@@ -200,8 +203,8 @@ void _ser_addStructFieldPtrView(ser_T* innerKind, const char* ptrPropTag, int pt
     _ser_addStructField(viewT, ptrPropTag, ptrPropOffset);
 }
 
-void ser_begin(snz_Arena* arena) {
-    _ser_globs.arena = arena;
+void ser_begin(snz_Arena* specArena) {
+    _ser_globs.specArena = specArena;
     _ser_globs.validated = false;
 }
 
@@ -248,6 +251,7 @@ void ser_end() {
                     }
                 } else if (inner->kind == SER_TK_PTR) {
                     SNZ_ASSERT(inner->inner, "ptr with no inner kind");
+                    SNZ_ASSERT(inner->inner->kind == SER_TK_STRUCT, "ptr that doesn't point to struct type");
                 } else if (inner->kind == SER_TK_PTR_VIEW) {
                     SNZ_ASSERT(inner->inner, "ptr with no inner kind");
                     SNZ_ASSERT(inner->inner->kind != SER_TK_PTR_VIEW, "nested ptr view.");
@@ -276,19 +280,79 @@ void _ser_printSpec() {
     }
 }
 
+typedef struct _ser_WriteAddressNode _ser_WriteAddressNode;
+struct _ser_WriteAddressNode {
+    uint64_t key;
+    uint64_t value;
+    _ser_WriteAddressNode* nextCollided;
+};
+
 typedef struct _ser_QueuedStruct _ser_QueuedStruct;
 struct _ser_QueuedStruct {
     _ser_QueuedStruct* next;
     ser_SpecStruct* spec;
     void* obj;
+    int64_t count;
 };
+
+// FIXME: dyn size for large files
+#define _SER_WRITE_ADDRESS_BUCKET_COUNT 2048
+#define _SER_WRITE_ADDRESS_NODE_COUNT 2048
 
 typedef struct {
     _ser_QueuedStruct* nextStruct;
-    // address -> loc in file table
+    _ser_WriteAddressNode* addressBuckets[_SER_WRITE_ADDRESS_BUCKET_COUNT];
+    _ser_WriteAddressNode addresses[_SER_WRITE_ADDRESS_NODE_COUNT];
+    int64_t addressCount;
     // locations of loc stubs in file
     FILE* file;
+    snz_Arena* scratch;
 } _ser_WriteInst;
+
+// https://zimbry.blogspot.com/2011/09/better-bit-mixing-improving-on.html
+uint64_t _ser_addressHash(uint64_t address) {
+    address ^= (address >> 33);
+    address *= 0xff51afd7ed558ccd;
+    address ^= (address >> 33);
+    address *= 0xc4ceb9fe1a85ec53;
+    address ^= (address >> 33);
+    return address;
+}
+
+// return indicates whether the key didn't exist before & and the val was added
+bool _ser_writeAddressLocSetIfNew(_ser_WriteInst* write, uint64_t key, uint64_t value) {
+    int64_t bucket = _ser_addressHash(key) % _SER_WRITE_ADDRESS_BUCKET_COUNT;
+    _ser_WriteAddressNode* initial = write->addressBuckets[bucket];
+    for (_ser_WriteAddressNode* node = initial; node; node = node->nextCollided) {
+        if (node->key == key) {
+            return false;
+        }
+    }
+
+    SNZ_ASSERT(write->addressCount < _SER_WRITE_ADDRESS_NODE_COUNT, "Too many addresses to serialize. see the fixme.");
+    _ser_WriteAddressNode* node = &write->addresses[write->addressCount];
+    write->addressCount++;
+    *node = (_ser_WriteAddressNode){
+        .key = key,
+        .value = value,
+        .nextCollided = initial,
+    };
+    write->addressBuckets[bucket] = node;
+    return true;
+}
+
+// FIXME: prefix serw_, not ser_write
+
+// null if not in table
+uint64_t* _ser_writeAddressLocGet(_ser_WriteInst* write, uint64_t key) {
+    int64_t bucket = _ser_addressHash(key) % _SER_WRITE_ADDRESS_BUCKET_COUNT;
+    for (_ser_WriteAddressNode* node = write->addressBuckets[bucket]; node; node = node->nextCollided) {
+        if (node->key == key) {
+            return &node->value;
+        }
+    }
+    return NULL;
+}
 
 void _ser_writeField(_ser_WriteInst* write, ser_SpecField* field, void* obj, int indentLevel) {
     fprintf(write->file, "%*s", indentLevel * 4, "");
@@ -296,12 +360,44 @@ void _ser_writeField(_ser_WriteInst* write, ser_SpecField* field, void* obj, int
     ser_TKind kind = field->type->kind;
     if (kind == SER_TK_PTR || kind == SER_TK_PTR_VIEW) {
         void* innerPtr = *(void**)((char*)obj + field->offsetInStruct);
-        fprintf(write->file, "0x%p", innerPtr);
-        // FIXME: dedup deps
-        // FIXME: patching
+        int64_t ptrViewLen = 0;
         if (kind == SER_TK_PTR_VIEW) {
-            int64_t len = *(int64_t*)((char*)obj + field->type->offsetOfPtrViewLengthIntoStruct);
-            fprintf(write->file, ", %lld elems", len);
+            ptrViewLen = *(int64_t*)((char*)obj + field->type->offsetOfPtrViewLengthIntoStruct);
+            if (ptrViewLen == 0) {
+                innerPtr = NULL;
+            }
+        }
+
+        bool addressAlreadyWritten = _ser_writeAddressLocGet(write, (uint64_t)innerPtr);
+        if (addressAlreadyWritten) {
+            // FIXME: write the location within the file
+        } else {
+            _ser_QueuedStruct* queued = SNZ_ARENA_PUSH(write->scratch, _ser_QueuedStruct);
+            SNZ_ASSERT(field->type->inner->kind == SER_TK_STRUCT, "ptr that doesn't point to struct type");
+            SNZ_ASSERT(field->type->inner->referencedStruct != NULL, "struct def from ptr not found");
+
+            *queued = (_ser_QueuedStruct){
+                .count = 1,
+                .next = write->nextStruct,
+                .obj = innerPtr,
+                .spec = field->type->inner->referencedStruct,
+            };
+            write->nextStruct = queued;
+
+            SNZ_ASSERT(_ser_writeAddressLocSetIfNew(write, (uint64_t)innerPtr, -1), "huh");
+            // FIXME: loop over all addrs in a slice
+            // FIXME: write the location within the file to this node instead of just leaving it to die
+            // FIXME: add this file location to pointer patch table
+
+            if (kind == SER_TK_PTR_VIEW) {
+                queued->count = ptrViewLen;
+            }
+        }
+
+
+        fprintf(write->file, "0x%p", innerPtr);
+        if (kind == SER_TK_PTR_VIEW) {
+            fprintf(write->file, ", %lld elems", ptrViewLen);
         }
         fprintf(write->file, "\n");
         return;
@@ -345,14 +441,16 @@ void _ser_writeField(_ser_WriteInst* write, ser_SpecField* field, void* obj, int
 
 // FIXME: typecheck of some kind on obj
 #define ser_write(F, T, obj, scratch) _ser_write(F, #T, obj, scratch)
-void _ser_write(FILE* f, const char* typename, void* obj, snz_Arena* scratch) {
+void _ser_write(FILE* f, const char* typename, void* seedObj, snz_Arena* scratch) {
     _ser_assertInstanceValidated();
 
     _ser_WriteInst write = { 0 };
     write.file = f;
+    write.scratch = scratch;
 
     write.nextStruct = SNZ_ARENA_PUSH(scratch, _ser_QueuedStruct);
-    write.nextStruct->obj = obj;
+    write.nextStruct->obj = seedObj;
+    write.nextStruct->count = 1;
     write.nextStruct->spec = _ser_getStructSpecByName(typename);
     SNZ_ASSERTF(write.nextStruct->spec, "No definition for struct '%s'", typename);
 
@@ -380,9 +478,14 @@ void _ser_write(FILE* f, const char* typename, void* obj, snz_Arena* scratch) {
         _ser_QueuedStruct* s = write.nextStruct;
         write.nextStruct = s->next;
 
-        fprintf(f, "struct, kind: %d\n", s->spec->indexIntoSpec);
-        for (ser_SpecField* field = s->spec->firstField; field; field = field->next) {
-            _ser_writeField(&write, field, obj, 1);
+        SNZ_ASSERTF(s->count >= 1, "queued struct with %lld count.", s->count);
+        // FIXME: the extra bytes for count make me angry, systems with large amts of isolated (via ptr) structures are shit in this - which is most of them :)
+        fprintf(write.file, "%lld structs, kind: %d\n", s->count, s->spec->indexIntoSpec);
+        for (int i = 0; i < s->count; i++) {
+            void* innerStructLoc = (char*)(s->obj) + (i * s->spec->size);
+            for (ser_SpecField* field = s->spec->firstField; field; field = field->next) {
+                _ser_writeField(&write, field, innerStructLoc, 1);
+            }
         }
     }
 }
@@ -412,13 +515,6 @@ void ser_tests() {
     ser_addStruct(geo_TriSlice);
     ser_addStructFieldPtrView(ser_tStruct(geo_Tri), geo_TriSlice, elems, count);
 
-    ser_addStruct(geo_Line);
-    ser_addStructField(ser_tStruct(HMM_Vec3), geo_Line, a);
-    ser_addStructField(ser_tStruct(HMM_Vec3), geo_Line, b);
-
-    ser_addStruct(geo_LineSlice);
-    ser_addStructFieldPtrView(ser_tStruct(geo_Line), geo_LineSlice, elems, count);
-
     ser_addStruct(set_Settings);
     ser_addStructField(ser_tBase(SER_TK_INT8), set_Settings, darkMode);
     ser_addStructField(ser_tBase(SER_TK_INT8), set_Settings, musicMode);
@@ -433,6 +529,7 @@ void ser_tests() {
     ser_addStructField(ser_tPtr(ser_tStruct(tl_Op)), tl_Op, next);
     ser_addStructField(ser_tBase(SER_TK_INT32), tl_Op, kind);
     ser_addStructField(ser_tPtr(ser_tStruct(tl_Op)), tl_Op, dependencies[0]);
+    ser_addStructField(ser_tStruct(HMM_Vec2), tl_Op, ui.pos);
 
     ser_end();
 
