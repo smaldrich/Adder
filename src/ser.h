@@ -345,21 +345,21 @@ void _serw_writeField(_serw_WriteInst* write, ser_SpecField* field, void* obj, i
 
     ser_TKind kind = field->type->kind;
     if (kind == SER_TK_PTR || kind == SER_TK_PTR_VIEW) {
-        uint64_t pointed = *((char*)obj + field->offsetInStruct);
+        uint64_t pointed = (uint64_t) * (void**)((char*)obj + field->offsetInStruct);
         int64_t queuedCount = 1;
         if (kind == SER_TK_PTR_VIEW) {
             queuedCount = *(int64_t*)((char*)obj + field->type->offsetOfPtrViewLengthIntoStruct);
             if (queuedCount == 0) {
-                pointed = NULL;
+                pointed = 0;
             }
         }
 
-        if (!_serw_addressLocGet(write, pointed)) {
+        if (pointed != 0 && !_serw_addressLocGet(write, pointed)) {
             _serw_QueuedStructs* queued = SNZ_ARENA_PUSH(write->scratch, _serw_QueuedStructs);
             *queued = (_serw_QueuedStructs){
                 .count = queuedCount,
                 .next = write->nextStruct,
-                .obj = pointed,
+                .obj = (void*)pointed,
                 .spec = field->type->inner->referencedStruct,
             };
             write->nextStruct = queued;
@@ -372,7 +372,7 @@ void _serw_writeField(_serw_WriteInst* write, ser_SpecField* field, void* obj, i
         }
 
         // FIXME: put file loc to stub table
-        fprintf(write->file, "0x%p", pointed);
+        fprintf(write->file, "0x%p", (void*)pointed);
         if (kind == SER_TK_PTR_VIEW) {
             fprintf(write->file, ", %lld elems", queuedCount);
         }
@@ -511,22 +511,24 @@ void ser_tests() {
     ser_end();
 
     FILE* f = fopen("testing/ser3.adder", "w");
-    geo_Tri tris[] = {
-        (geo_Tri) {
-            .a = HMM_V3(0, 1, 2),
-            .b = HMM_V3(3, 4, 5),
-            .c = HMM_V3(6, 7, 8),
+    tl_Op ops[] = {
+        (tl_Op) {
+            .kind = TL_OPK_BASE_GEOMETRY,
+            .ui.pos = HMM_V2(0, 0),
         },
-        (geo_Tri) {
-            .a = HMM_V3(00, 10, 20),
-            .b = HMM_V3(30, 40, 50),
-            .c = HMM_V3(60, 70, 80),
+        (tl_Op) {
+            .kind = TL_OPK_BASE_GEOMETRY,
+            .ui.pos = HMM_V2(1, 1),
+        },
+        (tl_Op) {
+            .kind = TL_OPK_SKETCH,
+            .ui.pos = HMM_V2(2, 2),
         },
     };
-    geo_TriSlice slice = (geo_TriSlice){
-        .elems = tris,
-        .count = sizeof(tris) / sizeof(*tris),
-    };
-    ser_write(f, geo_TriSlice, &slice, &testArena);
+    ops[0].next = &ops[1];
+    ops[1].next = &ops[2];
+    ops[1].dependencies[0] = &ops[2];
+
+    ser_write(f, tl_Op, &ops[0], &testArena);
     fclose(f);
 }
