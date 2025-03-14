@@ -28,6 +28,8 @@ FILE SIDE:
     a spec with a named structure of everything in the file
 */
 
+#define SER_VERSION 0
+
 typedef enum {
     SER_TK_INVALID,
 
@@ -92,17 +94,17 @@ struct ser_SpecField {
 struct ser_SpecStruct {
     ser_SpecStruct* next;
     const char* tag;
-    int indexIntoSpec;
+    int64_t indexIntoSpec;
 
     ser_SpecField* firstField;
-    int fieldCount;
+    int64_t fieldCount;
     int64_t size;
 };
 
 static struct {
     bool validated; // when true indicates all specs have been added and that no more will, also that the entire thing has been validated.
     ser_SpecStruct* firstStructSpec;
-    int structSpecCount;
+    int64_t structSpecCount;
 
     snz_Arena* specArena;
     ser_SpecStruct* activeStructSpec;
@@ -293,6 +295,7 @@ typedef struct {
     int64_t addressCount;
     // locations of loc stubs in file
     FILE* file;
+    int64_t positionIntoFile;
     snz_Arena* scratch;
 } _serw_WriteInst;
 
@@ -340,9 +343,28 @@ uint64_t* _serw_addressLocGet(_serw_WriteInst* write, uint64_t key) {
     return NULL;
 }
 
-void _serw_writeField(_serw_WriteInst* write, ser_SpecField* field, void* obj, int indentLevel) {
-    fprintf(write->file, "%*s", indentLevel * 4, "");
+bool _ser_isSystemLittleEndian() {
+    uint64_t x = 1;
+    return ((char*)&x)[0] == 1;
+}
 
+void _serw_writeBytes(_serw_WriteInst* write, const void* src, int64_t count, bool swapWithEndianness) {
+    uint8_t* srcChars = (uint8_t*)src;
+    if (swapWithEndianness && _ser_isSystemLittleEndian()) {
+        uint8_t* buf = snz_arenaPush(write->scratch, count);
+        for (int64_t i = 0; i < count; i++) {
+            buf[i] = srcChars[count - 1 - i];
+        }
+        write->positionIntoFile += count;
+        fwrite(buf, count, 1, write->file);
+        snz_arenaPop(write->scratch, count);
+    } else {
+        write->positionIntoFile += count;
+        fwrite(src, count, 1, write->file);
+    }
+}
+
+void _serw_writeField(_serw_WriteInst* write, ser_SpecField* field, void* obj) {
     ser_TKind kind = field->type->kind;
     if (kind == SER_TK_PTR || kind == SER_TK_PTR_VIEW) {
         uint64_t pointed = (uint64_t) * (void**)((char*)obj + field->offsetInStruct);
@@ -371,49 +393,38 @@ void _serw_writeField(_serw_WriteInst* write, ser_SpecField* field, void* obj, i
             }
         }
 
-        // FIXME: put file loc to stub table
-        fprintf(write->file, "0x%p", (void*)pointed);
+        _serw_writeBytes(write, &pointed, sizeof(void*), true); // write ptr
         if (kind == SER_TK_PTR_VIEW) {
-            fprintf(write->file, ", %lld elems", queuedCount);
+            _serw_writeBytes(write, &queuedCount, sizeof(int64_t), true); // write count
         }
-        fprintf(write->file, "\n");
         return;
     } else if (kind == SER_TK_STRUCT) {
-        fprintf(write->file, ">> struct\n");
+        // FIXME: put file loc to stub table
         ser_SpecStruct* s = field->type->referencedStruct;
         void* innerStruct = (char*)obj + field->offsetInStruct;
         for (ser_SpecField* innerField = s->firstField; innerField; innerField = innerField->next) {
-            _serw_writeField(write, innerField, innerStruct, indentLevel + 1);
+            _serw_writeField(write, innerField, innerStruct);
         }
         return;
     }
 
 
     void* ptr = ((char*)obj) + field->offsetInStruct;
-    if (kind == SER_TK_FLOAT32) {
-        fprintf(write->file, "%f", *(float*)ptr);
-    } else if (kind == SER_TK_FLOAT64) {
-        fprintf(write->file, "%f", *(double*)ptr);
-    } else if (kind == SER_TK_INT8) {
-        fprintf(write->file, "%d", *(int8_t*)ptr);
-    } else if (kind == SER_TK_INT16) {
-        fprintf(write->file, "%d", *(int16_t*)ptr);
-    } else if (kind == SER_TK_INT32) {
-        fprintf(write->file, "%d", *(int32_t*)ptr);
-    } else if (kind == SER_TK_INT64) {
-        fprintf(write->file, "%lld", *(int64_t*)ptr);
-    } else if (kind == SER_TK_UINT8) {
-        fprintf(write->file, "%u", *(uint8_t*)ptr);
-    } else if (kind == SER_TK_UINT16) {
-        fprintf(write->file, "%u", *(uint16_t*)ptr);
-    } else if (kind == SER_TK_UINT32) {
-        fprintf(write->file, "%u", *(uint32_t*)ptr);
-    } else if (kind == SER_TK_UINT64) {
-        fprintf(write->file, "%llu", *(uint64_t*)ptr);
-    } else {
-        SNZ_ASSERTF(false, "unreachable. kind: %d.", kind);
-    }
-    fprintf(write->file, "\n");
+    int sizes[SER_TK_COUNT] = { 0 };
+    sizes[SER_TK_FLOAT32] = sizeof(float);
+    sizes[SER_TK_FLOAT64] = sizeof(double);
+    sizes[SER_TK_INT8] = sizeof(int8_t);
+    sizes[SER_TK_INT16] = sizeof(int16_t);
+    sizes[SER_TK_INT32] = sizeof(int32_t);
+    sizes[SER_TK_INT64] = sizeof(int64_t);
+    sizes[SER_TK_UINT8] = sizeof(uint8_t);
+    sizes[SER_TK_UINT16] = sizeof(uint16_t);
+    sizes[SER_TK_UINT32] = sizeof(uint32_t);
+    sizes[SER_TK_UINT64] = sizeof(uint64_t);
+
+    int size = sizes[kind];
+    SNZ_ASSERTF(size != 0, "Kind of %d had no associated size.", kind);
+    _serw_writeBytes(write, ptr, size, true);
 }
 
 // FIXME: typecheck of some kind on obj
@@ -432,23 +443,36 @@ void _ser_write(FILE* f, const char* typename, void* seedObj, snz_Arena* scratch
     SNZ_ASSERTF(write.nextStruct->spec, "No definition for struct '%s'", typename);
 
     { // writing spec
-        fprintf(f, "beginning spec\n");
-        fprintf(f, "decl count: %d\n", _ser_globs.structSpecCount);
-        for (ser_SpecStruct* s = _ser_globs.firstStructSpec; s; s = s->next) {
-            fprintf(f, "\tname: %lld %s\n", strlen(s->tag), s->tag);
+        uint64_t version = SER_VERSION;
+        _serw_writeBytes(&write, &version, sizeof(version), true);
 
-            fprintf(f, "\tfield count: %d\n", s->fieldCount);
+        _serw_writeBytes(&write, &_ser_globs.structSpecCount, sizeof(_ser_globs.structSpecCount), true); // decl count
+        for (ser_SpecStruct* s = _ser_globs.firstStructSpec; s; s = s->next) {
+            uint64_t tagLen = strlen(s->tag);
+            _serw_writeBytes(&write, &tagLen, sizeof(tagLen), true); // length of tag
+            _serw_writeBytes(&write, s->tag, tagLen, false); // tag
+
+            _serw_writeBytes(&write, &s->fieldCount, sizeof(s->fieldCount), true); // field count
             for (ser_SpecField* field = s->firstField; field; field = field->next) {
-                fprintf(f, "\t\tname: %lld %s\n", strlen(field->tag), field->tag);
+                uint64_t tagLen = strlen(field->tag);
+                _serw_writeBytes(&write, &tagLen, sizeof(tagLen), true); // length of tag
+                _serw_writeBytes(&write, field->tag, tagLen, false); // tag
                 for (ser_T* inner = field->type; inner; inner = inner->inner) {
-                    fprintf(f, "\t\t\tkind: %d\n", inner->kind);
+                    uint8_t enumVal = (uint8_t)inner->kind;
+                    _serw_writeBytes(&write, &enumVal, 1, false);
                     if (inner->kind == SER_TK_STRUCT) {
-                        fprintf(f, "\t\t\tpointing at: %d\n", inner->referencedStruct->indexIntoSpec);
+                        int64_t idx = inner->referencedStruct->indexIntoSpec;
+                        _serw_writeBytes(&write, &idx, sizeof(idx), true);
                     }
                 }
             }
         }
     } // end writing spec
+    uint8_t x = 0xFF;
+    _serw_writeBytes(&write, &x, 1, false);
+    _serw_writeBytes(&write, &x, 1, false);
+    _serw_writeBytes(&write, &x, 1, false);
+    _serw_writeBytes(&write, &x, 1, false);
 
     // write all structs and their deps
     while (write.nextStruct) { // FIXME: cutoff
@@ -457,11 +481,13 @@ void _ser_write(FILE* f, const char* typename, void* seedObj, snz_Arena* scratch
 
         SNZ_ASSERTF(s->count >= 1, "queued struct with %lld count.", s->count);
         // FIXME: the extra bytes for count make me angry, systems with large amts of isolated (via ptr) structures are shit in this - which is most of them :)
-        fprintf(write.file, "%lld structs, kind: %d\n", s->count, s->spec->indexIntoSpec);
+        _serw_writeBytes(&write, &s->count, sizeof(s->count), true);// count of structs
+        int64_t structIdx = s->spec->indexIntoSpec;
+        _serw_writeBytes(&write, &structIdx, sizeof(structIdx), true); // kind of structs
         for (int i = 0; i < s->count; i++) {
             void* innerStructLoc = (char*)(s->obj) + (i * s->spec->size);
             for (ser_SpecField* field = s->spec->firstField; field; field = field->next) {
-                _serw_writeField(&write, field, innerStructLoc, 1);
+                _serw_writeField(&write, field, innerStructLoc);
             }
         }
     }
