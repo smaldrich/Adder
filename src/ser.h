@@ -35,7 +35,7 @@ typedef enum {
 
     SER_TK_STRUCT,
     SER_TK_PTR,
-    SER_TK_PTR_VIEW,
+    SER_TK_SLICE,
 
     SER_TK_INT8,
     SER_TK_INT16,
@@ -56,7 +56,7 @@ const char* ser_tKindStrs[] = {
     "SER_TK_INVALID",
     "SER_TK_STRUCT",
     "SER_TK_PTR",
-    "SER_TK_PTR_VIEW",
+    "SER_TK_SLICE",
 
     "SER_TK_INT8",
     "SER_TK_INT16",
@@ -80,7 +80,7 @@ struct ser_T {
 
     const char* referencedName;
     ser_SpecStruct* referencedStruct;
-    int offsetOfPtrViewLengthIntoStruct;
+    int offsetOfSliceLengthIntoStruct;
 };
 
 struct ser_SpecField {
@@ -95,6 +95,7 @@ struct ser_SpecStruct {
     ser_SpecStruct* next;
     const char* tag;
     int64_t indexIntoSpec;
+    bool pointable;
 
     ser_SpecField* firstField;
     int64_t fieldCount;
@@ -133,7 +134,7 @@ ser_T* ser_tBase(ser_TKind kind) {
     SNZ_ASSERT(kind != SER_TK_INVALID, "Kind of 0 (SER_TK_INVALID) isn't a base kind.");
     SNZ_ASSERT(kind != SER_TK_STRUCT, "Kind of 1 (SER_TK_STRUCT) isn't a base kind.");
     SNZ_ASSERT(kind != SER_TK_PTR, "Kind of 2 (SER_TK_PTR) isn't a base kind.");
-    SNZ_ASSERT(kind != SER_TK_PTR_VIEW, "Kind of 3 (SER_TK_PTR_VIEW) isn't a base kind.");
+    SNZ_ASSERT(kind != SER_TK_SLICE, "Kind of 3 (SER_TK_SLICE) isn't a base kind.");
     ser_T* out = SNZ_ARENA_PUSH(_ser_globs.specArena, ser_T);
     out->kind = kind;
     return out;
@@ -154,26 +155,27 @@ ser_T* ser_tPtr(ser_T* innerT) {
     ser_T* out = SNZ_ARENA_PUSH(_ser_globs.specArena, ser_T);
     out->kind = SER_TK_PTR;
     SNZ_ASSERT(innerT, "Can't point to a null type.");
+    SNZ_ASSERT(innerT->kind == SER_TK_STRUCT, "Can't point to a non-struct type.");
     out->inner = innerT;
     return out;
 }
 
-// FIXME: pointable flag
-#define ser_addStruct(T) _ser_addStruct(#T, sizeof(T))
-void _ser_addStruct(const char* name, int64_t size) {
+#define ser_addStruct(T, pointable) _ser_addStruct(#T, sizeof(T), pointable)
+void _ser_addStruct(const char* name, int64_t size, bool pointable) {
     _ser_assertInstanceValidForAddingToSpec();
     _ser_pushActiveStructSpecIfAny();
     ser_SpecStruct* s = SNZ_ARENA_PUSH(_ser_globs.specArena, ser_SpecStruct);
     _ser_globs.activeStructSpec = s;
     s->tag = name;
     s->size = size;
+    s->pointable = pointable;
 }
 
 // FIXME: assert that active struct name == struct name?
 // FIXME: assert that size of kind is same as sizeof prop named
-#define ser_addStructField(kindPtr, structT, name) \
-    _ser_addStructField(kindPtr, #name, offsetof(structT, name))
-void _ser_addStructField(ser_T* kind, const char* tag, int offsetIntoStruct) {
+#define ser_addStructField(type, structT, name) \
+    _ser_addStructField(type, #name, offsetof(structT, name))
+void _ser_addStructField(ser_T* type, const char* tag, int offsetIntoStruct) {
     _ser_assertInstanceValidForAddingToSpec();
     SNZ_ASSERT(_ser_globs.activeStructSpec, "There was no active struct to add a field to.");
 
@@ -181,28 +183,23 @@ void _ser_addStructField(ser_T* kind, const char* tag, int offsetIntoStruct) {
     *field = (ser_SpecField){
         .offsetInStruct = offsetIntoStruct,
         .tag = tag,
-        .type = kind,
+        .type = type,
         .next = _ser_globs.activeStructSpec->firstField,
     };
     _ser_globs.activeStructSpec->firstField = field;
     _ser_globs.activeStructSpec->fieldCount++;
 }
 
-// FIXME: switch on type and or assert that len prop is an int64_t
-#define ser_addStructFieldPtrView(innerKind, structT, ptrPropName, lenPropName) \
-    _ser_addStructFieldPtrView(innerKind, #ptrPropName, offsetof(structT, ptrPropName), offsetof(structT, lenPropName))
-void _ser_addStructFieldPtrView(ser_T* innerKind, const char* ptrPropTag, int ptrPropOffset, int lenPropOffset) {
-    _ser_assertInstanceValidForAddingToSpec();
-
-    SNZ_ASSERT(innerKind->kind != SER_TK_PTR_VIEW, "can't nest ptr views cause the inner length woudn't exist anywhere. Wrap it in a struct.");
-    ser_T* viewT = SNZ_ARENA_PUSH(_ser_globs.specArena, ser_T);
-    *viewT = (ser_T){
-        .inner = innerKind,
-        .kind = SER_TK_PTR_VIEW,
-        .offsetOfPtrViewLengthIntoStruct = lenPropOffset,
+// FIXME: assert that prop for pength is an int64
+#define ser_addStructFieldSlice(innerT, structT, ptrName, lengthName) _ser_addStructFieldSlice(#innerT, #ptrName, offsetof(structT, ptrName), offsetof(structT, lengthName))
+void _ser_addStructFieldSlice(const char* innerTypeName, const char* tag, int ptrOffsetIntoStruct, int lengthOffsetIntoStruct) {
+    ser_T* type = SNZ_ARENA_PUSH(_ser_globs.specArena, ser_T);
+    *type = (ser_T){
+        .inner = _ser_tStruct(innerTypeName),
+        .kind = SER_TK_SLICE,
+        .offsetOfSliceLengthIntoStruct = lengthOffsetIntoStruct,
     };
-
-    _ser_addStructField(viewT, ptrPropTag, ptrPropOffset);
+    _ser_addStructField(type, tag, ptrOffsetIntoStruct);
 }
 
 void ser_begin(snz_Arena* specArena) {
@@ -217,15 +214,6 @@ ser_SpecStruct* _ser_getStructSpecByName(const char* name) {
         }
     }
     return NULL;
-}
-
-bool _ser_kindNonTerminal(ser_TKind kind) {
-    if (kind == SER_TK_PTR) {
-        return true;
-    } else if (kind == SER_TK_PTR_VIEW) {
-        return true;
-    }
-    return false;
 }
 
 void ser_end() {
@@ -254,13 +242,21 @@ void ser_end() {
                 } else if (inner->kind == SER_TK_PTR) {
                     SNZ_ASSERT(inner->inner, "ptr with no inner kind");
                     SNZ_ASSERT(inner->inner->kind == SER_TK_STRUCT, "ptr that doesn't point to struct type");
-                } else if (inner->kind == SER_TK_PTR_VIEW) {
-                    SNZ_ASSERT(inner->inner, "ptr view with no inner kind");
-                    SNZ_ASSERT(inner->inner->kind == SER_TK_STRUCT, "ptr view that doesn't point to struct type");
+                } else if (inner->kind == SER_TK_SLICE) {
+                    SNZ_ASSERT(inner->inner, "slice with no inner kind");
+                    SNZ_ASSERT(inner->inner->kind == SER_TK_STRUCT, "slice that doesn't point to struct type");
                 } else {
                     SNZ_ASSERT(!inner->inner, "terminal kind with an inner kind");
                 }
             } // end validating inners on field
+
+            for (ser_T* inner = f->type; inner; inner = inner->inner) {
+                if (inner->kind == SER_TK_PTR) {
+                    SNZ_ASSERT(inner->inner->referencedStruct->pointable, "Ptr to a non-pointable type.");
+                } else if (inner->kind == SER_TK_SLICE) {
+                    SNZ_ASSERT(!inner->inner->referencedStruct->pointable, "Slice to a pointable type.");
+                }
+            } // end 2nd pass validating inners
         } // end fields
 
         s->indexIntoSpec = i;
@@ -276,9 +272,9 @@ struct _ser_AddressNode {
     _ser_AddressNode* nextCollided;
 };
 
-typedef struct _serw_QueuedStructs _serw_QueuedStructs;
-struct _serw_QueuedStructs {
-    _serw_QueuedStructs* next;
+typedef struct _serw_QueuedStruct _serw_QueuedStruct;
+struct _serw_QueuedStruct {
+    _serw_QueuedStruct* next;
     ser_SpecStruct* spec;
     void* obj;
     int64_t count;
@@ -289,7 +285,7 @@ struct _serw_QueuedStructs {
 #define _SERW_ADDRESS_NODE_COUNT 2048
 
 typedef struct {
-    _serw_QueuedStructs* nextStruct;
+    _serw_QueuedStruct* nextStruct;
     _ser_AddressNode* addressBuckets[_SERW_ADDRESS_BUCKET_COUNT];
     _ser_AddressNode addresses[_SERW_ADDRESS_NODE_COUNT];
     int64_t addressCount;
@@ -348,38 +344,36 @@ bool _ser_isSystemLittleEndian() {
     return ((char*)&x)[0] == 1;
 }
 
-void _serw_writeBytes(_serw_WriteInst* write, const void* src, int64_t count, bool swapWithEndianness) {
+void _serw_writeBytes(_serw_WriteInst* write, const void* src, int64_t size, bool swapWithEndianness) {
     uint8_t* srcChars = (uint8_t*)src;
     if (swapWithEndianness && _ser_isSystemLittleEndian()) {
-        uint8_t* buf = snz_arenaPush(write->scratch, count);
-        for (int64_t i = 0; i < count; i++) {
-            buf[i] = srcChars[count - 1 - i];
+        uint8_t* buf = snz_arenaPush(write->scratch, size);
+        for (int64_t i = 0; i < size; i++) {
+            buf[i] = srcChars[size - 1 - i];
         }
-        write->positionIntoFile += count;
-        fwrite(buf, count, 1, write->file);
-        snz_arenaPop(write->scratch, count);
+        write->positionIntoFile += size;
+        fwrite(buf, size, 1, write->file);
+        snz_arenaPop(write->scratch, size);
     } else {
-        write->positionIntoFile += count;
-        fwrite(src, count, 1, write->file);
+        write->positionIntoFile += size;
+        fwrite(src, size, 1, write->file);
     }
+
+    // int count = write->positionIntoFile % 8;
+    // write->positionIntoFile += count;
+    // for (int i = 0; i < count; i++) {
+    //     uint8_t byte = 0xFF;
+    //     fwrite(&byte, 1, 1, write->file);
+    // }
 }
 
 void _serw_writeField(_serw_WriteInst* write, ser_SpecField* field, void* obj) {
     ser_TKind kind = field->type->kind;
-    if (kind == SER_TK_PTR || kind == SER_TK_PTR_VIEW) {
+    if (kind == SER_TK_PTR) {
         uint64_t pointed = (uint64_t) * (void**)((char*)obj + field->offsetInStruct);
-        int64_t queuedCount = 1;
-        if (kind == SER_TK_PTR_VIEW) {
-            queuedCount = *(int64_t*)((char*)obj + field->type->offsetOfPtrViewLengthIntoStruct);
-            if (queuedCount == 0) {
-                pointed = 0;
-            }
-        }
-
         if (pointed != 0 && !_serw_addressLocGet(write, pointed)) {
-            _serw_QueuedStructs* queued = SNZ_ARENA_PUSH(write->scratch, _serw_QueuedStructs);
-            *queued = (_serw_QueuedStructs){
-                .count = queuedCount,
+            _serw_QueuedStruct* queued = SNZ_ARENA_PUSH(write->scratch, _serw_QueuedStruct);
+            *queued = (_serw_QueuedStruct){
                 .next = write->nextStruct,
                 .obj = (void*)pointed,
                 .spec = field->type->inner->referencedStruct,
@@ -392,14 +386,23 @@ void _serw_writeField(_serw_WriteInst* write, ser_SpecField* field, void* obj) {
                 structStart += queued->spec->size;
             }
         }
-
         _serw_writeBytes(write, &pointed, sizeof(void*), true); // write ptr
-        if (kind == SER_TK_PTR_VIEW) {
-            _serw_writeBytes(write, &queuedCount, sizeof(int64_t), true); // write count
+        // FIXME: put file loc to stub table
+        return;
+    } else if (kind == SER_TK_SLICE) {
+        uint64_t pointed = (uint64_t) * (void**)((char*)obj + field->offsetInStruct);
+        int64_t length = *(int64_t*)((char*)obj + field->type->offsetOfSliceLengthIntoStruct);
+        _serw_writeBytes(write, &length, sizeof(length), true);
+        ser_SpecStruct* innerStructType = field->type->inner->referencedStruct;
+        for (int64_t i = 0; i < length; i++) {
+            uint64_t innerStructAddress = pointed + (i * innerStructType->size);
+            for (ser_SpecField* innerField = innerStructType->firstField; innerField; innerField = innerField->next) {
+                _serw_writeField(write, innerField, (void*)innerStructAddress);
+            }
         }
         return;
     } else if (kind == SER_TK_STRUCT) {
-        // FIXME: put file loc to stub table
+        // FIXME: put ptr loc to address table
         ser_SpecStruct* s = field->type->referencedStruct;
         void* innerStruct = (char*)obj + field->offsetInStruct;
         for (ser_SpecField* innerField = s->firstField; innerField; innerField = innerField->next) {
@@ -436,7 +439,7 @@ void _ser_write(FILE* f, const char* typename, void* seedObj, snz_Arena* scratch
     write.file = f;
     write.scratch = scratch;
 
-    write.nextStruct = SNZ_ARENA_PUSH(scratch, _serw_QueuedStructs);
+    write.nextStruct = SNZ_ARENA_PUSH(scratch, _serw_QueuedStruct);
     write.nextStruct->obj = seedObj;
     write.nextStruct->count = 1;
     write.nextStruct->spec = _ser_getStructSpecByName(typename);
@@ -468,27 +471,16 @@ void _ser_write(FILE* f, const char* typename, void* seedObj, snz_Arena* scratch
             }
         }
     } // end writing spec
-    uint8_t x = 0xFF;
-    _serw_writeBytes(&write, &x, 1, false);
-    _serw_writeBytes(&write, &x, 1, false);
-    _serw_writeBytes(&write, &x, 1, false);
-    _serw_writeBytes(&write, &x, 1, false);
 
     // write all structs and their deps
     while (write.nextStruct) { // FIXME: cutoff
-        _serw_QueuedStructs* s = write.nextStruct;
+        _serw_QueuedStruct* s = write.nextStruct;
         write.nextStruct = s->next;
 
-        SNZ_ASSERTF(s->count >= 1, "queued struct with %lld count.", s->count);
-        // FIXME: the extra bytes for count make me angry, systems with large amts of isolated (via ptr) structures are shit in this - which is most of them :)
-        _serw_writeBytes(&write, &s->count, sizeof(s->count), true);// count of structs
         int64_t structIdx = s->spec->indexIntoSpec;
         _serw_writeBytes(&write, &structIdx, sizeof(structIdx), true); // kind of structs
-        for (int i = 0; i < s->count; i++) {
-            void* innerStructLoc = (char*)(s->obj) + (i * s->spec->size);
-            for (ser_SpecField* field = s->spec->firstField; field; field = field->next) {
-                _serw_writeField(&write, field, innerStructLoc);
-            }
+        for (ser_SpecField* field = s->spec->firstField; field; field = field->next) {
+            _serw_writeField(&write, field, s->obj);
         }
     }
 }
@@ -502,59 +494,78 @@ void ser_tests() {
 
     ser_begin(&testArena);
 
-    ser_addStruct(HMM_Vec2);
-    ser_addStructField(ser_tBase(SER_TK_FLOAT32), HMM_Vec2, X);
-    ser_addStructField(ser_tBase(SER_TK_FLOAT32), HMM_Vec2, Y);
+    // ser_addStruct(HMM_Vec2);
+    // ser_addStructField(ser_tBase(SER_TK_FLOAT32), HMM_Vec2, X);
+    // ser_addStructField(ser_tBase(SER_TK_FLOAT32), HMM_Vec2, Y);
 
-    ser_addStruct(HMM_Vec3);
-    ser_addStructField(ser_tStruct(HMM_Vec2), HMM_Vec3, XY);
+    ser_addStruct(HMM_Vec3, false);
+    ser_addStructField(ser_tBase(SER_TK_FLOAT32), HMM_Vec3, X);
+    ser_addStructField(ser_tBase(SER_TK_FLOAT32), HMM_Vec3, Y);
     ser_addStructField(ser_tBase(SER_TK_FLOAT32), HMM_Vec3, Z);
 
-    ser_addStruct(geo_Tri);
+    ser_addStruct(geo_Tri, false);
     ser_addStructField(ser_tStruct(HMM_Vec3), geo_Tri, a);
     ser_addStructField(ser_tStruct(HMM_Vec3), geo_Tri, b);
     ser_addStructField(ser_tStruct(HMM_Vec3), geo_Tri, c);
 
-    ser_addStruct(geo_TriSlice);
-    ser_addStructFieldPtrView(ser_tStruct(geo_Tri), geo_TriSlice, elems, count);
+    ser_addStruct(geo_TriSlice, false);
+    ser_addStructFieldSlice(geo_Tri, geo_TriSlice, elems, count);
 
-    ser_addStruct(set_Settings);
-    ser_addStructField(ser_tBase(SER_TK_INT8), set_Settings, darkMode);
-    ser_addStructField(ser_tBase(SER_TK_INT8), set_Settings, musicMode);
-    ser_addStructField(ser_tBase(SER_TK_INT8), set_Settings, skybox);
-    ser_addStructField(ser_tBase(SER_TK_INT8), set_Settings, hintWindowAlwaysOpen);
-    ser_addStructField(ser_tBase(SER_TK_INT8), set_Settings, leftBarAlwaysOpen);
-    ser_addStructField(ser_tBase(SER_TK_INT8), set_Settings, timelinePreviewSpinBackground);
-    ser_addStructField(ser_tBase(SER_TK_INT8), set_Settings, squishyCamera);
-    ser_addStructField(ser_tBase(SER_TK_INT8), set_Settings, crosshair);
+    // ser_addStruct(set_Settings);
+    // ser_addStructField(ser_tBase(SER_TK_INT8), set_Settings, darkMode);
+    // ser_addStructField(ser_tBase(SER_TK_INT8), set_Settings, musicMode);
+    // ser_addStructField(ser_tBase(SER_TK_INT8), set_Settings, skybox);
+    // ser_addStructField(ser_tBase(SER_TK_INT8), set_Settings, hintWindowAlwaysOpen);
+    // ser_addStructField(ser_tBase(SER_TK_INT8), set_Settings, leftBarAlwaysOpen);
+    // ser_addStructField(ser_tBase(SER_TK_INT8), set_Settings, timelinePreviewSpinBackground);
+    // ser_addStructField(ser_tBase(SER_TK_INT8), set_Settings, squishyCamera);
+    // ser_addStructField(ser_tBase(SER_TK_INT8), set_Settings, crosshair);
 
-    ser_addStruct(tl_Op);
-    ser_addStructField(ser_tPtr(ser_tStruct(tl_Op)), tl_Op, next);
-    ser_addStructField(ser_tBase(SER_TK_INT32), tl_Op, kind);
-    ser_addStructField(ser_tPtr(ser_tStruct(tl_Op)), tl_Op, dependencies[0]);
-    ser_addStructField(ser_tStruct(HMM_Vec2), tl_Op, ui.pos);
+    // ser_addStruct(tl_Op);
+    // ser_addStructField(ser_tPtr(ser_tStruct(tl_Op)), tl_Op, next);
+    // ser_addStructField(ser_tBase(SER_TK_INT32), tl_Op, kind);
+    // ser_addStructField(ser_tPtr(ser_tStruct(tl_Op)), tl_Op, dependencies[0]);
+    // ser_addStructField(ser_tStruct(HMM_Vec2), tl_Op, ui.pos);
 
     ser_end();
 
     FILE* f = fopen("testing/ser3.adder", "w");
-    tl_Op ops[] = {
-        (tl_Op) {
-            .kind = TL_OPK_BASE_GEOMETRY,
-            .ui.pos = HMM_V2(0, 0),
+    geo_Tri tris[] = {
+        (geo_Tri) {
+            .a = HMM_V3(0, 1, 2),
+            .b = HMM_V3(3, 4, 5),
+            .c = HMM_V3(6, 7, 8),
         },
-        (tl_Op) {
-            .kind = TL_OPK_BASE_GEOMETRY,
-            .ui.pos = HMM_V2(1, 1),
-        },
-        (tl_Op) {
-            .kind = TL_OPK_SKETCH,
-            .ui.pos = HMM_V2(2, 2),
+        (geo_Tri) {
+            .a = HMM_V3(0, 10, 20),
+            .b = HMM_V3(30, 40, 50),
+            .c = HMM_V3(60, 70, 80),
         },
     };
-    ops[0].next = &ops[1];
-    ops[1].next = &ops[2];
-    ops[1].dependencies[0] = &ops[2];
+    geo_TriSlice slice = (geo_TriSlice){
+        .elems = tris,
+        .count = sizeof(tris) / sizeof(*tris),
+    };
+    ser_write(f, geo_TriSlice, &slice, &testArena);
 
-    ser_write(f, tl_Op, &ops[0], &testArena);
+    // tl_Op ops[] = {
+    //     (tl_Op) {
+    //         .kind = TL_OPK_BASE_GEOMETRY,
+    //         .ui.pos = HMM_V2(0, 0),
+    //     },
+    //     (tl_Op) {
+    //         .kind = TL_OPK_BASE_GEOMETRY,
+    //         .ui.pos = HMM_V2(1, 1),
+    //     },
+    //     (tl_Op) {
+    //         .kind = TL_OPK_SKETCH,
+    //         .ui.pos = HMM_V2(2, 2),
+    //     },
+    // };
+    // ops[0].next = &ops[1];
+    // ops[1].next = &ops[2];
+    // ops[1].dependencies[0] = &ops[2];
+
+    // ser_write(f, tl_Op, &ops[0], &testArena);
     fclose(f);
 }
