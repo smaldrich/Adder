@@ -283,13 +283,20 @@ struct _serw_QueuedStruct {
 // FIXME: dyn size for large files
 #define _SERW_ADDRESS_BUCKET_COUNT 2048
 #define _SERW_ADDRESS_NODE_COUNT 2048
+#define _SERW_PTR_STUB_COUNT 2048
 
 typedef struct {
     _serw_QueuedStruct* nextStruct;
     _ser_AddressNode* addressBuckets[_SERW_ADDRESS_BUCKET_COUNT];
     _ser_AddressNode addresses[_SERW_ADDRESS_NODE_COUNT];
     int64_t addressCount;
-    // locations of loc stubs in file
+
+    struct {
+        // FIXME: dyn sizing
+        int64_t locations[_SERW_PTR_STUB_COUNT];
+        int64_t count;
+    } stubs;
+
     FILE* file;
     int64_t positionIntoFile;
     snz_Arena* scratch;
@@ -359,12 +366,12 @@ void _serw_writeBytes(_serw_WriteInst* write, const void* src, int64_t size, boo
         fwrite(src, size, 1, write->file);
     }
 
-    // int count = write->positionIntoFile % 8;
-    // write->positionIntoFile += count;
-    // for (int i = 0; i < count; i++) {
-    //     uint8_t byte = 0xFF;
-    //     fwrite(&byte, 1, 1, write->file);
-    // }
+    int count = (8 - (write->positionIntoFile % 8)) % 8;
+    write->positionIntoFile += count;
+    for (int i = 0; i < count; i++) {
+        uint8_t byte = 0xFF;
+        fwrite(&byte, 1, 1, write->file);
+    }
 }
 
 void _serw_writeField(_serw_WriteInst* write, ser_SpecField* field, void* obj) {
@@ -385,9 +392,12 @@ void _serw_writeField(_serw_WriteInst* write, ser_SpecField* field, void* obj) {
                 SNZ_ASSERT(_serw_addressLocSet(write, structStart, 0), "huh");
                 structStart += queued->spec->size;
             }
-        }
+        } // FIXME: just put the location in file here if the object has already been written
+
+        SNZ_ASSERTF(write->stubs.count < _SERW_PTR_STUB_COUNT, "Too many ptr stubs: %d", write->stubs.count);
+        write->stubs.locations[write->stubs.count] = write->positionIntoFile;
+        write->stubs.count++;
         _serw_writeBytes(write, &pointed, sizeof(void*), true); // write ptr
-        // FIXME: put file loc to stub table
         return;
     } else if (kind == SER_TK_SLICE) {
         uint64_t pointed = (uint64_t) * (void**)((char*)obj + field->offsetInStruct);
@@ -402,9 +412,12 @@ void _serw_writeField(_serw_WriteInst* write, ser_SpecField* field, void* obj) {
         }
         return;
     } else if (kind == SER_TK_STRUCT) {
-        // FIXME: put ptr loc to address table
         ser_SpecStruct* s = field->type->referencedStruct;
         void* innerStruct = (char*)obj + field->offsetInStruct;
+
+        if (s->pointable) {
+            _serw_addressLocSet(write, (uint64_t)innerStruct, write->positionIntoFile);
+        }
         for (ser_SpecField* innerField = s->firstField; innerField; innerField = innerField->next) {
             _serw_writeField(write, innerField, innerStruct);
         }
@@ -479,8 +492,20 @@ void _ser_write(FILE* f, const char* typename, void* seedObj, snz_Arena* scratch
 
         int64_t structIdx = s->spec->indexIntoSpec;
         _serw_writeBytes(&write, &structIdx, sizeof(structIdx), true); // kind of structs
+
+        if (s->spec->pointable) {
+            _serw_addressLocSet(&write, (uint64_t)s->obj, write.positionIntoFile);
+        }
         for (ser_SpecField* field = s->spec->firstField; field; field = field->next) {
             _serw_writeField(&write, field, s->obj);
+        }
+    }
+
+    { // patch ptrs
+        for (int64_t i = 0; i < write.stubs.count;i++) {
+            int64_t fileLoc = write.stubs.locations[i];
+            fseek(write.file, fileLoc, 0);
+            fwrite(&fileLoc, sizeof(int64_t), 1, write.file);
         }
     }
 }
@@ -494,22 +519,22 @@ void ser_tests() {
 
     ser_begin(&testArena);
 
-    // ser_addStruct(HMM_Vec2);
-    // ser_addStructField(ser_tBase(SER_TK_FLOAT32), HMM_Vec2, X);
-    // ser_addStructField(ser_tBase(SER_TK_FLOAT32), HMM_Vec2, Y);
+    ser_addStruct(HMM_Vec2, false);
+    ser_addStructField(ser_tBase(SER_TK_FLOAT32), HMM_Vec2, X);
+    ser_addStructField(ser_tBase(SER_TK_FLOAT32), HMM_Vec2, Y);
 
     ser_addStruct(HMM_Vec3, false);
     ser_addStructField(ser_tBase(SER_TK_FLOAT32), HMM_Vec3, X);
     ser_addStructField(ser_tBase(SER_TK_FLOAT32), HMM_Vec3, Y);
     ser_addStructField(ser_tBase(SER_TK_FLOAT32), HMM_Vec3, Z);
 
-    ser_addStruct(geo_Tri, false);
-    ser_addStructField(ser_tStruct(HMM_Vec3), geo_Tri, a);
-    ser_addStructField(ser_tStruct(HMM_Vec3), geo_Tri, b);
-    ser_addStructField(ser_tStruct(HMM_Vec3), geo_Tri, c);
+    // ser_addStruct(geo_Tri, false);
+    // ser_addStructField(ser_tStruct(HMM_Vec3), geo_Tri, a);
+    // ser_addStructField(ser_tStruct(HMM_Vec3), geo_Tri, b);
+    // ser_addStructField(ser_tStruct(HMM_Vec3), geo_Tri, c);
 
-    ser_addStruct(geo_TriSlice, false);
-    ser_addStructFieldSlice(geo_Tri, geo_TriSlice, elems, count);
+    // ser_addStruct(geo_TriSlice, false);
+    // ser_addStructFieldSlice(geo_Tri, geo_TriSlice, elems, count);
 
     // ser_addStruct(set_Settings);
     // ser_addStructField(ser_tBase(SER_TK_INT8), set_Settings, darkMode);
@@ -521,51 +546,51 @@ void ser_tests() {
     // ser_addStructField(ser_tBase(SER_TK_INT8), set_Settings, squishyCamera);
     // ser_addStructField(ser_tBase(SER_TK_INT8), set_Settings, crosshair);
 
-    // ser_addStruct(tl_Op);
-    // ser_addStructField(ser_tPtr(ser_tStruct(tl_Op)), tl_Op, next);
-    // ser_addStructField(ser_tBase(SER_TK_INT32), tl_Op, kind);
-    // ser_addStructField(ser_tPtr(ser_tStruct(tl_Op)), tl_Op, dependencies[0]);
-    // ser_addStructField(ser_tStruct(HMM_Vec2), tl_Op, ui.pos);
+    ser_addStruct(tl_Op, true);
+    ser_addStructField(ser_tPtr(ser_tStruct(tl_Op)), tl_Op, next);
+    ser_addStructField(ser_tBase(SER_TK_INT32), tl_Op, kind);
+    ser_addStructField(ser_tPtr(ser_tStruct(tl_Op)), tl_Op, dependencies[0]);
+    ser_addStructField(ser_tStruct(HMM_Vec2), tl_Op, ui.pos);
 
     ser_end();
 
     FILE* f = fopen("testing/ser3.adder", "w");
-    geo_Tri tris[] = {
-        (geo_Tri) {
-            .a = HMM_V3(0, 1, 2),
-            .b = HMM_V3(3, 4, 5),
-            .c = HMM_V3(6, 7, 8),
-        },
-        (geo_Tri) {
-            .a = HMM_V3(0, 10, 20),
-            .b = HMM_V3(30, 40, 50),
-            .c = HMM_V3(60, 70, 80),
-        },
-    };
-    geo_TriSlice slice = (geo_TriSlice){
-        .elems = tris,
-        .count = sizeof(tris) / sizeof(*tris),
-    };
-    ser_write(f, geo_TriSlice, &slice, &testArena);
-
-    // tl_Op ops[] = {
-    //     (tl_Op) {
-    //         .kind = TL_OPK_BASE_GEOMETRY,
-    //         .ui.pos = HMM_V2(0, 0),
+    // geo_Tri tris[] = {
+    //     (geo_Tri) {
+    //         .a = HMM_V3(0, 1, 2),
+    //         .b = HMM_V3(3, 4, 5),
+    //         .c = HMM_V3(6, 7, 8),
     //     },
-    //     (tl_Op) {
-    //         .kind = TL_OPK_BASE_GEOMETRY,
-    //         .ui.pos = HMM_V2(1, 1),
-    //     },
-    //     (tl_Op) {
-    //         .kind = TL_OPK_SKETCH,
-    //         .ui.pos = HMM_V2(2, 2),
+    //     (geo_Tri) {
+    //         .a = HMM_V3(0, 10, 20),
+    //         .b = HMM_V3(30, 40, 50),
+    //         .c = HMM_V3(60, 70, 80),
     //     },
     // };
-    // ops[0].next = &ops[1];
-    // ops[1].next = &ops[2];
-    // ops[1].dependencies[0] = &ops[2];
+    // geo_TriSlice slice = (geo_TriSlice){
+    //     .elems = tris,
+    //     .count = sizeof(tris) / sizeof(*tris),
+    // };
+    // ser_write(f, geo_TriSlice, &slice, &testArena);
 
-    // ser_write(f, tl_Op, &ops[0], &testArena);
+    tl_Op ops[] = {
+        (tl_Op) {
+            .kind = TL_OPK_BASE_GEOMETRY,
+            .ui.pos = HMM_V2(0, 0),
+        },
+        (tl_Op) {
+            .kind = TL_OPK_BASE_GEOMETRY,
+            .ui.pos = HMM_V2(1, 1),
+        },
+        (tl_Op) {
+            .kind = TL_OPK_SKETCH,
+            .ui.pos = HMM_V2(2, 2),
+        },
+    };
+    ops[0].next = &ops[1];
+    ops[1].next = &ops[2];
+    ops[1].dependencies[0] = &ops[2];
+
+    ser_write(f, tl_Op, &ops[0], &testArena);
     fclose(f);
 }
