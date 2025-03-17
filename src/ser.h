@@ -277,7 +277,6 @@ struct _serw_QueuedStruct {
     _serw_QueuedStruct* next;
     ser_SpecStruct* spec;
     void* obj;
-    int64_t count;
 };
 
 // FIXME: dyn size for large files
@@ -293,12 +292,13 @@ typedef struct {
 
     struct {
         // FIXME: dyn sizing
-        int64_t locations[_SERW_PTR_STUB_COUNT];
+        uint64_t locations[_SERW_PTR_STUB_COUNT];
+        uint64_t targetAddresses[_SERW_PTR_STUB_COUNT];
         int64_t count;
     } stubs;
 
     FILE* file;
-    int64_t positionIntoFile;
+    uint64_t positionIntoFile;
     snz_Arena* scratch;
 } _serw_WriteInst;
 
@@ -366,12 +366,12 @@ void _serw_writeBytes(_serw_WriteInst* write, const void* src, int64_t size, boo
         fwrite(src, size, 1, write->file);
     }
 
-    int count = (8 - (write->positionIntoFile % 8)) % 8;
-    write->positionIntoFile += count;
-    for (int i = 0; i < count; i++) {
-        uint8_t byte = 0xFF;
-        fwrite(&byte, 1, 1, write->file);
-    }
+    // int count = (8 - (write->positionIntoFile % 8)) % 8;
+    // write->positionIntoFile += count;
+    // for (int i = 0; i < count; i++) {
+    //     uint8_t byte = 0xFF;
+    //     fwrite(&byte, 1, 1, write->file);
+    // }
 }
 
 void _serw_writeField(_serw_WriteInst* write, ser_SpecField* field, void* obj) {
@@ -386,18 +386,16 @@ void _serw_writeField(_serw_WriteInst* write, ser_SpecField* field, void* obj) {
                 .spec = field->type->inner->referencedStruct,
             };
             write->nextStruct = queued;
-
-            uint64_t structStart = pointed;
-            for (int i = 0; i < queued->count; i++) {
-                SNZ_ASSERT(_serw_addressLocSet(write, structStart, 0), "huh");
-                structStart += queued->spec->size;
-            }
+            SNZ_ASSERT(_serw_addressLocSet(write, pointed, 0), "huh");
         } // FIXME: just put the location in file here if the object has already been written
 
-        SNZ_ASSERTF(write->stubs.count < _SERW_PTR_STUB_COUNT, "Too many ptr stubs: %d", write->stubs.count);
-        write->stubs.locations[write->stubs.count] = write->positionIntoFile;
-        write->stubs.count++;
-        _serw_writeBytes(write, &pointed, sizeof(void*), true); // write ptr
+        if (pointed != 0) {
+            SNZ_ASSERTF(write->stubs.count < _SERW_PTR_STUB_COUNT, "Too many ptr stubs: %d", write->stubs.count);
+            write->stubs.locations[write->stubs.count] = write->positionIntoFile;
+            write->stubs.targetAddresses[write->stubs.count] = pointed;
+            write->stubs.count++;
+        }
+        _serw_writeBytes(write, &pointed, sizeof(void*), true); // this is overwritten when the ptr is patched (if non-null)
         return;
     } else if (kind == SER_TK_SLICE) {
         uint64_t pointed = (uint64_t) * (void**)((char*)obj + field->offsetInStruct);
@@ -454,7 +452,6 @@ void _ser_write(FILE* f, const char* typename, void* seedObj, snz_Arena* scratch
 
     write.nextStruct = SNZ_ARENA_PUSH(scratch, _serw_QueuedStruct);
     write.nextStruct->obj = seedObj;
-    write.nextStruct->count = 1;
     write.nextStruct->spec = _ser_getStructSpecByName(typename);
     SNZ_ASSERTF(write.nextStruct->spec, "No definition for struct '%s'", typename);
 
@@ -494,6 +491,10 @@ void _ser_write(FILE* f, const char* typename, void* seedObj, snz_Arena* scratch
         _serw_writeBytes(&write, &structIdx, sizeof(structIdx), true); // kind of structs
 
         if (s->spec->pointable) {
+            uint64_t* got = _serw_addressLocGet(&write, (uint64_t)s->obj);
+            if (got) {
+                SNZ_ASSERT(*got == (uint64_t)0, "AHHHHHH");
+            } // assert not already written to file
             _serw_addressLocSet(&write, (uint64_t)s->obj, write.positionIntoFile);
         }
         for (ser_SpecField* field = s->spec->firstField; field; field = field->next) {
@@ -505,7 +506,12 @@ void _ser_write(FILE* f, const char* typename, void* seedObj, snz_Arena* scratch
         for (int64_t i = 0; i < write.stubs.count;i++) {
             int64_t fileLoc = write.stubs.locations[i];
             fseek(write.file, fileLoc, 0);
-            fwrite(&fileLoc, sizeof(int64_t), 1, write.file);
+
+            // FIXME: do we really need the stubs array? can't you just loop thru the address translations,
+            // assert they have all been hit, and then patch?
+            uint64_t* otherLoc = _serw_addressLocGet(&write, write.stubs.targetAddresses[i]);
+            SNZ_ASSERT(otherLoc, "unmatched ptr!!!");
+            _serw_writeBytes(&write, otherLoc, sizeof(*otherLoc), true);
         }
     }
 }
