@@ -71,44 +71,44 @@ const char* ser_tKindStrs[] = {
 };
 
 typedef struct _ser_T _ser_T;
-typedef struct ser_SpecField ser_SpecField;
-typedef struct ser_SpecStruct ser_SpecStruct;
+typedef struct _ser_SpecField _ser_SpecField;
+typedef struct _ser_SpecStruct _ser_SpecStruct;
 
 struct _ser_T {
     ser_TKind kind;
     _ser_T* inner;
 
     const char* referencedName;
-    ser_SpecStruct* referencedStruct;
+    _ser_SpecStruct* referencedStruct;
     int offsetOfSliceLengthIntoStruct;
 };
 
-struct ser_SpecField {
-    ser_SpecField* next;
+struct _ser_SpecField {
+    _ser_SpecField* next;
     const char* tag;
 
     _ser_T* type;
     int offsetInStruct;
 };
 
-struct ser_SpecStruct {
-    ser_SpecStruct* next;
+struct _ser_SpecStruct {
+    _ser_SpecStruct* next;
     const char* tag;
     int64_t indexIntoSpec;
     bool pointable;
 
-    ser_SpecField* firstField;
+    _ser_SpecField* firstField;
     int64_t fieldCount;
     int64_t size;
 };
 
 static struct {
     bool validated; // when true indicates all specs have been added and that no more will, also that the entire thing has been validated.
-    ser_SpecStruct* firstStructSpec;
+    _ser_SpecStruct* firstStructSpec;
     int64_t structSpecCount;
 
     snz_Arena* specArena;
-    ser_SpecStruct* activeStructSpec;
+    _ser_SpecStruct* activeStructSpec;
 } _ser_globs;
 
 static void _ser_pushActiveStructSpecIfAny() {
@@ -162,7 +162,7 @@ _ser_T* _ser_tPtr(const char* innerName) {
 void _ser_addStruct(const char* name, int64_t size, bool pointable) {
     _ser_assertInstanceValidForAddingToSpec();
     _ser_pushActiveStructSpecIfAny();
-    ser_SpecStruct* s = SNZ_ARENA_PUSH(_ser_globs.specArena, ser_SpecStruct);
+    _ser_SpecStruct* s = SNZ_ARENA_PUSH(_ser_globs.specArena, _ser_SpecStruct);
     _ser_globs.activeStructSpec = s;
     s->tag = name;
     s->size = size;
@@ -179,8 +179,8 @@ void _ser_addStructField(const char* activeStructName, _ser_T* type, const char*
         "Active struct '%s' wasn't the same as expected struct '%s'\n",
         _ser_globs.activeStructSpec->tag, activeStructName);
 
-    ser_SpecField* field = SNZ_ARENA_PUSH(_ser_globs.specArena, ser_SpecField);
-    *field = (ser_SpecField){
+    _ser_SpecField* field = SNZ_ARENA_PUSH(_ser_globs.specArena, _ser_SpecField);
+    *field = (_ser_SpecField){
         .offsetInStruct = offsetIntoStruct,
         .tag = name,
         .type = type,
@@ -213,8 +213,8 @@ void ser_begin(snz_Arena* specArena) {
     _ser_globs.validated = false;
 }
 
-ser_SpecStruct* _ser_getStructSpecByName(const char* name) {
-    for (ser_SpecStruct* s = _ser_globs.firstStructSpec; s; s = s->next) {
+_ser_SpecStruct* _ser_getStructSpecByName(const char* name) {
+    for (_ser_SpecStruct* s = _ser_globs.firstStructSpec; s; s = s->next) {
         if (strcmp(s->tag, name) == 0) {
             return s;
         }
@@ -229,10 +229,10 @@ void ser_end() {
     // FIXME: could double check that offsets are within the size of a given struct
     int i = 0;
     // FIXME: duplicates check for structs and fields
-    for (ser_SpecStruct* s = _ser_globs.firstStructSpec; s; s = s->next) {
+    for (_ser_SpecStruct* s = _ser_globs.firstStructSpec; s; s = s->next) {
         // FIXME: good error reporting here, trace of type, line no., etc.
         SNZ_ASSERT(s->tag, "struct with no tag.");
-        for (ser_SpecField* f = s->firstField; f; f = f->next) {
+        for (_ser_SpecField* f = s->firstField; f; f = f->next) {
             SNZ_ASSERT(f->tag, "struct field with no tag.");
             SNZ_ASSERT(f->type, "can't have a field with no type.");
 
@@ -281,7 +281,7 @@ struct _ser_AddressNode {
 typedef struct _serw_QueuedStruct _serw_QueuedStruct;
 struct _serw_QueuedStruct {
     _serw_QueuedStruct* next;
-    ser_SpecStruct* spec;
+    _ser_SpecStruct* spec;
     void* obj;
 };
 
@@ -380,7 +380,7 @@ void _serw_writeBytes(_serw_WriteInst* write, const void* src, int64_t size, boo
     // }
 }
 
-void _serw_writeField(_serw_WriteInst* write, ser_SpecField* field, void* obj) {
+void _serw_writeField(_serw_WriteInst* write, _ser_SpecField* field, void* obj) {
     ser_TKind kind = field->type->kind;
     if (kind == SER_TK_PTR) {
         uint64_t pointed = (uint64_t) * (void**)((char*)obj + field->offsetInStruct);
@@ -407,22 +407,22 @@ void _serw_writeField(_serw_WriteInst* write, ser_SpecField* field, void* obj) {
         uint64_t pointed = (uint64_t) * (void**)((char*)obj + field->offsetInStruct);
         int64_t length = *(int64_t*)((char*)obj + field->type->offsetOfSliceLengthIntoStruct);
         _serw_writeBytes(write, &length, sizeof(length), true);
-        ser_SpecStruct* innerStructType = field->type->inner->referencedStruct;
+        _ser_SpecStruct* innerStructType = field->type->inner->referencedStruct;
         for (int64_t i = 0; i < length; i++) {
             uint64_t innerStructAddress = pointed + (i * innerStructType->size);
-            for (ser_SpecField* innerField = innerStructType->firstField; innerField; innerField = innerField->next) {
+            for (_ser_SpecField* innerField = innerStructType->firstField; innerField; innerField = innerField->next) {
                 _serw_writeField(write, innerField, (void*)innerStructAddress);
             }
         }
         return;
     } else if (kind == SER_TK_STRUCT) {
-        ser_SpecStruct* s = field->type->referencedStruct;
+        _ser_SpecStruct* s = field->type->referencedStruct;
         void* innerStruct = (char*)obj + field->offsetInStruct;
 
         if (s->pointable) {
             _serw_addressLocSet(write, (uint64_t)innerStruct, write->positionIntoFile);
         }
-        for (ser_SpecField* innerField = s->firstField; innerField; innerField = innerField->next) {
+        for (_ser_SpecField* innerField = s->firstField; innerField; innerField = innerField->next) {
             _serw_writeField(write, innerField, innerStruct);
         }
         return;
@@ -448,6 +448,7 @@ void _serw_writeField(_serw_WriteInst* write, ser_SpecField* field, void* obj) {
 }
 
 // FIXME: typecheck of some kind on obj
+// FIXME: error codes
 #define ser_write(F, T, obj, scratch) _ser_write(F, #T, obj, scratch)
 void _ser_write(FILE* f, const char* typename, void* seedObj, snz_Arena* scratch) {
     _ser_assertInstanceValidated();
@@ -466,13 +467,13 @@ void _ser_write(FILE* f, const char* typename, void* seedObj, snz_Arena* scratch
         _serw_writeBytes(&write, &version, sizeof(version), true);
 
         _serw_writeBytes(&write, &_ser_globs.structSpecCount, sizeof(_ser_globs.structSpecCount), true); // decl count
-        for (ser_SpecStruct* s = _ser_globs.firstStructSpec; s; s = s->next) {
+        for (_ser_SpecStruct* s = _ser_globs.firstStructSpec; s; s = s->next) {
             uint64_t tagLen = strlen(s->tag);
             _serw_writeBytes(&write, &tagLen, sizeof(tagLen), true); // length of tag
             _serw_writeBytes(&write, s->tag, tagLen, false); // tag
 
             _serw_writeBytes(&write, &s->fieldCount, sizeof(s->fieldCount), true); // field count
-            for (ser_SpecField* field = s->firstField; field; field = field->next) {
+            for (_ser_SpecField* field = s->firstField; field; field = field->next) {
                 uint64_t tagLen = strlen(field->tag);
                 _serw_writeBytes(&write, &tagLen, sizeof(tagLen), true); // length of tag
                 _serw_writeBytes(&write, field->tag, tagLen, false); // tag
@@ -503,7 +504,7 @@ void _ser_write(FILE* f, const char* typename, void* seedObj, snz_Arena* scratch
             } // assert not already written to file
             _serw_addressLocSet(&write, (uint64_t)s->obj, write.positionIntoFile);
         }
-        for (ser_SpecField* field = s->spec->firstField; field; field = field->next) {
+        for (_ser_SpecField* field = s->spec->firstField; field; field = field->next) {
             _serw_writeField(&write, field, s->obj);
         }
     }
@@ -517,6 +518,46 @@ void _ser_write(FILE* f, const char* typename, void* seedObj, snz_Arena* scratch
             SNZ_ASSERT(otherLoc, "unmatched ptr!!!");
             _serw_writeBytes(&write, otherLoc, sizeof(*otherLoc), true);
         }
+    }
+}
+
+typedef struct {
+    FILE* file;
+    uint64_t positionIntoFile;
+} _serr_ReadInst;
+
+void _serr_readBytes(_serr_ReadInst* read, void* out, int64_t size) {
+    fread(out, size, 1, read->file);
+}
+
+void _serr_readField() {
+
+}
+
+#define ser_read(T, f, arena) _ser_read(#T, f, arena)
+void* _ser_read(const char* typename, FILE* file, snz_Arena* arena) {
+    _ser_assertInstanceValidated();
+
+    _serr_ReadInst read = (_serr_ReadInst){
+        .file = file,
+        .positionIntoFile = 0,
+    };
+
+    { // parse spec
+
+    }
+
+    { // parse obj while any left
+        _ser_T* type = _ser_getStructSpecByName(typename);
+        SNZ_ASSERTF(type, "No struct definition for '%s'", typename);
+        SNZ_ASSERT(type->kind == SER_TK_STRUCT, "AHH");
+        for (_ser_SpecField* field = type->referencedStruct->firstField; field; field = field->next) {
+
+        }
+    }
+
+    { // patch ptrs
+
     }
 }
 
