@@ -372,12 +372,12 @@ void _serw_writeBytes(_serw_WriteInst* write, const void* src, int64_t size, boo
         fwrite(src, size, 1, write->file);
     }
 
-    // int count = (8 - (write->positionIntoFile % 8)) % 8;
-    // write->positionIntoFile += count;
-    // for (int i = 0; i < count; i++) {
-    //     uint8_t byte = 0xFF;
-    //     fwrite(&byte, 1, 1, write->file);
-    // }
+    int count = (8 - (write->positionIntoFile % 8)) % 8;
+    write->positionIntoFile += count;
+    for (int i = 0; i < count; i++) {
+        uint8_t byte = 0xFF;
+        fwrite(&byte, 1, 1, write->file);
+    }
 }
 
 void _serw_writeField(_serw_WriteInst* write, _ser_SpecField* field, void* obj) {
@@ -524,41 +524,67 @@ void _ser_write(FILE* f, const char* typename, void* seedObj, snz_Arena* scratch
 typedef struct {
     FILE* file;
     uint64_t positionIntoFile;
+    snz_Arena* outArena;
+    snz_Arena* scratch;
 } _serr_ReadInst;
 
-void _serr_readBytes(_serr_ReadInst* read, void* out, int64_t size) {
-    fread(out, size, 1, read->file);
+void _serr_readBytes(_serr_ReadInst* read, void* out, int64_t size, bool swapWithEndianness) {
+    if (swapWithEndianness) {
+        uint8_t* bytes = snz_arenaPush(read->scratch, size); // FIXME: static cache the space for these & just assert on size? - same w/ write?
+        fread(bytes, size, 1, read->file);
+        read->positionIntoFile += size;
+
+        for (int64_t i = 0; i < size; i++) {
+            *((uint8_t*)out + i) = bytes[size - 1 - i];
+        }
+        snz_arenaPop(read->scratch, size);
+    } else {
+        read->positionIntoFile += size;
+        fread(out, size, 1, read->file);
+    }
 }
 
-void _serr_readField() {
+// void _serr_readField(_serr_ReadInst* read) {
+// }
 
-}
-
-#define ser_read(T, f, arena) _ser_read(#T, f, arena)
-void* _ser_read(const char* typename, FILE* file, snz_Arena* arena) {
+#define ser_read(f, T, arena, scratch) _ser_read(f, #T, arena, scratch)
+void* _ser_read(FILE* file, const char* typename, snz_Arena* outArena, snz_Arena* scratch) {
     _ser_assertInstanceValidated();
-
     _serr_ReadInst read = (_serr_ReadInst){
         .file = file,
         .positionIntoFile = 0,
+        .outArena = outArena,
+        .scratch = scratch,
     };
 
     { // parse spec
+        int64_t declCount = 0;
+        _serr_readBytes(&read, &declCount, sizeof(declCount), true);
+        for (int i = 0; i < declCount; i++) {
+            int64_t tagLen = 0;
+            _serr_readBytes(&read, &tagLen, sizeof(tagLen), true);
+            char* tag = SNZ_ARENA_PUSH_ARR(read.scratch, tagLen + 1, char);
+            _serr_readBytes(&read, tag, tagLen, false);
+        }
+    }
+
+    { // apply patches
 
     }
 
-    { // parse obj while any left
-        _ser_T* type = _ser_getStructSpecByName(typename);
+    { // parse objs while any left
+        _ser_SpecStruct* type = _ser_getStructSpecByName(typename);
         SNZ_ASSERTF(type, "No struct definition for '%s'", typename);
-        SNZ_ASSERT(type->kind == SER_TK_STRUCT, "AHH");
-        for (_ser_SpecField* field = type->referencedStruct->firstField; field; field = field->next) {
+        // for (_ser_SpecField* field = type->firstField; field; field = field->next) {
 
-        }
+        // }
     }
 
     { // patch ptrs
 
     }
+
+    return NULL;
 }
 
 #include "timeline.h"
@@ -643,5 +669,7 @@ void ser_tests() {
     ops[1].dependencies[0] = &ops[2];
 
     ser_write(f, tl_Op, &ops[0], &testArena);
+    tl_Op* out = ser_read(f, tl_Op, &testArena, &testArena);
+    SNZ_ASSERT(out || !out, "unreachable");
     fclose(f);
 }
