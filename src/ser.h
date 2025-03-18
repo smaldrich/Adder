@@ -105,7 +105,7 @@ struct _ser_SpecStruct {
 
 static struct {
     bool validated; // when true indicates all specs have been added and that no more will, also that the entire thing has been validated.
-    _ser_SpecStruct* firstStructSpec;
+    _ser_SpecStruct* firstStructSpec; // FIXME: enums too
     int64_t structSpecCount;
 
     snz_Arena* specArena;
@@ -218,6 +218,15 @@ _ser_SpecStruct* _ser_getStructSpecByName(const char* name) {
     for (_ser_SpecStruct* s = _ser_globs.firstStructSpec; s; s = s->next) {
         if (strcmp(s->tag, name) == 0) {
             return s;
+        }
+    }
+    return NULL;
+}
+
+_ser_SpecField* _ser_getFieldSpecByName(_ser_SpecStruct* struc, const char* name) {
+    for (_ser_SpecField* f = struc->firstField; f; f = f->next) {
+        if (strcmp(f, name) == 0) {
+            return f;
         }
     }
     return NULL;
@@ -587,12 +596,13 @@ void* _ser_read(FILE* file, const char* typename, snz_Arena* outArena, snz_Arena
             _ser_SpecStruct* decl = SNZ_ARENA_PUSH(scratch, _ser_SpecStruct);
             *decl = (_ser_SpecStruct){
                 .indexIntoSpec = i,
-                .next = lastStructSpec,
             };
-            lastStructSpec = decl;
-            if (!firstStructSpec) {
+            if (lastStructSpec) {
+                lastStructSpec->next = decl;
+            } else {
                 firstStructSpec = lastStructSpec;
             }
+            lastStructSpec = decl;
 
             int64_t tagLen = 0;
             _serr_readBytes(&read, &tagLen, sizeof(tagLen), true);
@@ -633,23 +643,34 @@ void* _ser_read(FILE* file, const char* typename, snz_Arena* outArena, snz_Arena
                 }
             } // end field loop
         } // end decl loop
-
-        _ser_validate(firstStructSpec);
     } // end spec parsing
 
     { // apply patches
 
     }
 
-    { // diff to original
+    { // compare to original & fix up
+        for (_ser_SpecStruct* s = firstStructSpec; s; s = s->next) {
+            _ser_SpecStruct* og = _ser_getStructSpecByName(typename);
+            if (!og) {
+                continue; // FIXME: mark missing?
+            }
+            s->pointable = og->pointable;
 
+            for (_ser_SpecField* f = s->firstField; f; f = f->next) {
+                _ser_SpecField* ogField = _ser_getFieldSpecByName(og, f->tag);
+                if (!ogField) {
+                    continue; // FIXME: mark missing?
+                }
+
+                SNZ_ASSERTF(f->type->kind == ogField->type->kind);
+            }
+        }
+        _ser_validate(firstStructSpec);
     }
 
     { // parse objs while any left
-        _ser_SpecStruct* type = _ser_getStructSpecByName(typename);
-        SNZ_ASSERTF(type, "No struct definition for '%s'", typename);
         // for (_ser_SpecField* field = type->firstField; field; field = field->next) {
-
         // }
     }
 
