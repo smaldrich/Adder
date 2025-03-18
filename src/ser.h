@@ -76,9 +76,10 @@ typedef struct _ser_SpecStruct _ser_SpecStruct;
 
 struct _ser_T {
     ser_TKind kind;
-    _ser_T* inner;
+    _ser_T* inner; // FIXME: this isn't actually reqd, please remove :)
 
     const char* referencedName;
+    int64_t referencedIndex;
     _ser_SpecStruct* referencedStruct;
     int offsetOfSliceLengthIntoStruct;
 };
@@ -372,12 +373,12 @@ void _serw_writeBytes(_serw_WriteInst* write, const void* src, int64_t size, boo
         fwrite(src, size, 1, write->file);
     }
 
-    int count = (8 - (write->positionIntoFile % 8)) % 8;
-    write->positionIntoFile += count;
-    for (int i = 0; i < count; i++) {
-        uint8_t byte = 0xFF;
-        fwrite(&byte, 1, 1, write->file);
-    }
+    // int count = (8 - (write->positionIntoFile % 8)) % 8;
+    // write->positionIntoFile += count;
+    // for (int i = 0; i < count; i++) {
+    //     uint8_t byte = 0xFF;
+    //     fwrite(&byte, 1, 1, write->file);
+    // }
 }
 
 void _serw_writeField(_serw_WriteInst* write, _ser_SpecField* field, void* obj) {
@@ -557,18 +558,67 @@ void* _ser_read(FILE* file, const char* typename, snz_Arena* outArena, snz_Arena
         .scratch = scratch,
     };
 
+    _ser_SpecStruct* firstStructSpec = NULL;
     { // parse spec
+        uint64_t version = 0;
+        _serr_readBytes(&read, &version, sizeof(version), true);
+        SNZ_ASSERTF(version <= SER_VERSION, "version of file %lld was greater than current version %d.", version, SER_VERSION);
+
+
         int64_t declCount = 0;
         _serr_readBytes(&read, &declCount, sizeof(declCount), true);
-        for (int i = 0; i < declCount; i++) {
+        for (int64_t i = 0; i < declCount; i++) {
+            _ser_SpecStruct* decl = SNZ_ARENA_PUSH(scratch, _ser_SpecStruct);
+            *decl = (_ser_SpecStruct){
+                .indexIntoSpec = i,
+                .next = firstStructSpec,
+            };
+            firstStructSpec = decl;
+
             int64_t tagLen = 0;
             _serr_readBytes(&read, &tagLen, sizeof(tagLen), true);
             char* tag = SNZ_ARENA_PUSH_ARR(read.scratch, tagLen + 1, char);
             _serr_readBytes(&read, tag, tagLen, false);
-        }
-    }
+            decl->tag = tag;
+
+            _serr_readBytes(&read, &decl->fieldCount, sizeof(decl->fieldCount), true);
+            for (int64_t j = 0; j < decl->fieldCount; j++) {
+                _ser_SpecField* field = SNZ_ARENA_PUSH(scratch, _ser_SpecField);
+                *field = (_ser_SpecField){
+                    .next = decl->firstField,
+                };
+                decl->firstField = field;
+
+                int64_t fieldTagLen = 0;
+                _serr_readBytes(&read, &fieldTagLen, sizeof(fieldTagLen), true);
+                tag = SNZ_ARENA_PUSH_ARR(read.scratch, fieldTagLen + 1, char);
+                _serr_readBytes(&read, tag, fieldTagLen, false);
+                field->tag = tag;
+
+                field->type = SNZ_ARENA_PUSH(scratch, _ser_T);
+                char fileT = 0;
+                _serr_readBytes(&read, &fileT, 1, false);
+                field->type->kind = (ser_TKind)fileT;
+
+                if (field->type->kind == SER_TK_STRUCT) {
+                    _serr_readBytes(&read, &field->type->referencedIndex, sizeof(field->type->referencedIndex), true);
+                } else if ((field->type->kind == SER_TK_PTR) || (field->type->kind == SER_TK_SLICE)) {
+                    _ser_T* structT = SNZ_ARENA_PUSH(scratch, _ser_T);
+                    fileT = 0;
+                    _serr_readBytes(&read, &fileT, 1, false);
+                    structT->kind = (ser_TKind)fileT;
+                    SNZ_ASSERT(structT->kind == SER_TK_STRUCT, "HUH");
+                    _serr_readBytes(&read, &structT->referencedIndex, sizeof(structT->referencedIndex), true);
+                }
+            } // end field loop
+        } // end decl loop
+    } // end spec parsing
 
     { // apply patches
+
+    }
+
+    { // diff to original
 
     }
 
@@ -631,7 +681,7 @@ void ser_tests() {
 
     ser_end();
 
-    FILE* f = fopen("testing/ser3.adder", "w");
+    FILE* f = fopen("testing/ser3.adder", "wb");
     // geo_Tri tris[] = {
     //     (geo_Tri) {
     //         .a = HMM_V3(0, 1, 2),
@@ -669,7 +719,13 @@ void ser_tests() {
     ops[1].dependencies[0] = &ops[2];
 
     ser_write(f, tl_Op, &ops[0], &testArena);
-    tl_Op* out = ser_read(f, tl_Op, &testArena, &testArena);
-    SNZ_ASSERT(out || !out, "unreachable");
     fclose(f);
+
+    f = fopen("testing/ser3.adder", "rb");
+    tl_Op* out = ser_read(f, tl_Op, &testArena, &testArena);
+    fclose(f);
+
+    SNZ_ASSERT(out || !out, "unreachable");
 }
+
+// FIXME: a fuzzing system for this lib is 100000% possible, do that please
