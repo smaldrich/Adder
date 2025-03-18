@@ -223,25 +223,32 @@ _ser_SpecStruct* _ser_getStructSpecByName(const char* name) {
     return NULL;
 }
 
-void ser_end() {
-    _ser_assertInstanceValidForAddingToSpec();
-    _ser_pushActiveStructSpecIfAny();
-
+void _ser_validate(_ser_SpecStruct* firstStruct) {
     // FIXME: could double check that offsets are within the size of a given struct
     int i = 0;
     // FIXME: duplicates check for structs and fields
-    for (_ser_SpecStruct* s = _ser_globs.firstStructSpec; s; s = s->next) {
+    for (_ser_SpecStruct* s = firstStruct; s; s = s->next) {
         // FIXME: good error reporting here, trace of type, line no., etc.
-        SNZ_ASSERT(s->tag, "struct with no tag.");
+        SNZ_ASSERT(s->tag && strlen(s->tag), "struct with no tag.");
         for (_ser_SpecField* f = s->firstField; f; f = f->next) {
-            SNZ_ASSERT(f->tag, "struct field with no tag.");
+            SNZ_ASSERT(f->tag && strlen(f->tag), "struct field with no tag.");
             SNZ_ASSERT(f->type, "can't have a field with no type.");
 
             for (_ser_T* inner = f->type; inner; inner = inner->inner) {
                 SNZ_ASSERTF(inner->kind > SER_TK_INVALID && inner->kind < SER_TK_COUNT, "invalid kind: %d.", inner->kind);
                 if (inner->kind == SER_TK_STRUCT) {
-                    inner->referencedStruct = _ser_getStructSpecByName(inner->referencedName);
-                    SNZ_ASSERTF(inner->referencedStruct, "no definition with the name '%s' found.", inner->referencedName);
+                    // lookup by name if that exists, otherwise by index
+                    if (inner->referencedName && strlen(inner->referencedName)) {
+                        inner->referencedStruct = _ser_getStructSpecByName(inner->referencedName);
+                        SNZ_ASSERTF(inner->referencedStruct, "no definition with the name '%s' found.", inner->referencedName);
+                    } else {
+                        // FIXME: O(N) here is shitty
+                        inner->referencedStruct = firstStruct;
+                        for (int i = 0; i < inner->referencedIndex; i++) {
+                            inner->referencedStruct = inner->referencedStruct->next;
+                            // FIXME: just segfaults on an OOBs err here, fix that
+                        }
+                    }
 
                     if (inner == f->type) {
                         SNZ_ASSERT(inner->referencedStruct != s, "can't nest structs. make the field a ptr or ptr view.");
@@ -269,6 +276,14 @@ void ser_end() {
         s->indexIntoSpec = i;
         i++;
     } // end all structs
+}
+
+void ser_end() {
+    _ser_assertInstanceValidForAddingToSpec();
+    _ser_pushActiveStructSpecIfAny();
+
+    _ser_validate(_ser_globs.firstStructSpec);
+
     _ser_globs.validated = true;
 }
 
@@ -559,6 +574,7 @@ void* _ser_read(FILE* file, const char* typename, snz_Arena* outArena, snz_Arena
     };
 
     _ser_SpecStruct* firstStructSpec = NULL;
+    _ser_SpecStruct* lastStructSpec = NULL;
     { // parse spec
         uint64_t version = 0;
         _serr_readBytes(&read, &version, sizeof(version), true);
@@ -571,9 +587,12 @@ void* _ser_read(FILE* file, const char* typename, snz_Arena* outArena, snz_Arena
             _ser_SpecStruct* decl = SNZ_ARENA_PUSH(scratch, _ser_SpecStruct);
             *decl = (_ser_SpecStruct){
                 .indexIntoSpec = i,
-                .next = firstStructSpec,
+                .next = lastStructSpec,
             };
-            firstStructSpec = decl;
+            lastStructSpec = decl;
+            if (!firstStructSpec) {
+                firstStructSpec = lastStructSpec;
+            }
 
             int64_t tagLen = 0;
             _serr_readBytes(&read, &tagLen, sizeof(tagLen), true);
@@ -604,6 +623,8 @@ void* _ser_read(FILE* file, const char* typename, snz_Arena* outArena, snz_Arena
                     _serr_readBytes(&read, &field->type->referencedIndex, sizeof(field->type->referencedIndex), true);
                 } else if ((field->type->kind == SER_TK_PTR) || (field->type->kind == SER_TK_SLICE)) {
                     _ser_T* structT = SNZ_ARENA_PUSH(scratch, _ser_T);
+                    field->type->inner = structT;
+
                     fileT = 0;
                     _serr_readBytes(&read, &fileT, 1, false);
                     structT->kind = (ser_TKind)fileT;
@@ -612,6 +633,8 @@ void* _ser_read(FILE* file, const char* typename, snz_Arena* outArena, snz_Arena
                 }
             } // end field loop
         } // end decl loop
+
+        _ser_validate(firstStructSpec);
     } // end spec parsing
 
     { // apply patches
