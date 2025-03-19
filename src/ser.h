@@ -70,6 +70,20 @@ const char* ser_tKindStrs[] = {
     "SER_TK_FLOAT64",
 };
 
+int64_t _ser_tKindSizes[] = {
+    [SER_TK_INT8] = sizeof(int8_t),
+    [SER_TK_INT16] = sizeof(int16_t),
+    [SER_TK_INT32] = sizeof(int32_t),
+    [SER_TK_INT64] = sizeof(int64_t),
+    [SER_TK_UINT8] = sizeof(uint8_t),
+    [SER_TK_UINT16] = sizeof(uint16_t),
+    [SER_TK_UINT32] = sizeof(uint32_t),
+    [SER_TK_UINT64] = sizeof(uint64_t),
+
+    [SER_TK_FLOAT32] = sizeof(float),
+    [SER_TK_FLOAT64] = sizeof(double),
+};
+
 typedef struct _ser_T _ser_T;
 typedef struct _ser_SpecField _ser_SpecField;
 typedef struct _ser_SpecStruct _ser_SpecStruct;
@@ -90,6 +104,7 @@ struct _ser_SpecField {
 
     _ser_T* type;
     int offsetInStruct;
+    bool missingFromStruct;
 };
 
 struct _ser_SpecStruct {
@@ -99,6 +114,7 @@ struct _ser_SpecStruct {
     bool pointable;
 
     _ser_SpecField* firstField;
+    _ser_SpecField* lastField;
     int64_t fieldCount;
     int64_t size;
 };
@@ -185,9 +201,13 @@ void _ser_addStructField(const char* activeStructName, _ser_T* type, const char*
         .offsetInStruct = offsetIntoStruct,
         .tag = name,
         .type = type,
-        .next = _ser_globs.activeStructSpec->firstField,
     };
-    _ser_globs.activeStructSpec->firstField = field;
+    if (_ser_globs.activeStructSpec->lastField) {
+        _ser_globs.activeStructSpec->lastField->next = field;
+    } else {
+        _ser_globs.activeStructSpec->firstField = field;
+    }
+    _ser_globs.activeStructSpec->lastField = field;
     _ser_globs.activeStructSpec->fieldCount++;
 }
 
@@ -225,7 +245,7 @@ _ser_SpecStruct* _ser_getStructSpecByName(const char* name) {
 
 _ser_SpecField* _ser_getFieldSpecByName(_ser_SpecStruct* struc, const char* name) {
     for (_ser_SpecField* f = struc->firstField; f; f = f->next) {
-        if (strcmp(f, name) == 0) {
+        if (strcmp(f->tag, name) == 0) {
             return f;
         }
     }
@@ -455,19 +475,8 @@ void _serw_writeField(_serw_WriteInst* write, _ser_SpecField* field, void* obj) 
 
 
     void* ptr = ((char*)obj) + field->offsetInStruct;
-    int sizes[SER_TK_COUNT] = { 0 };
-    sizes[SER_TK_FLOAT32] = sizeof(float);
-    sizes[SER_TK_FLOAT64] = sizeof(double);
-    sizes[SER_TK_INT8] = sizeof(int8_t);
-    sizes[SER_TK_INT16] = sizeof(int16_t);
-    sizes[SER_TK_INT32] = sizeof(int32_t);
-    sizes[SER_TK_INT64] = sizeof(int64_t);
-    sizes[SER_TK_UINT8] = sizeof(uint8_t);
-    sizes[SER_TK_UINT16] = sizeof(uint16_t);
-    sizes[SER_TK_UINT32] = sizeof(uint32_t);
-    sizes[SER_TK_UINT64] = sizeof(uint64_t);
-
-    int size = sizes[kind];
+    SNZ_ASSERT(kind > SER_TK_INVALID && kind < SER_TK_COUNT, "invalid kind?? after validation tho??");
+    int size = _ser_tKindSizes[kind];
     SNZ_ASSERTF(size != 0, "Kind of %d had no associated size.", kind);
     _serw_writeBytes(write, ptr, size, true);
 }
@@ -537,7 +546,7 @@ void _ser_write(FILE* f, const char* typename, void* seedObj, snz_Arena* scratch
     { // patch ptrs
         for (int64_t i = 0; i < write.stubs.count;i++) {
             int64_t fileLoc = write.stubs.locations[i];
-            fseek(write.file, fileLoc, 0);
+            fseek(write.file, fileLoc, SEEK_SET);
 
             uint64_t* otherLoc = _serw_addressLocGet(&write, write.stubs.targetAddresses[i]);
             SNZ_ASSERT(otherLoc, "unmatched ptr!!!");
@@ -553,24 +562,77 @@ typedef struct {
     snz_Arena* scratch;
 } _serr_ReadInst;
 
+// if out is null, moves the file ptr forward without actually reading the bytes
 void _serr_readBytes(_serr_ReadInst* read, void* out, int64_t size, bool swapWithEndianness) {
-    if (swapWithEndianness) {
+    if (!out) {
+        fseek(read->file, size, SEEK_CUR);
+    } else if (swapWithEndianness) {
         uint8_t* bytes = snz_arenaPush(read->scratch, size); // FIXME: static cache the space for these & just assert on size? - same w/ write?
         fread(bytes, size, 1, read->file);
-        read->positionIntoFile += size;
 
         for (int64_t i = 0; i < size; i++) {
             *((uint8_t*)out + i) = bytes[size - 1 - i];
         }
         snz_arenaPop(read->scratch, size);
     } else {
-        read->positionIntoFile += size;
         fread(out, size, 1, read->file);
     }
+    read->positionIntoFile += size;
 }
 
-// void _serr_readField(_serr_ReadInst* read) {
-// }
+// FIXME: lack of typechecking of ptrs, VERY NOT GOOD PLEASE FIX
+// ^ please do a thorough look into whether this is a problem on write too
+// but we are kinda assuming clean input data for writes so idk (cause how are we sanitizing ptrs, especially from arenas)
+
+// NULL obj indicates the field is not getting read to anywhere
+// still gets executed to move forward within the file the correct amount tho
+void _serr_readField(_serr_ReadInst* read, _ser_SpecField* field, void* obj) {
+    void* outPos = NULL;
+    if (!field->missingFromStruct && obj != NULL) {
+        outPos = (char*)obj + field->offsetInStruct;
+    }
+
+    ser_TKind kind = field->type->kind;
+    if (kind == SER_TK_PTR) {
+        // FIXME: put to stub table - how does missing affect this??
+        _serr_readBytes(read, outPos, sizeof(void*), true);
+        return;
+    } else if (kind == SER_TK_SLICE) {
+        _ser_SpecStruct* structSpec = field->type->inner->referencedStruct;
+
+        int64_t count = 0;
+        _serr_readBytes(read, &count, sizeof(count), true);
+        void* slice = snz_arenaPush(read->outArena, count * structSpec->size);
+
+        if (obj != NULL) {
+            *(void**)((char*)obj + field->offsetInStruct) = slice;
+            *(int64_t*)((char*)obj + field->type->offsetOfSliceLengthIntoStruct) = count; // FIXME: again, ensure length field is the correct size/type
+        }
+
+        for (int i = 0; i < count; i++) {
+            void* offsetPos = obj;
+            if (obj != NULL) {
+                offsetPos = (char*)offsetPos + (i * structSpec->size);
+            }
+            for (_ser_SpecField* innerField = structSpec->firstField; innerField; innerField = innerField->next) {
+                _serr_readField(read, innerField, offsetPos);
+            }
+        }
+        return;
+    } else if (kind == SER_TK_STRUCT) {
+        // FIXME: put pos to translation table
+        _ser_SpecStruct* structSpec = field->type->referencedStruct;
+        for (_ser_SpecField* innerField = structSpec->firstField; innerField; innerField = innerField->next) {
+            _serr_readField(read, innerField, outPos);
+        }
+        return;
+    }
+
+    SNZ_ASSERT(kind > SER_TK_INVALID && kind < SER_TK_COUNT, "invalid kind?? after validation tho??");
+    int size = _ser_tKindSizes[kind];
+    SNZ_ASSERTF(size != 0, "Kind of %d had no associated size.", kind);
+    _serr_readBytes(read, outPos, size, true);
+}
 
 #define ser_read(f, T, arena, scratch) _ser_read(f, #T, arena, scratch)
 void* _ser_read(FILE* file, const char* typename, snz_Arena* outArena, snz_Arena* scratch) {
@@ -584,23 +646,25 @@ void* _ser_read(FILE* file, const char* typename, snz_Arena* outArena, snz_Arena
 
     _ser_SpecStruct* firstStructSpec = NULL;
     _ser_SpecStruct* lastStructSpec = NULL;
+    _ser_SpecStruct* structSpecs = NULL;
+    int64_t structSpecCount = 0;
     { // parse spec
         uint64_t version = 0;
         _serr_readBytes(&read, &version, sizeof(version), true);
         SNZ_ASSERTF(version <= SER_VERSION, "version of file %lld was greater than current version %d.", version, SER_VERSION);
 
+        _serr_readBytes(&read, &structSpecCount, sizeof(structSpecCount), true);
+        structSpecs = SNZ_ARENA_PUSH_ARR(scratch, structSpecCount, _ser_SpecStruct);
 
-        int64_t declCount = 0;
-        _serr_readBytes(&read, &declCount, sizeof(declCount), true);
-        for (int64_t i = 0; i < declCount; i++) {
-            _ser_SpecStruct* decl = SNZ_ARENA_PUSH(scratch, _ser_SpecStruct);
+        for (int64_t i = 0; i < structSpecCount; i++) {
+            _ser_SpecStruct* decl = &structSpecs[i];
             *decl = (_ser_SpecStruct){
                 .indexIntoSpec = i,
             };
             if (lastStructSpec) {
                 lastStructSpec->next = decl;
             } else {
-                firstStructSpec = lastStructSpec;
+                firstStructSpec = decl;
             }
             lastStructSpec = decl;
 
@@ -613,10 +677,12 @@ void* _ser_read(FILE* file, const char* typename, snz_Arena* outArena, snz_Arena
             _serr_readBytes(&read, &decl->fieldCount, sizeof(decl->fieldCount), true);
             for (int64_t j = 0; j < decl->fieldCount; j++) {
                 _ser_SpecField* field = SNZ_ARENA_PUSH(scratch, _ser_SpecField);
-                *field = (_ser_SpecField){
-                    .next = decl->firstField,
-                };
-                decl->firstField = field;
+                if (decl->lastField) {
+                    decl->lastField->next = field;
+                } else {
+                    decl->firstField = field;
+                }
+                decl->lastField = field;
 
                 int64_t fieldTagLen = 0;
                 _serr_readBytes(&read, &fieldTagLen, sizeof(fieldTagLen), true);
@@ -651,34 +717,61 @@ void* _ser_read(FILE* file, const char* typename, snz_Arena* outArena, snz_Arena
 
     { // compare to original & fix up
         for (_ser_SpecStruct* s = firstStructSpec; s; s = s->next) {
-            _ser_SpecStruct* og = _ser_getStructSpecByName(typename);
-            if (!og) {
-                continue; // FIXME: mark missing?
+            _ser_SpecStruct* ogStruct = _ser_getStructSpecByName(s->tag);
+            if (!ogStruct) {
+                continue;
             }
-            s->pointable = og->pointable;
+            s->pointable = ogStruct->pointable;
+            s->size = ogStruct->size;
 
             for (_ser_SpecField* f = s->firstField; f; f = f->next) {
-                _ser_SpecField* ogField = _ser_getFieldSpecByName(og, f->tag);
+                _ser_SpecField* ogField = _ser_getFieldSpecByName(ogStruct, f->tag);
                 if (!ogField) {
-                    continue; // FIXME: mark missing?
+                    f->missingFromStruct = true;
+                    continue;
                 }
+                SNZ_ASSERT(f->type->kind == ogField->type->kind, "kind mismatch between loaded spec and current");
+                f->offsetInStruct = ogField->offsetInStruct;
 
-                SNZ_ASSERTF(f->type->kind == ogField->type->kind);
+                if (f->type->kind == SER_TK_SLICE) {
+                    // FIXME: the structure and kines of things haven't been validated here, that's kinda sloppy
+                    f->type->offsetOfSliceLengthIntoStruct = ogField->type->offsetOfSliceLengthIntoStruct;
+                }
+                // FIXME: casting patches?
+                // FIXME: post read patches?
             }
         }
         _ser_validate(firstStructSpec);
     }
 
+    void* firstObj = NULL;
+    _ser_SpecStruct* firstObjSpec = NULL;
     { // parse objs while any left
-        // for (_ser_SpecField* field = type->firstField; field; field = field->next) {
-        // }
-    }
+        while (!feof(read.file)) { // FIXME: cutoff?
+            int64_t kind = 0;
+            _serr_readBytes(&read, &kind, sizeof(kind), true);
+            SNZ_ASSERTF(kind < structSpecCount, "invalid struct kind of %lld.", kind);
+
+            _ser_SpecStruct* spec = &structSpecs[kind];
+            void* obj = snz_arenaPush(outArena, spec->size);
+            for (_ser_SpecField* field = spec->firstField; field; field = field->next) {
+                _serr_readField(&read, field, obj);
+            }
+
+            if (!firstObj) {
+                firstObj = obj;
+                firstObjSpec = spec;
+            }
+        }
+    } // end obj parse
 
     { // patch ptrs
-
     }
 
-    return NULL;
+    SNZ_ASSERTF(strcmp(firstObjSpec->tag, typename) == 0,
+        "loaded struct wasn't of the type expected. Was: '%s', expected '%s'.",
+        firstObjSpec->tag, typename);
+    return firstObj;
 }
 
 #include "timeline.h"
@@ -747,7 +840,7 @@ void ser_tests() {
     tl_Op ops[] = {
         (tl_Op) {
             .kind = TL_OPK_BASE_GEOMETRY,
-            .ui.pos = HMM_V2(0, 0),
+            .ui.pos = HMM_V2(10, 10),
         },
         (tl_Op) {
             .kind = TL_OPK_BASE_GEOMETRY,
@@ -770,6 +863,8 @@ void ser_tests() {
     fclose(f);
 
     SNZ_ASSERT(out || !out, "unreachable");
+
+    snz_arenaDeinit(&testArena);
 }
 
 // FIXME: a fuzzing system for this lib is 100000% possible, do that please

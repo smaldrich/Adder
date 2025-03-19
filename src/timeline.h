@@ -57,7 +57,7 @@ struct tl_Op {
         tl_OpBaseGeometry baseGeometry;
     } val;
     tl_Op* dependencies[1];
-    bool expectedDependencies[1];
+    bool expectedDependencies[1]; // FIXME: make this a lookup so deserialization doesn't break it
 
     tl_Scene scene;
 };
