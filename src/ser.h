@@ -336,8 +336,8 @@ typedef struct {
     } translations;
 
     struct {
-        uint64_t locations[_SER_PTR_TRANSLATION_STUB_MAX];
-        uint64_t targets[_SER_PTR_TRANSLATION_STUB_MAX];
+        uint64_t locationsToPatch[_SER_PTR_TRANSLATION_STUB_MAX];
+        uint64_t keyOfValue[_SER_PTR_TRANSLATION_STUB_MAX];
         int64_t count;
     } stubs;
 } _ser_PtrTranslationTable;
@@ -354,7 +354,7 @@ uint64_t _ser_addressHash(uint64_t address) {
 }
 
 // return indicates whether the key didn't exist before & and the val was added
-bool _serw_addressLocSet(_ser_PtrTranslationTable* table, uint64_t key, uint64_t value) {
+bool _ser_ptrTranslationSet(_ser_PtrTranslationTable* table, uint64_t key, uint64_t value) {
     int64_t bucket = _ser_addressHash(key) % _SER_PTR_TRANSLATION_BUCKET_COUNT;
     _ser_PtrTranslation* initial = table->translationBuckets[bucket];
     for (_ser_PtrTranslation* node = initial; node; node = node->nextCollided) {
@@ -377,7 +377,7 @@ bool _serw_addressLocSet(_ser_PtrTranslationTable* table, uint64_t key, uint64_t
 }
 
 // null if not in table
-uint64_t* _serw_addressLocGet(_ser_PtrTranslationTable* table, uint64_t key) {
+uint64_t* _ser_ptrTranslationGet(_ser_PtrTranslationTable* table, uint64_t key) {
     int64_t bucket = _ser_addressHash(key) % _SER_PTR_TRANSLATION_BUCKET_COUNT;
     for (_ser_PtrTranslation* node = table->translationBuckets[bucket]; node; node = node->nextCollided) {
         if (node->key == key) {
@@ -385,6 +385,15 @@ uint64_t* _serw_addressLocGet(_ser_PtrTranslationTable* table, uint64_t key) {
         }
     }
     return NULL;
+}
+
+void _ser_ptrTranslationStubAdd(_ser_PtrTranslationTable* table, uint64_t addressToPatchAt, uint64_t keyOfPatchValue) {
+    SNZ_ASSERTF(table->stubs.count < _SER_PTR_TRANSLATION_STUB_MAX,
+                "Too many ptr stubs: %d", table->stubs.count);
+
+    table->stubs.locationsToPatch[table->stubs.count] = addressToPatchAt;
+    table->stubs.keyOfValue[table->stubs.count] = keyOfPatchValue;
+    table->stubs.count++;
 }
 
 typedef struct _serw_QueuedStruct _serw_QueuedStruct;
@@ -396,7 +405,6 @@ struct _serw_QueuedStruct {
 
 typedef struct {
     _serw_QueuedStruct* nextStruct;
-
     _ser_PtrTranslationTable ptrTable;
 
     FILE* file;
@@ -436,7 +444,7 @@ void _serw_writeField(_serw_WriteInst* write, _ser_SpecField* field, void* obj) 
     ser_TKind kind = field->type->kind;
     if (kind == SER_TK_PTR) {
         uint64_t pointed = (uint64_t) * (void**)((char*)obj + field->offsetInStruct);
-        if (pointed != 0 && !_serw_addressLocGet(write, pointed)) {
+        if (pointed != 0 && !_ser_ptrTranslationGet(&write->ptrTable, pointed)) {
             _serw_QueuedStruct* queued = SNZ_ARENA_PUSH(write->scratch, _serw_QueuedStruct);
             *queued = (_serw_QueuedStruct){
                 .next = write->nextStruct,
@@ -444,14 +452,11 @@ void _serw_writeField(_serw_WriteInst* write, _ser_SpecField* field, void* obj) 
                 .spec = field->type->inner->referencedStruct,
             };
             write->nextStruct = queued;
-            SNZ_ASSERT(_serw_addressLocSet(write, pointed, 0), "huh");
+            SNZ_ASSERT(_ser_ptrTranslationSet(&write->ptrTable, pointed, 0), "huh");
         } // FIXME: just put the location in file here if the object has already been written
 
         if (pointed != 0) {
-            SNZ_ASSERTF(write->stubs.count < _SERW_PTR_STUB_COUNT, "Too many ptr stubs: %d", write->stubs.count);
-            write->stubs.locations[write->stubs.count] = write->positionIntoFile;
-            write->stubs.targetAddresses[write->stubs.count] = pointed;
-            write->stubs.count++;
+            _ser_ptrTranslationStubAdd(&write->ptrTable, write->positionIntoFile, pointed);
         }
         _serw_writeBytes(write, &pointed, sizeof(void*), true); // this is overwritten when the ptr is patched (if non-null)
         return;
@@ -472,7 +477,7 @@ void _serw_writeField(_serw_WriteInst* write, _ser_SpecField* field, void* obj) 
         void* innerStruct = (char*)obj + field->offsetInStruct;
 
         if (s->pointable) {
-            _serw_addressLocSet(write, (uint64_t)innerStruct, write->positionIntoFile);
+            _ser_ptrTranslationSet(&write->ptrTable, (uint64_t)innerStruct, write->positionIntoFile);
         }
         for (_ser_SpecField* innerField = s->firstField; innerField; innerField = innerField->next) {
             _serw_writeField(write, innerField, innerStruct);
@@ -539,11 +544,11 @@ void _ser_write(FILE* f, const char* typename, void* seedObj, snz_Arena* scratch
         _serw_writeBytes(&write, &structIdx, sizeof(structIdx), true); // kind of structs
 
         if (s->spec->pointable) {
-            uint64_t* got = _serw_addressLocGet(&write, (uint64_t)s->obj);
+            uint64_t* got = _ser_ptrTranslationGet(&write.ptrTable, (uint64_t)s->obj);
             if (got) {
                 SNZ_ASSERT(*got == (uint64_t)0, "AHHHHHH");
             } // assert not already written to file
-            _serw_addressLocSet(&write, (uint64_t)s->obj, write.positionIntoFile);
+            _ser_ptrTranslationSet(&write.ptrTable, (uint64_t)s->obj, write.positionIntoFile);
         }
         for (_ser_SpecField* field = s->spec->firstField; field; field = field->next) {
             _serw_writeField(&write, field, s->obj);
@@ -551,11 +556,12 @@ void _ser_write(FILE* f, const char* typename, void* seedObj, snz_Arena* scratch
     }
 
     { // patch ptrs
-        for (int64_t i = 0; i < write.stubs.count;i++) {
-            int64_t fileLoc = write.stubs.locations[i];
+        _ser_PtrTranslationTable* t = &write.ptrTable;
+        for (int64_t i = 0; i < t->stubs.count; i++) {
+            int64_t fileLoc = t->stubs.locationsToPatch[i];
             fseek(write.file, fileLoc, SEEK_SET);
 
-            uint64_t* otherLoc = _serw_addressLocGet(&write, write.stubs.targetAddresses[i]);
+            uint64_t* otherLoc = _ser_ptrTranslationGet(&write.ptrTable, t->stubs.keyOfValue[i]);
             SNZ_ASSERT(otherLoc, "unmatched ptr!!!");
             _serw_writeBytes(&write, otherLoc, sizeof(*otherLoc), true);
         }
@@ -563,8 +569,12 @@ void _ser_write(FILE* f, const char* typename, void* seedObj, snz_Arena* scratch
 }
 
 typedef struct {
+    _ser_PtrTranslationTable ptrTable;
+
     FILE* file;
     uint64_t positionIntoFile;
+    FILE* log;
+
     snz_Arena* outArena;
     snz_Arena* scratch;
 } _serr_ReadInst;
@@ -587,10 +597,6 @@ void _serr_readBytes(_serr_ReadInst* read, void* out, int64_t size, bool swapWit
     read->positionIntoFile += size;
 }
 
-// FIXME: lack of typechecking of ptrs, VERY NOT GOOD PLEASE FIX
-// ^ please do a thorough look into whether this is a problem on write too
-// but we are kinda assuming clean input data for writes so idk (cause how are we sanitizing ptrs, especially from arenas)
-
 // NULL obj indicates the field is not getting read to anywhere
 // still gets executed to move forward within the file the correct amount tho
 void _serr_readField(_serr_ReadInst* read, _ser_SpecField* field, void* obj) {
@@ -601,14 +607,21 @@ void _serr_readField(_serr_ReadInst* read, _ser_SpecField* field, void* obj) {
 
     ser_TKind kind = field->type->kind;
     if (kind == SER_TK_PTR) {
-        // FIXME: put to stub table - how does missing affect this??
-        _serr_readBytes(read, outPos, sizeof(void*), true);
+        uint64_t loc = 0;
+        _serr_readBytes(read, &loc, sizeof(void*), true);
+        if (outPos != NULL && loc != 0) {
+            fprintf(read->log,
+                "new stub to type '%s', loc: %#llx, requested: %#llx\n",
+                field->type->inner->referencedStruct->tag, (uint64_t)outPos, loc);
+            _ser_ptrTranslationStubAdd(&read->ptrTable, (uint64_t)outPos, loc);
+        }
         return;
     } else if (kind == SER_TK_SLICE) {
         _ser_SpecStruct* structSpec = field->type->inner->referencedStruct;
 
         int64_t count = 0;
         _serr_readBytes(read, &count, sizeof(count), true);
+        // FIXME: don't allocate space if missing
         void* slice = snz_arenaPush(read->outArena, count * structSpec->size);
 
         if (obj != NULL) {
@@ -627,8 +640,13 @@ void _serr_readField(_serr_ReadInst* read, _ser_SpecField* field, void* obj) {
         }
         return;
     } else if (kind == SER_TK_STRUCT) {
-        // FIXME: put pos to translation table
         _ser_SpecStruct* structSpec = field->type->referencedStruct;
+        if (outPos && structSpec->pointable) {
+            fprintf(read->log,
+                "pointable found w type '%s', loc in file: %#llx, out addr: %#llx\n",
+                structSpec->tag, read->positionIntoFile, (uint64_t)outPos);
+            _ser_ptrTranslationSet(&read->ptrTable, read->positionIntoFile, (uint64_t)outPos);
+        }
         for (_ser_SpecField* innerField = structSpec->firstField; innerField; innerField = innerField->next) {
             _serr_readField(read, innerField, outPos);
         }
@@ -649,7 +667,10 @@ void* _ser_read(FILE* file, const char* typename, snz_Arena* outArena, snz_Arena
         .positionIntoFile = 0,
         .outArena = outArena,
         .scratch = scratch,
+        .log = fopen("testing/log.txt", "w"),
     };
+
+    fprintf(read.log, "beinning read\n");
 
     _ser_SpecStruct* firstStructSpec = NULL;
     _ser_SpecStruct* lastStructSpec = NULL;
@@ -761,6 +782,14 @@ void* _ser_read(FILE* file, const char* typename, snz_Arena* outArena, snz_Arena
 
             _ser_SpecStruct* spec = &structSpecs[kind];
             void* obj = snz_arenaPush(outArena, spec->size);
+
+            if (spec->pointable) {
+                fprintf(read.log,
+                    "top lvl ptable found w type '%s', loc in file: %#llx, out addr: %#llx\n",
+                    spec->tag, read.positionIntoFile, (uint64_t)obj);
+                _ser_ptrTranslationSet(&read.ptrTable, read.positionIntoFile, (uint64_t)obj);
+            }
+
             for (_ser_SpecField* field = spec->firstField; field; field = field->next) {
                 _serr_readField(&read, field, obj);
             }
@@ -773,7 +802,21 @@ void* _ser_read(FILE* file, const char* typename, snz_Arena* outArena, snz_Arena
     } // end obj parse
 
     { // patch ptrs
+        fprintf(read.log, "beginning read patching\n");
+        // FIXME: lack of typechecking of ptrs, VERY NOT GOOD PLEASE FIX
+        // ^ please do a thorough look into whether this is a problem on write too
+        // but we are kinda assuming clean input data for writes so idk (cause how are we sanitizing ptrs, especially from arenas)
+        for (int i = 0; i < read.ptrTable.stubs.count; i++) {
+            uint64_t locToPatch = read.ptrTable.stubs.locationsToPatch[i];
+            uint64_t keyToPatchWith = read.ptrTable.stubs.keyOfValue[i];
+            fprintf(read.log, "patch %d: patching at %#llx  with key %#llx\n", i, locToPatch, keyToPatchWith);
+            fflush(read.log);
+            uint64_t* got = _ser_ptrTranslationGet(&read.ptrTable, keyToPatchWith);
+            SNZ_ASSERT(got, "unmached ptr!!");
+            *((uint64_t*)(locToPatch)) = *got;
+        }
     }
+    fclose(read.log);
 
     SNZ_ASSERTF(strcmp(firstObjSpec->tag, typename) == 0,
         "loaded struct wasn't of the type expected. Was: '%s', expected '%s'.",
