@@ -410,6 +410,8 @@ typedef struct {
     FILE* file;
     uint64_t positionIntoFile;
     snz_Arena* scratch;
+
+    FILE* log;
 } _serw_WriteInst;
 
 bool _ser_isSystemLittleEndian() {
@@ -453,6 +455,8 @@ void _serw_writeField(_serw_WriteInst* write, _ser_SpecField* field, void* obj) 
             };
             write->nextStruct = queued;
             SNZ_ASSERT(_ser_ptrTranslationSet(&write->ptrTable, pointed, 0), "huh");
+
+            fprintf(write->log, "enqueued %s at %#llx\n", queued->spec->tag, (uint64_t)queued->obj);
         } // FIXME: just put the location in file here if the object has already been written
 
         if (pointed != 0) {
@@ -500,6 +504,8 @@ void _ser_write(FILE* f, const char* typename, void* seedObj, snz_Arena* scratch
     _ser_assertInstanceValidated();
 
     _serw_WriteInst write = { 0 };
+    write.log = fopen("testing/log.txt", "w");
+
     write.file = f;
     write.scratch = scratch;
 
@@ -540,6 +546,10 @@ void _ser_write(FILE* f, const char* typename, void* seedObj, snz_Arena* scratch
         _serw_QueuedStruct* s = write.nextStruct;
         write.nextStruct = s->next;
 
+        fprintf(write.log,
+            "writing %s from loc %#llx to %#llx in file.",
+            s->spec->tag, (uint64_t)s->obj, write.positionIntoFile);
+
         int64_t structIdx = s->spec->indexIntoSpec;
         _serw_writeBytes(&write, &structIdx, sizeof(structIdx), true); // kind of structs
 
@@ -566,6 +576,8 @@ void _ser_write(FILE* f, const char* typename, void* seedObj, snz_Arena* scratch
             _serw_writeBytes(&write, otherLoc, sizeof(*otherLoc), true);
         }
     }
+
+    fclose(write.log);
 }
 
 typedef struct {
@@ -573,7 +585,6 @@ typedef struct {
 
     FILE* file;
     uint64_t positionIntoFile;
-    FILE* log;
 
     snz_Arena* outArena;
     snz_Arena* scratch;
@@ -610,9 +621,6 @@ void _serr_readField(_serr_ReadInst* read, _ser_SpecField* field, void* obj) {
         uint64_t loc = 0;
         _serr_readBytes(read, &loc, sizeof(void*), true);
         if (outPos != NULL && loc != 0) {
-            fprintf(read->log,
-                "new stub to type '%s', loc: %#llx, requested: %#llx\n",
-                field->type->inner->referencedStruct->tag, (uint64_t)outPos, loc);
             _ser_ptrTranslationStubAdd(&read->ptrTable, (uint64_t)outPos, loc);
         }
         return;
@@ -642,9 +650,6 @@ void _serr_readField(_serr_ReadInst* read, _ser_SpecField* field, void* obj) {
     } else if (kind == SER_TK_STRUCT) {
         _ser_SpecStruct* structSpec = field->type->referencedStruct;
         if (outPos && structSpec->pointable) {
-            fprintf(read->log,
-                "pointable found w type '%s', loc in file: %#llx, out addr: %#llx\n",
-                structSpec->tag, read->positionIntoFile, (uint64_t)outPos);
             _ser_ptrTranslationSet(&read->ptrTable, read->positionIntoFile, (uint64_t)outPos);
         }
         for (_ser_SpecField* innerField = structSpec->firstField; innerField; innerField = innerField->next) {
@@ -667,10 +672,7 @@ void* _ser_read(FILE* file, const char* typename, snz_Arena* outArena, snz_Arena
         .positionIntoFile = 0,
         .outArena = outArena,
         .scratch = scratch,
-        .log = fopen("testing/log.txt", "w"),
     };
-
-    fprintf(read.log, "beinning read\n");
 
     _ser_SpecStruct* firstStructSpec = NULL;
     _ser_SpecStruct* lastStructSpec = NULL;
@@ -784,9 +786,6 @@ void* _ser_read(FILE* file, const char* typename, snz_Arena* outArena, snz_Arena
             void* obj = snz_arenaPush(outArena, spec->size);
 
             if (spec->pointable) {
-                fprintf(read.log,
-                    "top lvl ptable found w type '%s', loc in file: %#llx, out addr: %#llx\n",
-                    spec->tag, read.positionIntoFile, (uint64_t)obj);
                 _ser_ptrTranslationSet(&read.ptrTable, read.positionIntoFile, (uint64_t)obj);
             }
 
@@ -802,21 +801,17 @@ void* _ser_read(FILE* file, const char* typename, snz_Arena* outArena, snz_Arena
     } // end obj parse
 
     { // patch ptrs
-        fprintf(read.log, "beginning read patching\n");
         // FIXME: lack of typechecking of ptrs, VERY NOT GOOD PLEASE FIX
         // ^ please do a thorough look into whether this is a problem on write too
         // but we are kinda assuming clean input data for writes so idk (cause how are we sanitizing ptrs, especially from arenas)
         for (int i = 0; i < read.ptrTable.stubs.count; i++) {
             uint64_t locToPatch = read.ptrTable.stubs.locationsToPatch[i];
             uint64_t keyToPatchWith = read.ptrTable.stubs.keyOfValue[i];
-            fprintf(read.log, "patch %d: patching at %#llx  with key %#llx\n", i, locToPatch, keyToPatchWith);
-            fflush(read.log);
             uint64_t* got = _ser_ptrTranslationGet(&read.ptrTable, keyToPatchWith);
             SNZ_ASSERT(got, "unmached ptr!!");
             *((uint64_t*)(locToPatch)) = *got;
         }
     }
-    fclose(read.log);
 
     SNZ_ASSERTF(strcmp(firstObjSpec->tag, typename) == 0,
         "loaded struct wasn't of the type expected. Was: '%s', expected '%s'.",
