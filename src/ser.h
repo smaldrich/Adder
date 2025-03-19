@@ -316,42 +316,32 @@ void ser_end() {
     _ser_globs.validated = true;
 }
 
-typedef struct _ser_AddressNode _ser_AddressNode;
-struct _ser_AddressNode {
+typedef struct _ser_PtrTranslation _ser_PtrTranslation;
+struct _ser_PtrTranslation {
     uint64_t key;
     uint64_t value;
-    _ser_AddressNode* nextCollided;
+    _ser_PtrTranslation* nextCollided;
 };
 
-typedef struct _serw_QueuedStruct _serw_QueuedStruct;
-struct _serw_QueuedStruct {
-    _serw_QueuedStruct* next;
-    _ser_SpecStruct* spec;
-    void* obj;
-};
-
-// FIXME: dyn size for large files
-#define _SERW_ADDRESS_BUCKET_COUNT 2048
-#define _SERW_ADDRESS_NODE_COUNT 2048
-#define _SERW_PTR_STUB_COUNT 2048
+#define _SER_PTR_TRANSLATION_BUCKET_COUNT 2048
+#define _SER_PTR_TRANSLATION_MAX 2048
+#define _SER_PTR_TRANSLATION_STUB_MAX 2048
 
 typedef struct {
-    _serw_QueuedStruct* nextStruct;
-    _ser_AddressNode* addressBuckets[_SERW_ADDRESS_BUCKET_COUNT];
-    _ser_AddressNode addresses[_SERW_ADDRESS_NODE_COUNT];
-    int64_t addressCount;
+    _ser_PtrTranslation* translationBuckets[_SER_PTR_TRANSLATION_BUCKET_COUNT];
 
     struct {
-        // FIXME: dyn sizing
-        uint64_t locations[_SERW_PTR_STUB_COUNT];
-        uint64_t targetAddresses[_SERW_PTR_STUB_COUNT];
+        _ser_PtrTranslation elems[_SER_PTR_TRANSLATION_MAX];
+        int64_t count;
+    } translations;
+
+    struct {
+        uint64_t locations[_SER_PTR_TRANSLATION_STUB_MAX];
+        uint64_t targets[_SER_PTR_TRANSLATION_STUB_MAX];
         int64_t count;
     } stubs;
-
-    FILE* file;
-    uint64_t positionIntoFile;
-    snz_Arena* scratch;
-} _serw_WriteInst;
+} _ser_PtrTranslationTable;
+// FIXME: dyn sizing
 
 // https://zimbry.blogspot.com/2011/09/better-bit-mixing-improving-on.html
 uint64_t _ser_addressHash(uint64_t address) {
@@ -364,38 +354,55 @@ uint64_t _ser_addressHash(uint64_t address) {
 }
 
 // return indicates whether the key didn't exist before & and the val was added
-bool _serw_addressLocSet(_serw_WriteInst* write, uint64_t key, uint64_t value) {
-    int64_t bucket = _ser_addressHash(key) % _SERW_ADDRESS_BUCKET_COUNT;
-    _ser_AddressNode* initial = write->addressBuckets[bucket];
-    for (_ser_AddressNode* node = initial; node; node = node->nextCollided) {
+bool _serw_addressLocSet(_ser_PtrTranslationTable* table, uint64_t key, uint64_t value) {
+    int64_t bucket = _ser_addressHash(key) % _SER_PTR_TRANSLATION_BUCKET_COUNT;
+    _ser_PtrTranslation* initial = table->translationBuckets[bucket];
+    for (_ser_PtrTranslation* node = initial; node; node = node->nextCollided) {
         if (node->key == key) {
             node->value = value;
             return false;
         }
     }
 
-    SNZ_ASSERT(write->addressCount < _SERW_ADDRESS_NODE_COUNT, "Too many addresses to serialize. see the fixme.");
-    _ser_AddressNode* node = &write->addresses[write->addressCount];
-    write->addressCount++;
-    *node = (_ser_AddressNode){
+    SNZ_ASSERT(table->translations.count < _SER_PTR_TRANSLATION_MAX, "Too many addresses to serialize. see the fixme.");
+    _ser_PtrTranslation* node = &table->translations.elems[table->translations.count];
+    table->translations.count++;
+    *node = (_ser_PtrTranslation){
         .key = key,
         .value = value,
         .nextCollided = initial,
     };
-    write->addressBuckets[bucket] = node;
+    table->translationBuckets[bucket] = node;
     return true;
 }
 
 // null if not in table
-uint64_t* _serw_addressLocGet(_serw_WriteInst* write, uint64_t key) {
-    int64_t bucket = _ser_addressHash(key) % _SERW_ADDRESS_BUCKET_COUNT;
-    for (_ser_AddressNode* node = write->addressBuckets[bucket]; node; node = node->nextCollided) {
+uint64_t* _serw_addressLocGet(_ser_PtrTranslationTable* table, uint64_t key) {
+    int64_t bucket = _ser_addressHash(key) % _SER_PTR_TRANSLATION_BUCKET_COUNT;
+    for (_ser_PtrTranslation* node = table->translationBuckets[bucket]; node; node = node->nextCollided) {
         if (node->key == key) {
             return &node->value;
         }
     }
     return NULL;
 }
+
+typedef struct _serw_QueuedStruct _serw_QueuedStruct;
+struct _serw_QueuedStruct {
+    _serw_QueuedStruct* next;
+    _ser_SpecStruct* spec;
+    void* obj;
+};
+
+typedef struct {
+    _serw_QueuedStruct* nextStruct;
+
+    _ser_PtrTranslationTable ptrTable;
+
+    FILE* file;
+    uint64_t positionIntoFile;
+    snz_Arena* scratch;
+} _serw_WriteInst;
 
 bool _ser_isSystemLittleEndian() {
     uint64_t x = 1;
