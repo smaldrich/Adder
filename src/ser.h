@@ -547,7 +547,7 @@ void _ser_write(FILE* f, const char* typename, void* seedObj, snz_Arena* scratch
         write.nextStruct = s->next;
 
         fprintf(write.log,
-            "writing %s from loc %#llx to %#llx in file.",
+            "writing %s from loc %#llx to %#llx in file.\n",
             s->spec->tag, (uint64_t)s->obj, write.positionIntoFile);
 
         int64_t structIdx = s->spec->indexIntoSpec;
