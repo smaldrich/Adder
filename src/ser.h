@@ -777,9 +777,12 @@ void* _ser_read(FILE* file, const char* typename, snz_Arena* outArena, snz_Arena
     void* firstObj = NULL;
     _ser_SpecStruct* firstObjSpec = NULL;
     { // parse objs while any left
-        while (!feof(read.file)) { // FIXME: cutoff?
+        while (true) { // FIXME: cutoff?
             int64_t kind = 0;
             _serr_readBytes(&read, &kind, sizeof(kind), true);
+            if (feof(read.file)) { // here instead of the loop because this only triggers when you read over the bounds of the file
+                break;
+            }
             SNZ_ASSERTF(kind < structSpecCount, "invalid struct kind of %lld.", kind);
 
             _ser_SpecStruct* spec = &structSpecs[kind];
