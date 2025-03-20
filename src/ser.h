@@ -629,18 +629,18 @@ void _serr_readField(_serr_ReadInst* read, _ser_SpecField* field, void* obj) {
 
         int64_t count = 0;
         _serr_readBytes(read, &count, sizeof(count), true);
-        // FIXME: don't allocate space if missing
-        void* slice = snz_arenaPush(read->outArena, count * structSpec->size);
 
+        void* slice = NULL;
         if (obj != NULL) {
+            slice = snz_arenaPush(read->outArena, count * structSpec->size);
             *(void**)((char*)obj + field->offsetInStruct) = slice;
             *(int64_t*)((char*)obj + field->type->offsetOfSliceLengthIntoStruct) = count; // FIXME: again, ensure length field is the correct size/type
         }
 
         for (int i = 0; i < count; i++) {
-            void* offsetPos = obj;
-            if (obj != NULL) {
-                offsetPos = (char*)offsetPos + (i * structSpec->size);
+            void* offsetPos = slice;
+            if (offsetPos != NULL) {
+                offsetPos = (char*)slice + (i * structSpec->size);
             }
             for (_ser_SpecField* innerField = structSpec->firstField; innerField; innerField = innerField->next) {
                 _serr_readField(read, innerField, offsetPos);
@@ -867,47 +867,56 @@ void ser_tests() {
     ser_end();
 
     FILE* f = fopen("testing/ser3.adder", "wb");
-    // geo_Tri tris[] = {
-    //     (geo_Tri) {
-    //         .a = HMM_V3(0, 1, 2),
-    //         .b = HMM_V3(3, 4, 5),
-    //         .c = HMM_V3(6, 7, 8),
-    //     },
-    //     (geo_Tri) {
-    //         .a = HMM_V3(0, 10, 20),
-    //         .b = HMM_V3(30, 40, 50),
-    //         .c = HMM_V3(60, 70, 80),
-    //     },
-    // };
-    // geo_TriSlice slice = (geo_TriSlice){
-    //     .elems = tris,
-    //     .count = sizeof(tris) / sizeof(*tris),
-    // };
-    // ser_write(f, geo_TriSlice, &slice, &testArena);
-
-    tl_Op ops[] = {
-        (tl_Op) {
-            .kind = TL_OPK_BASE_GEOMETRY,
-            .ui.pos = HMM_V2(10, 10),
+    geo_Tri tris[] = {
+        (geo_Tri) {
+            .a = HMM_V3(0, 1, 2),
+            .b = HMM_V3(3, 4, 5),
+            .c = HMM_V3(6, 7, 8),
         },
-        (tl_Op) {
-            .kind = TL_OPK_BASE_GEOMETRY,
-            .ui.pos = HMM_V2(1, 1),
-        },
-        (tl_Op) {
-            .kind = TL_OPK_SKETCH,
-            .ui.pos = HMM_V2(2, 2),
+        (geo_Tri) {
+            .a = HMM_V3(0, 10, 20),
+            .b = HMM_V3(30, 40, 50),
+            .c = HMM_V3(60, 70, 80),
         },
     };
-    ops[0].next = &ops[1];
-    ops[1].next = &ops[2];
-    ops[1].dependencies[0] = &ops[2];
+    geo_TriSlice slice = (geo_TriSlice){
+        .elems = tris,
+        .count = sizeof(tris) / sizeof(*tris),
+    };
+    ser_write(f, geo_TriSlice, &slice, &testArena);
 
-    ser_write(f, tl_Op, &ops[0], &testArena);
+    // tl_Op ops[] = {
+    //     (tl_Op) {
+    //         .kind = TL_OPK_BASE_GEOMETRY,
+    //         .ui.pos = HMM_V2(10, 10),
+    //     },
+    //     (tl_Op) {
+    //         .kind = TL_OPK_BASE_GEOMETRY,
+    //         .ui.pos = HMM_V2(1, 1),
+    //     },
+    //     (tl_Op) {
+    //         .kind = TL_OPK_SKETCH,
+    //         .ui.pos = HMM_V2(2, 2),
+    //     },
+    // };
+    // ops[0].next = &ops[1];
+    // ops[1].next = &ops[2];
+    // ops[1].dependencies[0] = &ops[2];
+
+    // ser_write(f, tl_Op, &ops[0], &testArena);
     fclose(f);
 
     f = fopen("testing/ser3.adder", "rb");
-    tl_Op* out = ser_read(f, tl_Op, &testArena, &testArena);
+    // tl_Op* out = ser_read(f, tl_Op, &testArena, &testArena);
+    geo_TriSlice* out = ser_read(f, geo_TriSlice, &testArena, &testArena);
+
+    for (int i = 0; i < out->count; i++) {
+        geo_Tri* t = &out->elems[i];
+        printf("%d:\n", i);
+        printf("\t%.2f, %.2f, %.2f\n", t->a.X, t->a.Y, t->a.Z);
+        printf("\t%.2f, %.2f, %.2f\n", t->b.X, t->b.Y, t->b.Z);
+        printf("\t%.2f, %.2f, %.2f\n", t->c.X, t->c.Y, t->c.Z);
+    }
     fclose(f);
 
     SNZ_ASSERT(out || !out, "unreachable");
