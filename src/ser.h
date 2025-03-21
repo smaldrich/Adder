@@ -528,7 +528,6 @@ ser_Error _serw_writeField(_serw_WriteInst* write, _ser_SpecField* field, void* 
 }
 
 // FIXME: typecheck of some kind on obj
-// FIXME: error codes
 #define ser_write(F, T, obj, scratch) _ser_write(F, #T, obj, scratch)
 ser_Error _ser_write(FILE* f, const char* typename, void* seedObj, snz_Arena* scratch) {
     _ser_assertInstanceValidated();
@@ -574,7 +573,7 @@ ser_Error _ser_write(FILE* f, const char* typename, void* seedObj, snz_Arena* sc
         write.nextStruct = s->next;
 
         int64_t structIdx = s->spec->indexIntoSpec;
-        _serw_writeBytes(&write, &structIdx, sizeof(structIdx), true); // kind of structs
+        _SERW_WRITE_BYTES_OR_RETURN(&write, &structIdx, sizeof(structIdx), true); // kind of structs
 
         if (s->spec->pointable) {
             uint64_t* got = _ser_ptrTranslationGet(&write.ptrTable, (uint64_t)s->obj);
@@ -584,7 +583,10 @@ ser_Error _ser_write(FILE* f, const char* typename, void* seedObj, snz_Arena* sc
             _ser_ptrTranslationSet(&write.ptrTable, (uint64_t)s->obj, write.positionIntoFile);
         }
         for (_ser_SpecField* field = s->spec->firstField; field; field = field->next) {
-            _serw_writeField(&write, field, s->obj);
+            ser_Error err = _serw_writeField(&write, field, s->obj);
+            if (err != SER_E_OK) {
+                return err;
+            }
         }
     }
 
@@ -595,10 +597,14 @@ ser_Error _ser_write(FILE* f, const char* typename, void* seedObj, snz_Arena* sc
             fseek(write.file, fileLoc, SEEK_SET);
 
             uint64_t* otherLoc = _ser_ptrTranslationGet(&write.ptrTable, t->stubs.keyOfValue[i]);
-            SNZ_ASSERT(otherLoc, "unmatched ptr!!!");
-            _serw_writeBytes(&write, otherLoc, sizeof(*otherLoc), true);
+            if (!otherLoc) {
+                return SER_E_PTR_PROBLEM;
+            }
+            _SERW_WRITE_BYTES_OR_RETURN(&write, otherLoc, sizeof(*otherLoc), true);
         }
     }
+
+    return SER_E_OK;
 }
 
 typedef struct {
@@ -904,7 +910,7 @@ void ser_tests() {
         .elems = tris,
         .count = sizeof(tris) / sizeof(*tris),
     };
-    ser_write(f, geo_TriSlice, &slice, &testArena);
+    SNZ_ASSERT(ser_write(f, geo_TriSlice, &slice, &testArena) == SER_E_OK, "write failure");
 
     // tl_Op ops[] = {
     //     (tl_Op) {
