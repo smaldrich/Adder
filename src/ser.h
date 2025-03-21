@@ -404,15 +404,10 @@ struct _serw_QueuedStruct {
 };
 
 typedef enum {
-    SER_E_OK,
-    SER_E_NO_FILE,
-    SER_E_FILE_BUSY,
-    SER_E_WRITE_FAILED,
-    SER_E_READ_FAILED,
-    SER_E_INVALID_DATA,
-    SER_E_WRONG_TYPE,
-    SER_E_PTR_PROBLEM,
-} ser_Error;
+    SER_WE_OK,
+    SER_WE_WRITE_FAILED,
+    SER_WE_PTR_PROBLEM,
+} ser_WriteError;
 
 typedef struct {
     _serw_QueuedStruct* nextStruct;
@@ -430,13 +425,13 @@ bool _ser_isSystemLittleEndian() {
 
 #define _SERW_WRITE_BYTES_OR_RETURN(w, src, size, swapWithEndianness) \
     do { \
-        ser_Error e = _serw_writeBytes(w, src, size, swapWithEndianness); \
-        if(e != SER_E_OK) { \
+        ser_WriteError e = _serw_writeBytes(w, src, size, swapWithEndianness); \
+        if(e != SER_WE_OK) { \
             return e; \
         } \
     } while (0)
 
-ser_Error _serw_writeBytes(_serw_WriteInst* write, const void* src, int64_t size, bool swapWithEndianness) {
+ser_WriteError _serw_writeBytes(_serw_WriteInst* write, const void* src, int64_t size, bool swapWithEndianness) {
     uint8_t* srcChars = (uint8_t*)src;
     if (swapWithEndianness && _ser_isSystemLittleEndian()) {
         uint8_t* buf = snz_arenaPush(write->scratch, size);
@@ -445,13 +440,13 @@ ser_Error _serw_writeBytes(_serw_WriteInst* write, const void* src, int64_t size
         }
         int written = fwrite(buf, size, 1, write->file);
         if (written != 1) {
-            return SER_E_WRITE_FAILED;
+            return SER_WE_WRITE_FAILED;
         }
         snz_arenaPop(write->scratch, size);
     } else {
         int written = fwrite(src, size, 1, write->file);
         if (written != 1) {
-            return SER_E_WRITE_FAILED;
+            return SER_WE_WRITE_FAILED;
         }
     }
 
@@ -463,10 +458,10 @@ ser_Error _serw_writeBytes(_serw_WriteInst* write, const void* src, int64_t size
     // }
 
     write->positionIntoFile += size;
-    return SER_E_OK;
+    return SER_WE_OK;
 }
 
-ser_Error _serw_writeField(_serw_WriteInst* write, _ser_SpecField* field, void* obj) {
+ser_WriteError _serw_writeField(_serw_WriteInst* write, _ser_SpecField* field, void* obj) {
     ser_TKind kind = field->type->kind;
     if (kind == SER_TK_PTR) {
         uint64_t pointed = (uint64_t) * (void**)((char*)obj + field->offsetInStruct);
@@ -496,13 +491,13 @@ ser_Error _serw_writeField(_serw_WriteInst* write, _ser_SpecField* field, void* 
         for (int64_t i = 0; i < length; i++) {
             uint64_t innerStructAddress = pointed + (i * innerStructType->size);
             for (_ser_SpecField* innerField = innerStructType->firstField; innerField; innerField = innerField->next) {
-                ser_Error err = _serw_writeField(write, innerField, (void*)innerStructAddress);
-                if (err != SER_E_OK) {
+                ser_WriteError err = _serw_writeField(write, innerField, (void*)innerStructAddress);
+                if (err != SER_WE_OK) {
                     return err;
                 }
             }
         }
-        return SER_E_OK;
+        return SER_WE_OK;
     } else if (kind == SER_TK_STRUCT) {
         _ser_SpecStruct* s = field->type->referencedStruct;
         void* innerStruct = (char*)obj + field->offsetInStruct;
@@ -511,12 +506,12 @@ ser_Error _serw_writeField(_serw_WriteInst* write, _ser_SpecField* field, void* 
             _ser_ptrTranslationSet(&write->ptrTable, (uint64_t)innerStruct, write->positionIntoFile);
         }
         for (_ser_SpecField* innerField = s->firstField; innerField; innerField = innerField->next) {
-            ser_Error err = _serw_writeField(write, innerField, innerStruct);
-            if (err != SER_E_OK) {
+            ser_WriteError err = _serw_writeField(write, innerField, innerStruct);
+            if (err != SER_WE_OK) {
                 return err;
             }
         }
-        return SER_E_OK;
+        return SER_WE_OK;
     }
 
 
@@ -529,7 +524,7 @@ ser_Error _serw_writeField(_serw_WriteInst* write, _ser_SpecField* field, void* 
 
 // FIXME: typecheck of some kind on obj
 #define ser_write(F, T, obj, scratch) _ser_write(F, #T, obj, scratch)
-ser_Error _ser_write(FILE* f, const char* typename, void* seedObj, snz_Arena* scratch) {
+ser_WriteError _ser_write(FILE* f, const char* typename, void* seedObj, snz_Arena* scratch) {
     _ser_assertInstanceValidated();
 
     _serw_WriteInst write = { 0 };
@@ -583,8 +578,8 @@ ser_Error _ser_write(FILE* f, const char* typename, void* seedObj, snz_Arena* sc
             _ser_ptrTranslationSet(&write.ptrTable, (uint64_t)s->obj, write.positionIntoFile);
         }
         for (_ser_SpecField* field = s->spec->firstField; field; field = field->next) {
-            ser_Error err = _serw_writeField(&write, field, s->obj);
-            if (err != SER_E_OK) {
+            ser_WriteError err = _serw_writeField(&write, field, s->obj);
+            if (err != SER_WE_OK) {
                 return err;
             }
         }
@@ -598,13 +593,13 @@ ser_Error _ser_write(FILE* f, const char* typename, void* seedObj, snz_Arena* sc
 
             uint64_t* otherLoc = _ser_ptrTranslationGet(&write.ptrTable, t->stubs.keyOfValue[i]);
             if (!otherLoc) {
-                return SER_E_PTR_PROBLEM;
+                return SER_WE_PTR_PROBLEM;
             }
             _SERW_WRITE_BYTES_OR_RETURN(&write, otherLoc, sizeof(*otherLoc), true);
         }
     }
 
-    return SER_E_OK;
+    return SER_WE_OK;
 }
 
 typedef struct {
@@ -616,6 +611,16 @@ typedef struct {
     snz_Arena* outArena;
     snz_Arena* scratch;
 } _serr_ReadInst;
+
+typedef enum {
+    SER_RE_OK,
+    SER_RE_WRONG_TYPE_OF_STRUCT,
+    SER_RE_GARBAGE_SPEC,
+    SER_RE_UNRECOVERABLE_SPEC_MISMATCH,
+    SER_RE_READ_FAILED,
+    SER_RE_PTR_PROBLEM,
+    SER_RE_GARBAGE_DATA,
+} ser_ReadError;
 
 // if out is null, moves the file ptr forward without actually reading the bytes
 void _serr_readBytes(_serr_ReadInst* read, void* out, int64_t size, bool swapWithEndianness) {
@@ -910,7 +915,7 @@ void ser_tests() {
         .elems = tris,
         .count = sizeof(tris) / sizeof(*tris),
     };
-    SNZ_ASSERT(ser_write(f, geo_TriSlice, &slice, &testArena) == SER_E_OK, "write failure");
+    SNZ_ASSERT(ser_write(f, geo_TriSlice, &slice, &testArena) == SER_WE_OK, "write failure");
 
     // tl_Op ops[] = {
     //     (tl_Op) {
