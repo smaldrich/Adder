@@ -622,27 +622,43 @@ typedef enum {
     SER_RE_GARBAGE_DATA,
 } ser_ReadError;
 
+#define _SERR_READ_BYTES_OR_RETURN(read, out, size, swapWithEndianness) \
+    do { \
+        ser_ReadError err = _serr_readBytes(read, out, size, swapWithEndianness); \
+        if(err != SER_RE_OK) { \
+            return err; \
+        } \
+    } while(0)
+
 // if out is null, moves the file ptr forward without actually reading the bytes
-void _serr_readBytes(_serr_ReadInst* read, void* out, int64_t size, bool swapWithEndianness) {
+ser_ReadError _serr_readBytes(_serr_ReadInst* read, void* out, int64_t size, bool swapWithEndianness) {
+    ser_ReadError err = SER_RE_OK;
     if (!out) {
-        fseek(read->file, size, SEEK_CUR);
+        if (fseek(read->file, size, SEEK_CUR)) {
+            err = SER_RE_READ_FAILED;
+        }
     } else if (swapWithEndianness) {
         uint8_t* bytes = snz_arenaPush(read->scratch, size); // FIXME: static cache the space for these & just assert on size? - same w/ write?
-        fread(bytes, size, 1, read->file);
+        if (fread(bytes, size, 1, read->file) != 1) {
+            err = SER_RE_READ_FAILED;
+        }
 
         for (int64_t i = 0; i < size; i++) {
             *((uint8_t*)out + i) = bytes[size - 1 - i];
         }
         snz_arenaPop(read->scratch, size);
     } else {
-        fread(out, size, 1, read->file);
+        if (fread(out, size, 1, read->file) != 1) {
+            err = SER_RE_READ_FAILED;
+        }
     }
     read->positionIntoFile += size;
+    return err;
 }
 
 // NULL obj indicates the field is not getting read to anywhere
 // still gets executed to move forward within the file the correct amount tho
-void _serr_readField(_serr_ReadInst* read, _ser_SpecField* field, void* obj) {
+ser_ReadError _serr_readField(_serr_ReadInst* read, _ser_SpecField* field, void* obj) {
     void* outPos = NULL;
     if (!field->missingFromStruct && obj != NULL) {
         outPos = (char*)obj + field->offsetInStruct;
@@ -651,7 +667,7 @@ void _serr_readField(_serr_ReadInst* read, _ser_SpecField* field, void* obj) {
     ser_TKind kind = field->type->kind;
     if (kind == SER_TK_PTR) {
         uint64_t loc = 0;
-        _serr_readBytes(read, &loc, sizeof(void*), true);
+        _SERR_READ_BYTES_OR_RETURN(read, &loc, sizeof(void*), true);
         if (outPos != NULL && loc != 0) {
             _ser_ptrTranslationStubAdd(&read->ptrTable, (uint64_t)outPos, loc);
         }
@@ -660,7 +676,7 @@ void _serr_readField(_serr_ReadInst* read, _ser_SpecField* field, void* obj) {
         _ser_SpecStruct* structSpec = field->type->inner->referencedStruct;
 
         int64_t count = 0;
-        _serr_readBytes(read, &count, sizeof(count), true);
+        _SERR_READ_BYTES_OR_RETURN(read, &count, sizeof(count), true);
 
         void* slice = NULL;
         if (obj != NULL) {
@@ -675,25 +691,31 @@ void _serr_readField(_serr_ReadInst* read, _ser_SpecField* field, void* obj) {
                 offsetPos = (char*)slice + (i * structSpec->size);
             }
             for (_ser_SpecField* innerField = structSpec->firstField; innerField; innerField = innerField->next) {
-                _serr_readField(read, innerField, offsetPos);
+                ser_ReadError err = _serr_readField(read, innerField, offsetPos);
+                if (err != SER_RE_OK) {
+                    return err;
+                }
             }
-        }
-        return;
+        } // slice loop
+        return SER_RE_OK;
     } else if (kind == SER_TK_STRUCT) {
         _ser_SpecStruct* structSpec = field->type->referencedStruct;
         if (outPos && structSpec->pointable) {
             _ser_ptrTranslationSet(&read->ptrTable, read->positionIntoFile, (uint64_t)outPos);
         }
         for (_ser_SpecField* innerField = structSpec->firstField; innerField; innerField = innerField->next) {
-            _serr_readField(read, innerField, outPos);
+            ser_ReadError err = _serr_readField(read, innerField, outPos);
+            if (err != SER_RE_OK) {
+                return err;
+            }
         }
-        return;
+        return SER_RE_OK;
     }
 
     SNZ_ASSERT(kind > SER_TK_INVALID && kind < SER_TK_COUNT, "invalid kind?? after validation tho??");
     int size = _ser_tKindSizes[kind];
     SNZ_ASSERTF(size != 0, "Kind of %d had no associated size.", kind);
-    _serr_readBytes(read, outPos, size, true);
+    return _serr_readBytes(read, outPos, size, true);
 }
 
 #define ser_read(f, T, arena, scratch) _ser_read(f, #T, arena, scratch)
