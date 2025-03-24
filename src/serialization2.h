@@ -1434,7 +1434,7 @@ void _ser_test_invoke(_ser_testFunc func, const char* name) {
     ser_Error e = func();
     snz_testPrint(e == SERE_OK, name);
     if (e != SERE_OK) {
-        printf("\tError code: %d\n", e);
+        SNZ_LOGF("\tError code: %d", e);
     }
 }
 

@@ -20,13 +20,33 @@
 // UTILITIES ==================================================================
 // UTILITIES ==================================================================
 
-// FIXME: logging system / remove all instances of printf
 // FIXME: vector macro abstraction
 
 #define SNZ_MIN(a, b) ((a < b) ? a : b)
 #define SNZ_MAX(a, b) ((a > b) ? a : b)
 
-// FIXME: macro override for these somehow
+FILE* _snz_logFile;
+
+void _snz_logF(const char* file, int64_t line, const char* fmt, ...) {
+    va_list args;
+    va_start(args, fmt);
+
+    fprintf(_snz_logFile, "[%s:%lld]: ", file, line);
+    vfprintf(_snz_logFile, fmt, args);
+    fputc('\n', _snz_logFile);
+
+    printf("[%s:%lld]: ", file, line);
+    vprintf(fmt, args);
+    printf("\n");
+
+    va_end(args);
+}
+
+// appends a newline
+#define SNZ_LOGF(fmt, ...) _snz_logF(__FILE__, __LINE__, fmt, __VA_ARGS__)
+
+// appends a newline
+#define SNZ_LOG(msg) SNZ_LOGF("%s", msg)
 
 // appends a newline :)
 // FIXME: some type of way to see cause of failure
@@ -37,10 +57,16 @@ void _snz_assertf(bool cond, const char* fmt, const char* file, int64_t line, ..
     if (!cond) {
         va_list args;
         va_start(args, line);
-        printf("[%s:%lld]: ", file, line);
+        printf("[%s:%lld]: [ASSERTION FAILED]: ", file, line);
         vprintf(fmt, args);
         printf("\n");
+
+        fprintf(_snz_logFile, "[%s:%lld]: [ASSERTION FAILED]: ", file, line);
+        vfprintf(_snz_logFile, fmt, args);
+        fprintf(_snz_logFile, "\n");
         va_end(args);
+
+        fclose(_snz_logFile);
         assert(false);
     }
 }
@@ -246,7 +272,7 @@ static void _snzr_glDebugCallback(GLenum source, GLenum type, GLuint id, GLenum 
     if (type == GL_DEBUG_TYPE_OTHER) {
         return;
     }
-    printf("[GL]: %i, %s\n", type, message);
+    SNZ_LOGF("[GL]: %i, %s\n", type, message);
     type = source = id = severity = length = (int)(uint64_t)userParam;  // to get rid of unused arg warnings
 }
 
@@ -274,8 +300,7 @@ static uint32_t _snzr_loadShaderStep(const char* src, GLenum stepKind, snz_Arena
     glGetShaderiv(id, GL_COMPILE_STATUS, &compileSucceded);
     if (!compileSucceded) {
         glGetShaderInfoLog(id, 512, NULL, logBuffer);
-        printf("[snzr]: Compiling shader stage \"%d\" failied: %s\n", stepKind, logBuffer);
-        assert(false);
+        SNZ_ASSERTF(false, "Compiling shader stage \"%d\" from failied: %s.", stepKind, logBuffer);
     };
 
     return id;
@@ -1764,6 +1789,8 @@ void snz_quit() {
 
 // icon path may be null
 void snz_main(const char* windowTitle, const char* iconPath, snz_InitFunc initFunc, snz_FrameFunc frameFunc) {
+    _snz_logFile = fopen("testing/log", "w");
+
     SDL_Window* window = NULL;
     {
         // initialize SDL and open window
@@ -1778,7 +1805,7 @@ void snz_main(const char* windowTitle, const char* iconPath, snz_InitFunc initFu
             SDL_Surface* s = SDL_LoadBMP(iconPath);
             char buf[1000] = { 0 };
             const char* err = SDL_GetErrorMsg(buf, 1000);
-            printf("%s", err);
+            SNZ_LOG(err);
             SNZ_ASSERT(s != NULL, "icon load failed.");
             SDL_SetWindowIcon(window, s);
         }
@@ -1795,6 +1822,7 @@ void snz_main(const char* windowTitle, const char* iconPath, snz_InitFunc initFu
     _snzr_init(&frameArena);
     snz_arenaClear(&frameArena);
     initFunc(&frameArena, window);
+    SNZ_LOG("End of init, starting main loop.");
     snz_arenaClear(&frameArena);
 
     float prevTime = 0.0;
@@ -1854,6 +1882,9 @@ void snz_main(const char* windowTitle, const char* iconPath, snz_InitFunc initFu
     }  // end main loop
 
     snz_arenaDeinit(&frameArena);
+
+    SNZ_LOG("Ending normally.");
+    fclose(_snz_logFile);
 
     // FIXME: gc gpu resources, all allocated arenas, etc.
 }

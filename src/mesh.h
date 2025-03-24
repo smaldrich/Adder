@@ -1211,7 +1211,7 @@ static mesh_Face* _mesh_groupBSPTriListToFaces(mesh_BSPTriList tris, PoolAlloc* 
                 }
                 total++;
             }
-            printf("pushed a new face! %lld/%lld\n", sectioned, total);
+            SNZ_LOGF("pushed a new face! %lld/%lld", sectioned, total);
 
             mesh_Face* f = SNZ_ARENA_PUSH(arena, mesh_Face);
             *f = (mesh_Face){
@@ -1280,7 +1280,7 @@ static mesh_Face* _mesh_groupBSPTriListToFaces(mesh_BSPTriList tris, PoolAlloc* 
             }
 
             if (triCount > 1000) {
-                printf("quitting!\n");
+                SNZ_LOG("quitting!");
                 break;
             }
         } // end hunting for tris that could fit the face

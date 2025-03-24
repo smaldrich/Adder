@@ -634,7 +634,7 @@ typedef enum {
     do { \
         ser_ReadError err = _serr_readBytes(read, out, size, swapWithEndianness); \
         if(err != SER_RE_OK) { \
-            printf("[%s:%d]: Read bytes failed.\n", __FILE__, __LINE__); \
+            SNZ_LOGF("Read bytes failed. File pos: %llu", (read)->positionIntoFile); \
             return err; \
         } \
     } while(0)
@@ -724,9 +724,12 @@ ser_ReadError _serr_readField(_serr_ReadInst* read, _ser_SpecField* field, void*
     SNZ_ASSERT(kind > SER_TK_INVALID && kind < SER_TK_COUNT, "invalid kind?? after validation tho??");
     int size = _ser_tKindSizes[kind];
     SNZ_ASSERTF(size != 0, "Kind of %d had no associated size.", kind);
-    return _serr_readBytes(read, outPos, size, true);
+
+    _SERR_READ_BYTES_OR_RETURN(read, outPos, size, true);
+    return SER_RE_OK;
 }
 
+// FIXME: typeof macro instead of doing a separate type param?
 #define ser_read(f, T, arena, scratch, outObj) _ser_read(f, #T, arena, scratch, outObj)
 ser_ReadError _ser_read(FILE* file, const char* typename, snz_Arena* outArena, snz_Arena* scratch, void** outObj) {
     _ser_assertInstanceValidated();
@@ -798,7 +801,7 @@ ser_ReadError _ser_read(FILE* file, const char* typename, snz_Arena* outArena, s
                     fileT = 0;
                     _SERR_READ_BYTES_OR_RETURN(&read, &fileT, 1, false);
                     structT->kind = (ser_TKind)fileT;
-                    SNZ_ASSERT(structT->kind == SER_TK_STRUCT, "HUH");
+                    SNZ_ASSERT(structT->kind == SER_TK_STRUCT, "HUH"); // FIXME: this is pre validation
                     _SERR_READ_BYTES_OR_RETURN(&read, &structT->referencedIndex, sizeof(structT->referencedIndex), true);
                 }
             } // end field loop
@@ -821,7 +824,8 @@ ser_ReadError _ser_read(FILE* file, const char* typename, snz_Arena* outArena, s
                     continue;
                 }
                 if (f->type->kind != ogField->type->kind) {
-                    // FIXME: a more descriptive debug string
+                    SNZ_LOGF("Kind mismatch in spec. For struct %s and field %s, current spec has kind %d, file has kind %d.",
+                        s->tag, f->tag, ogField->type->kind, f->type->kind);
                     return SER_RE_UNRECOVERABLE_SPEC_MISMATCH;
                 }
                 f->offsetInStruct = ogField->offsetInStruct;
@@ -880,6 +884,8 @@ ser_ReadError _ser_read(FILE* file, const char* typename, snz_Arena* outArena, s
             uint64_t keyToPatchWith = read.ptrTable.stubs.keyOfValue[i];
             uint64_t* got = _ser_ptrTranslationGet(&read.ptrTable, keyToPatchWith);
             if (!got) {
+                // FIXME: better err msg with types included
+                SNZ_LOG("Broken pointer reference.");
                 return SER_RE_PTR_PROBLEM;
             }
             *((uint64_t*)(locToPatch)) = *got;
@@ -887,6 +893,7 @@ ser_ReadError _ser_read(FILE* file, const char* typename, snz_Arena* outArena, s
     }
 
     if (strcmp(firstObjSpec->tag, typename) != 0) {
+        SNZ_LOGF("Wrong type of struct in file. Read expected '%s', file had '%s'.", typename, firstObjSpec->tag);
         return SER_RE_WRONG_TYPE_OF_STRUCT;
     }
 
