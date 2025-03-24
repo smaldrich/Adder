@@ -252,11 +252,17 @@ _ser_SpecField* _ser_getFieldSpecByName(_ser_SpecStruct* struc, const char* name
     return NULL;
 }
 
-void _ser_validate(_ser_SpecStruct* firstStruct) {
+// return indicates failure.
+bool _ser_validate(_ser_SpecStruct* firstStruct) {
     // FIXME: could double check that offsets are within the size of a given struct
     int i = 0;
     // FIXME: duplicates check for structs and fields
     for (_ser_SpecStruct* s = firstStruct; s; s = s->next) {
+        for (_ser_SpecStruct* other = s->next; other; other = other->next) {
+            if (strcmp(other->tag, s->tag) == 0) {
+                return false;
+            }
+        }
         // FIXME: good error reporting here, trace of type, line no., etc.
         SNZ_ASSERT(s->tag && strlen(s->tag), "struct with no tag.");
         for (_ser_SpecField* f = s->firstField; f; f = f->next) {
@@ -305,6 +311,8 @@ void _ser_validate(_ser_SpecStruct* firstStruct) {
         s->indexIntoSpec = i;
         i++;
     } // end all structs
+
+    return true;
 }
 
 void ser_end() {
@@ -626,6 +634,7 @@ typedef enum {
     do { \
         ser_ReadError err = _serr_readBytes(read, out, size, swapWithEndianness); \
         if(err != SER_RE_OK) { \
+            printf("[%s:%d]: Read bytes failed.\n", __FILE__, __LINE__); \
             return err; \
         } \
     } while(0)
@@ -671,7 +680,7 @@ ser_ReadError _serr_readField(_serr_ReadInst* read, _ser_SpecField* field, void*
         if (outPos != NULL && loc != 0) {
             _ser_ptrTranslationStubAdd(&read->ptrTable, (uint64_t)outPos, loc);
         }
-        return;
+        return SER_RE_OK;
     } else if (kind == SER_TK_SLICE) {
         _ser_SpecStruct* structSpec = field->type->inner->referencedStruct;
 
@@ -696,7 +705,7 @@ ser_ReadError _serr_readField(_serr_ReadInst* read, _ser_SpecField* field, void*
                     return err;
                 }
             }
-        } // slice loop
+        } // end slice loop
         return SER_RE_OK;
     } else if (kind == SER_TK_STRUCT) {
         _ser_SpecStruct* structSpec = field->type->referencedStruct;
@@ -718,9 +727,11 @@ ser_ReadError _serr_readField(_serr_ReadInst* read, _ser_SpecField* field, void*
     return _serr_readBytes(read, outPos, size, true);
 }
 
-#define ser_read(f, T, arena, scratch) _ser_read(f, #T, arena, scratch)
-void* _ser_read(FILE* file, const char* typename, snz_Arena* outArena, snz_Arena* scratch) {
+#define ser_read(f, T, arena, scratch, outObj) _ser_read(f, #T, arena, scratch, outObj)
+ser_ReadError _ser_read(FILE* file, const char* typename, snz_Arena* outArena, snz_Arena* scratch, void** outObj) {
     _ser_assertInstanceValidated();
+    SNZ_ASSERT(outObj, "Expected a location to put result object.");
+
     _serr_ReadInst read = (_serr_ReadInst){
         .file = file,
         .positionIntoFile = 0,
@@ -734,10 +745,9 @@ void* _ser_read(FILE* file, const char* typename, snz_Arena* outArena, snz_Arena
     int64_t structSpecCount = 0;
     { // parse spec
         uint64_t version = 0;
-        _serr_readBytes(&read, &version, sizeof(version), true);
-        SNZ_ASSERTF(version <= SER_VERSION, "version of file %lld was greater than current version %d.", version, SER_VERSION);
+        _SERR_READ_BYTES_OR_RETURN(&read, &version, sizeof(version), true);
 
-        _serr_readBytes(&read, &structSpecCount, sizeof(structSpecCount), true);
+        _SERR_READ_BYTES_OR_RETURN(&read, &structSpecCount, sizeof(structSpecCount), true);
         structSpecs = SNZ_ARENA_PUSH_ARR(scratch, structSpecCount, _ser_SpecStruct);
 
         for (int64_t i = 0; i < structSpecCount; i++) {
@@ -753,12 +763,12 @@ void* _ser_read(FILE* file, const char* typename, snz_Arena* outArena, snz_Arena
             lastStructSpec = decl;
 
             int64_t tagLen = 0;
-            _serr_readBytes(&read, &tagLen, sizeof(tagLen), true);
+            _SERR_READ_BYTES_OR_RETURN(&read, &tagLen, sizeof(tagLen), true);
             char* tag = SNZ_ARENA_PUSH_ARR(read.scratch, tagLen + 1, char);
-            _serr_readBytes(&read, tag, tagLen, false);
+            _SERR_READ_BYTES_OR_RETURN(&read, tag, tagLen, false);
             decl->tag = tag;
 
-            _serr_readBytes(&read, &decl->fieldCount, sizeof(decl->fieldCount), true);
+            _SERR_READ_BYTES_OR_RETURN(&read, &decl->fieldCount, sizeof(decl->fieldCount), true);
             for (int64_t j = 0; j < decl->fieldCount; j++) {
                 _ser_SpecField* field = SNZ_ARENA_PUSH(scratch, _ser_SpecField);
                 if (decl->lastField) {
@@ -769,35 +779,31 @@ void* _ser_read(FILE* file, const char* typename, snz_Arena* outArena, snz_Arena
                 decl->lastField = field;
 
                 int64_t fieldTagLen = 0;
-                _serr_readBytes(&read, &fieldTagLen, sizeof(fieldTagLen), true);
+                _SERR_READ_BYTES_OR_RETURN(&read, &fieldTagLen, sizeof(fieldTagLen), true);
                 tag = SNZ_ARENA_PUSH_ARR(read.scratch, fieldTagLen + 1, char);
-                _serr_readBytes(&read, tag, fieldTagLen, false);
+                _SERR_READ_BYTES_OR_RETURN(&read, tag, fieldTagLen, false);
                 field->tag = tag;
 
                 field->type = SNZ_ARENA_PUSH(scratch, _ser_T);
                 char fileT = 0;
-                _serr_readBytes(&read, &fileT, 1, false);
+                _SERR_READ_BYTES_OR_RETURN(&read, &fileT, 1, false);
                 field->type->kind = (ser_TKind)fileT;
 
                 if (field->type->kind == SER_TK_STRUCT) {
-                    _serr_readBytes(&read, &field->type->referencedIndex, sizeof(field->type->referencedIndex), true);
+                    _SERR_READ_BYTES_OR_RETURN(&read, &field->type->referencedIndex, sizeof(field->type->referencedIndex), true);
                 } else if ((field->type->kind == SER_TK_PTR) || (field->type->kind == SER_TK_SLICE)) {
                     _ser_T* structT = SNZ_ARENA_PUSH(scratch, _ser_T);
                     field->type->inner = structT;
 
                     fileT = 0;
-                    _serr_readBytes(&read, &fileT, 1, false);
+                    _SERR_READ_BYTES_OR_RETURN(&read, &fileT, 1, false);
                     structT->kind = (ser_TKind)fileT;
                     SNZ_ASSERT(structT->kind == SER_TK_STRUCT, "HUH");
-                    _serr_readBytes(&read, &structT->referencedIndex, sizeof(structT->referencedIndex), true);
+                    _SERR_READ_BYTES_OR_RETURN(&read, &structT->referencedIndex, sizeof(structT->referencedIndex), true);
                 }
             } // end field loop
         } // end decl loop
     } // end spec parsing
-
-    { // apply patches
-
-    }
 
     { // compare to original & fix up
         for (_ser_SpecStruct* s = firstStructSpec; s; s = s->next) {
@@ -814,7 +820,10 @@ void* _ser_read(FILE* file, const char* typename, snz_Arena* outArena, snz_Arena
                     f->missingFromStruct = true;
                     continue;
                 }
-                SNZ_ASSERT(f->type->kind == ogField->type->kind, "kind mismatch between loaded spec and current");
+                if (f->type->kind != ogField->type->kind) {
+                    // FIXME: a more descriptive debug string
+                    return SER_RE_UNRECOVERABLE_SPEC_MISMATCH;
+                }
                 f->offsetInStruct = ogField->offsetInStruct;
 
                 if (f->type->kind == SER_TK_SLICE) {
@@ -837,7 +846,9 @@ void* _ser_read(FILE* file, const char* typename, snz_Arena* outArena, snz_Arena
             if (feof(read.file)) { // here instead of the loop because this only triggers when you read over the bounds of the file
                 break;
             }
-            SNZ_ASSERTF(kind < structSpecCount, "invalid struct kind of %lld.", kind);
+            if (kind >= structSpecCount) {
+                return SER_RE_GARBAGE_SPEC;
+            }
 
             _ser_SpecStruct* spec = &structSpecs[kind];
             void* obj = snz_arenaPush(outArena, spec->size);
@@ -847,7 +858,10 @@ void* _ser_read(FILE* file, const char* typename, snz_Arena* outArena, snz_Arena
             }
 
             for (_ser_SpecField* field = spec->firstField; field; field = field->next) {
-                _serr_readField(&read, field, obj);
+                ser_ReadError err = _serr_readField(&read, field, obj);
+                if (err != SER_RE_OK) {
+                    return err;
+                }
             }
 
             if (!firstObj) {
@@ -865,15 +879,19 @@ void* _ser_read(FILE* file, const char* typename, snz_Arena* outArena, snz_Arena
             uint64_t locToPatch = read.ptrTable.stubs.locationsToPatch[i];
             uint64_t keyToPatchWith = read.ptrTable.stubs.keyOfValue[i];
             uint64_t* got = _ser_ptrTranslationGet(&read.ptrTable, keyToPatchWith);
-            SNZ_ASSERT(got, "unmached ptr!!");
+            if (!got) {
+                return SER_RE_PTR_PROBLEM;
+            }
             *((uint64_t*)(locToPatch)) = *got;
         }
     }
 
-    SNZ_ASSERTF(strcmp(firstObjSpec->tag, typename) == 0,
-        "loaded struct wasn't of the type expected. Was: '%s', expected '%s'.",
-        firstObjSpec->tag, typename);
-    return firstObj;
+    if (strcmp(firstObjSpec->tag, typename) != 0) {
+        return SER_RE_WRONG_TYPE_OF_STRUCT;
+    }
+
+    *outObj = firstObj;
+    return SER_RE_OK;
 }
 
 #include "timeline.h"
@@ -961,10 +979,10 @@ void ser_tests() {
     fclose(f);
 
     f = fopen("testing/ser3.adder", "rb");
-    geo_TriSlice* out = ser_read(f, geo_TriSlice, &testArena, &testArena);
+    geo_TriSlice* obj = NULL;
+    ser_ReadError err = ser_read(f, geo_TriSlice, &testArena, &testArena, (void**)&obj);
+    SNZ_ASSERTF(err == SER_RE_OK, "Read failed, code: %d.", err);
     fclose(f);
-
-    SNZ_ASSERT(out || !out, "unreachable");
 
     snz_arenaDeinit(&testArena);
 }
