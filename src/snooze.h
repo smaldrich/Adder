@@ -83,10 +83,12 @@ void snz_testPrint(bool result, const char* name) {
     const char* colorCode = (result) ? "\x1B[0;32m" : "\x1B[0;31m";
     const char* resultStr = (result) ? "passed" : "failed";
     printf("\x1B[0m%s\"%s\" %s\x1B[0m\n", colorCode, name, resultStr);
+    SNZ_LOGF("test '%s' %s", name, resultStr);
 }
 
 void snz_testPrintSection(const char* name) {
     printf("\n    -- %s Tests -- \n", name);
+    SNZ_LOGF("-- test section %s -- ", name);
 }
 
 #define SNZ_SLICE_NAMED(T, name)   \
@@ -582,6 +584,7 @@ static void _snzr_init(snz_Arena* scratchArena) {
 
             "    if (color.a <= 0.01) { discard; }"
             "};";
+        SNZ_LOG("loading rect shader.");
         _snzr_globs.rectShaderId = snzr_shaderInit(vertSrc, fragSrc, scratchArena);
         _snzr_rectShaderLocationsInit(_snzr_globs.rectShaderId);
     }
@@ -657,6 +660,7 @@ static void _snzr_init(snz_Arena* scratchArena) {
             "};";
 
         // FIXME: issues when lines go off screen
+        SNZ_LOG("loading line shader.");
         _snzr_globs.lineShaderId = snzr_shaderInit(vertSrc, fragSrc, scratchArena);
     }
 

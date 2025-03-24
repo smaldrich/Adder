@@ -919,7 +919,7 @@ HMM_Vec3Slice _mesh_orderedPointsFromLineSet(geo_LineSlice lines, snz_Arena* scr
         return (HMM_Vec3Slice) { 0 };
     }
 
-    FILE* f = fopen("HELLO", "w");
+    FILE* f = fopen("testing/meshDebugLog", "w");
     fprintf(f, "lines:\n");
     for (int i = 0; i < lines.count; i++) {
         geo_Line l = lines.elems[i];
@@ -1290,6 +1290,8 @@ static mesh_Face* _mesh_groupBSPTriListToFaces(mesh_BSPTriList tris, PoolAlloc* 
 
 // FIXME: error handling without the asserts
 bool mesh_stlFileToMesh(const char* path, snz_Arena* arena, snz_Arena* scratch, PoolAlloc* pool, mesh_Mesh* outMesh) {
+    SNZ_LOGF("Loading mesh from %s.", path);
+
     mesh_BSPTriList tris = { 0 };
     { // parse from file
         FILE* f = fopen(path, "r");
