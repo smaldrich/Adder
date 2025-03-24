@@ -88,7 +88,7 @@ void snz_testPrint(bool result, const char* name) {
 
 void snz_testPrintSection(const char* name) {
     printf("\n    -- %s Tests -- \n", name);
-    SNZ_LOGF("-- test section %s -- ", name);
+    SNZ_LOGF("-- test section %s --", name);
 }
 
 #define SNZ_SLICE_NAMED(T, name)   \
@@ -1880,6 +1880,7 @@ void snz_main(const char* windowTitle, const char* iconPath, snz_InitFunc initFu
         snzr_callGLFnOrError(glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT));
 
         frameFunc(dt, &frameArena, uiInputs, HMM_V2(screenW, screenH));
+        fflush(_snz_logFile);
 
         snz_arenaClear(&frameArena);
         SDL_GL_SwapWindow(window);

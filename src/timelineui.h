@@ -190,7 +190,9 @@ void tl_build(tl_Timeline* timeline, snz_Arena* scratch, HMM_Vec2 panelSize, HMM
             snzu_boxSetBorder(ui_borderThickness, textColor);
 
             // dep lines
-            if (op->expectedDependencies[0]) {
+            // FIXME: make large than one elt
+            bool expectsFirstDep = _tl_OpExpectedDeps[op->kind][0];
+            if (expectsFirstDep) {
                 if (!op->dependencies[0]) {
                     snzu_boxSetBorder(ui_borderThickness, ui_colorErr);
                 } else {

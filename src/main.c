@@ -17,6 +17,7 @@
 #include "geometry.h"
 #include "ser.h"
 
+snz_Arena main_appLifetimeArena;
 snz_Arena main_fontArena;
 snz_Arena main_baseMeshArena;
 PoolAlloc main_baseMeshPool;
@@ -34,8 +35,11 @@ sc_View main_currentView = SC_VIEW_TIMELINE;
 set_Settings main_settings;
 tl_Timeline main_timeline;
 
+#define MAIN_SETTINGS_PATH "settings.adder"
+
 void main_init(snz_Arena* scratch, SDL_Window* window) {
     SNZ_ASSERT(window || !window, "huh"); //  getting rid of unused arg warning
+
 
     _poolAllocTests();
     sk_tests();
@@ -43,6 +47,7 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
     ser_tests();
     mesh_tests();
 
+    main_appLifetimeArena = snz_arenaInit(100000, "main app lifetime arena");
     main_fontArena = snz_arenaInit(10000000, "main font arena");
     main_sketchArena = snz_arenaInit(10000000, "main sketch arena");
     main_baseMeshArena = snz_arenaInit(1000000000, "main base mesh arena");
@@ -62,6 +67,26 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
     ren3d_init(scratch);
     docs_init();
     sc_init(&main_baseMeshPool);
+
+    {
+        ser_begin(&main_appLifetimeArena);
+        set_settingsSpec();
+        ser_end();
+
+        FILE* f = fopen(MAIN_SETTINGS_PATH, "r");
+        if (f) {
+            set_Settings* settings = NULL;
+            ser_ReadError err = ser_read(f, set_Settings, scratch, scratch, (void**)&settings);
+            if (err == SER_RE_OK) {
+                main_settings = *settings; // FIXME: this is bad, why can't ser directly work on the og obj
+            }
+
+            if (err != SER_RE_OK) {
+                SNZ_LOGF("Loading settings file failed. Code: %d.", err);
+            }
+        }
+        fclose(f);
+    }
 
     snz_arenaClear(scratch);
 
@@ -564,5 +589,16 @@ int main() {
     snz_main("ADDER V0.0", "res/textures/icon.bmp", main_init, main_frame);
     sound_deinit();
     poolAllocDeinit(&main_baseMeshPool);
+
+    // saving settings to file
+    FILE* f = fopen(MAIN_SETTINGS_PATH, "w");
+    if (!f) {
+        SNZ_LOGF("Opening settings file to write at %s failed.", MAIN_SETTINGS_PATH);
+    }
+    if (f) {
+        SNZ_ASSERT(ser_write(f, set_Settings, &main_settings, &main_appLifetimeArena) == SER_WE_OK,
+            "Writing settings failed.");
+    }
+
     return 0;
 }

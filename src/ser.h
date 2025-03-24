@@ -1,3 +1,5 @@
+#pragma once
+
 #include "snooze.h"
 #include "settings.h"
 /*
@@ -927,16 +929,6 @@ void ser_tests() {
     ser_addStruct(geo_TriSlice, false);
     ser_addStructFieldSlice(geo_TriSlice, geo_Tri, elems, count);
 
-    ser_addStruct(set_Settings, false);
-    ser_addStructField(set_Settings, ser_tBase(SER_TK_INT8), darkMode);
-    ser_addStructField(set_Settings, ser_tBase(SER_TK_INT8), musicMode);
-    ser_addStructField(set_Settings, ser_tBase(SER_TK_INT8), skybox);
-    ser_addStructField(set_Settings, ser_tBase(SER_TK_INT8), hintWindowAlwaysOpen);
-    ser_addStructField(set_Settings, ser_tBase(SER_TK_INT8), leftBarAlwaysOpen);
-    ser_addStructField(set_Settings, ser_tBase(SER_TK_INT8), timelinePreviewSpinBackground);
-    ser_addStructField(set_Settings, ser_tBase(SER_TK_INT8), squishyCamera);
-    ser_addStructField(set_Settings, ser_tBase(SER_TK_INT8), crosshair);
-
     ser_addStruct(tl_Op, true);
     ser_addStructField(tl_Op, ser_tPtr(tl_Op), next);
     ser_addStructField(tl_Op, ser_tBase(SER_TK_INT32), kind);
@@ -992,6 +984,9 @@ void ser_tests() {
     fclose(f);
 
     snz_arenaDeinit(&testArena);
+
+    // reset globals so everything else works right
+    memset(&_ser_globs, 0, sizeof(_ser_globs));
 }
 
 // FIXME: a fuzzing system for this lib is 100000% possible, do that please

@@ -41,6 +41,12 @@ tl_Scene tl_sceneInit() {
     return out;
 }
 
+bool _tl_OpExpectedDeps[][1] = {
+    [TL_OPK_SKETCH] = { false },
+    [TL_OPK_BASE_GEOMETRY] = { false },
+    [TL_OPK_SKETCH_GEOMETRY] = { true },
+};
+
 struct tl_Op {
     tl_Op* next;
     bool markedForDeletion;
@@ -57,7 +63,6 @@ struct tl_Op {
         tl_OpBaseGeometry baseGeometry;
     } val;
     tl_Op* dependencies[1];
-    bool expectedDependencies[1]; // FIXME: make this a lookup so deserialization doesn't break it
 
     tl_Scene scene;
 };
@@ -121,7 +126,6 @@ tl_Op* tl_timelinePushSketchGeometry(tl_Timeline* tl, HMM_Vec2 pos, tl_Op* sketc
     *out = (tl_Op){
         .kind = TL_OPK_SKETCH_GEOMETRY,
         .dependencies[0] = sketch,
-        .expectedDependencies[0] = true,
         .next = tl->firstOp,
         .ui.pos = pos,
         .scene = tl_sceneInit(),

@@ -2,6 +2,7 @@
 
 #include "snooze.h"
 #include "ui.h"
+#include "ser.h"
 
 typedef struct {
     bool darkMode;
@@ -15,6 +16,18 @@ typedef struct {
 } set_Settings;
 // NOTE: this is not meant to be a global anywhere, pass specific settings as flags down from wherever this
 // is being persisted betw frames.
+
+void set_settingsSpec() {
+    ser_addStruct(set_Settings, false);
+    ser_addStructField(set_Settings, ser_tBase(SER_TK_UINT8), darkMode);
+    ser_addStructField(set_Settings, ser_tBase(SER_TK_UINT8), musicMode);
+    ser_addStructField(set_Settings, ser_tBase(SER_TK_UINT8), skybox);
+    ser_addStructField(set_Settings, ser_tBase(SER_TK_UINT8), hintWindowAlwaysOpen);
+    ser_addStructField(set_Settings, ser_tBase(SER_TK_UINT8), leftBarAlwaysOpen);
+    ser_addStructField(set_Settings, ser_tBase(SER_TK_UINT8), timelinePreviewSpinBackground);
+    ser_addStructField(set_Settings, ser_tBase(SER_TK_UINT8), squishyCamera);
+    ser_addStructField(set_Settings, ser_tBase(SER_TK_UINT8), crosshair);
+}
 
 set_Settings set_settingsDefault() {
     set_Settings out = (set_Settings){
