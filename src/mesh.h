@@ -730,9 +730,40 @@ void mesh_meshBuild(mesh_Mesh* mesh, HMM_Mat4 vp, HMM_Vec3 cameraPos, HMM_Vec3 m
             }
         } // end face loop
         faceMeshVerts = SNZ_ARENA_ARR_END(scratch, ren3d_Vert);
+
+        // text to indicate index of each face
+        // int i = -1;
+        // for (mesh_Face* f = mesh->firstFace; f; f = f->next) {
+        //     i++;
+        //     geo_Align uiAlign = (geo_Align){
+        //         .pt = HMM_V3(0, 0, 0),
+        //         .normal = HMM_V3(0, 0, 1),
+        //         .vertical = HMM_V3(0, 1, 0),
+        //     };
+        //     geo_Tri t = f->tris.elems[0];
+        //     geo_Align faceAlign = (geo_Align){
+        //         .pt = t.a,
+        //         .normal = geo_triNormal(t),
+        //         .vertical = HMM_Sub(t.b, t.a),
+        //     };
+        //     HMM_Mat4 textVP = geo_alignToM4(uiAlign, faceAlign);
+        //     textVP = HMM_Mul(vp, textVP);
+        //     const char* str = snz_arenaFormatStr(scratch, "face %d", i);
+        //     HMM_Vec4 color = HMM_Lerp(ui_colorText, f->sel.selectionAnim, ui_colorAccent);
+        //     snzr_drawTextScaled(
+        //         HMM_V2(0, 0),
+        //         HMM_V2(-INFINITY, -INFINITY),
+        //         HMM_V2(INFINITY, INFINITY),
+        //         color,
+        //         str,
+        //         strlen(str),
+        //         ui_labelFont,
+        //         textVP,
+        //         0.1,
+        //         false);
+        // }
     }
     { // render
-        // FIXME: debug wireframe
         ren3d_drawMesh(
             &mesh->renderMesh,
             vp, HMM_M4D(1.0f),
@@ -790,6 +821,21 @@ void mesh_meshBuild(mesh_Mesh* mesh, HMM_Mat4 vp, HMM_Vec3 cameraPos, HMM_Vec3 m
                 glEnable(GL_DEPTH_TEST);
             }
         }
+
+        // really dirty wireframe for tris in each face
+        // glDisable(GL_DEPTH_TEST);
+        // for (mesh_Face* f = mesh->firstFace; f; f = f->next) {
+        //     for (int64_t i = 0; i < f->tris.count; i++) {
+        //         geo_Tri t = f->tris.elems[i];
+        //         HMM_Vec4 pts[4] = { 0 };
+        //         pts[0].XYZ = t.a;
+        //         pts[1].XYZ = t.b;
+        //         pts[2].XYZ = t.c;
+        //         pts[3].XYZ = t.a;
+        //         snzr_drawLine(pts, 4, HMM_V4(0.5, 0.5, 0.5, 0.5), 2, vp);
+        //     }
+        // }
+        // glEnable(GL_DEPTH_TEST);
     } // end render
 }
 
@@ -854,15 +900,8 @@ static bool _mesh_linePairAdjacent(geo_Line a, geo_Line b, geo_Line* outClipped)
         return false;
     }
 
-    float overlapA = 0;
-    float overlapB = 0;
-    if (aMin < bMin) {
-        overlapA = bMin;
-        overlapB = aMax;
-    } else {
-        overlapA = aMin;
-        overlapB = bMax;
-    }
+    float overlapA = SNZ_MAX(aMin, bMin);
+    float overlapB = SNZ_MIN(aMax, bMax);;
 
     // FIXME: I have no idea if this is the behvaior that it should be, but it seems right enough to not want zero len edges??
     if (geo_floatEqual(overlapA, overlapB)) {
