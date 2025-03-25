@@ -945,7 +945,7 @@ static HMM_Vec3Slice _mesh_groupPointsAdjacent(geo_LineSlice lines, HMM_Vec3 sta
     return SNZ_ARENA_ARR_END(arena, HMM_Vec3);
 }
 
-HMM_Vec3Slice _mesh_orderedPointsFromLineSet(geo_LineSlice lines, snz_Arena* scratch, snz_Arena* arena) {
+static HMM_Vec3Slice _mesh_orderedPointsFromLineSet(geo_LineSlice lines, snz_Arena* scratch, snz_Arena* arena) {
     HMM_Vec3 startPt = HMM_V3(NAN, NAN, NAN);
     for (int i = 0; i < lines.count; i++) {
         if (isnan(lines.elems[i].a.X)) {
@@ -1074,25 +1074,8 @@ void mesh_meshGenerateEdges(mesh_Mesh* mesh, snz_Arena* out, snz_Arena* scratch)
             continue;
         }
 
-        // HMM_Vec3Slice points = _mesh_orderedPointsFromLineSet(clipped, scratch, out);
-        // while (points.count) { // FIXME: cutoff
-        //     mesh_Edge* e = SNZ_ARENA_PUSH(out, mesh_Edge);
-        //     *e = (mesh_Edge){
-        //         .faceA = faceA,
-        //         .faceB = faceB,
-        //         .points = points,
-        //         .next = mesh->firstEdge,
-        //     };
-        //     mesh->firstEdge = e;
-        //     points = _mesh_orderedPointsFromLineSet(clipped, scratch, out);
-        // }
-
-        for (int i = 0; i < clipped.count; i++) {
-            SNZ_ARENA_ARR_BEGIN(out, HMM_Vec3);
-            *SNZ_ARENA_PUSH(out, HMM_Vec3) = clipped.elems[i].a;
-            *SNZ_ARENA_PUSH(out, HMM_Vec3) = clipped.elems[i].b;
-            HMM_Vec3Slice points = SNZ_ARENA_ARR_END(out, HMM_Vec3);
-
+        HMM_Vec3Slice points = _mesh_orderedPointsFromLineSet(clipped, scratch, out);
+        while (points.count) { // FIXME: cutoff
             mesh_Edge* e = SNZ_ARENA_PUSH(out, mesh_Edge);
             *e = (mesh_Edge){
                 .faceA = faceA,
@@ -1101,7 +1084,25 @@ void mesh_meshGenerateEdges(mesh_Mesh* mesh, snz_Arena* out, snz_Arena* scratch)
                 .next = mesh->firstEdge,
             };
             mesh->firstEdge = e;
+            points = _mesh_orderedPointsFromLineSet(clipped, scratch, out);
         }
+
+        // Individual edges for each segment
+        // for (int i = 0; i < clipped.count; i++) {
+        //     SNZ_ARENA_ARR_BEGIN(out, HMM_Vec3);
+        //     *SNZ_ARENA_PUSH(out, HMM_Vec3) = clipped.elems[i].a;
+        //     *SNZ_ARENA_PUSH(out, HMM_Vec3) = clipped.elems[i].b;
+        //     HMM_Vec3Slice points = SNZ_ARENA_ARR_END(out, HMM_Vec3);
+
+        //     mesh_Edge* e = SNZ_ARENA_PUSH(out, mesh_Edge);
+        //     *e = (mesh_Edge){
+        //         .faceA = faceA,
+        //         .faceB = faceB,
+        //         .points = points,
+        //         .next = mesh->firstEdge,
+        //     };
+        //     mesh->firstEdge = e;
+        // }
     } // end face pair loop
 }
 
