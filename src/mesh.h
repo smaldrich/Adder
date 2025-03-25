@@ -1121,33 +1121,81 @@ bool mesh_faceFlat(mesh_Face* f) {
 
 SNZ_SLICE_NAMED(mesh_Edge*, mesh_EdgePtrSlice);
 
-// HMM_Vec3Slice geo_meshFaceToVertLoops(mesh_Mesh* m, geo_MeshFace* f, snz_Arena* scratch, snz_Arena* out) {
-//     SNZ_ARENA_ARR_BEGIN(scratch, mesh_Edge*);
-//     for (mesh_Edge* e = m->firstEdge; e; e = e->next) {
-//         if (e->faceA != f && e->faceB != f) {
-//             continue;
-//         }
-//         *SNZ_ARENA_PUSH(scratch, mesh_Edge*) = e;
-//     }
-//     // collect edges that match this face from the mesh
-//     geo_MeshEdgePtrSlice edges = SNZ_ARENA_ARR_END_NAMED(scratch, mesh_Edge*, geo_MeshEdgePtrSlice);
+typedef struct geo_VertLoop geo_VertLoop;
+struct geo_VertLoop {
+    HMM_Vec3Slice points; // first point not duplicated on the end
+    geo_VertLoop* next;
+};
 
-//     SNZ_ARENA_ARR_BEGIN(out, HMM_Vec3);
-//     int i = -1;
-//     while (true) {
-//         i++;
-//         if (i > edges.count) {
-//             i = 0;
-//         }
-//         mesh_Edge* edge = edges.elems[i];
-//         SNZ_ASSERTF(edge->points.count > 0, "edge with %lld points.", edge->points.count);
+// The time complexity of this one is awful, but shouldn't be too bad because of quick skips and
+// how unlikely it is to have a *hugely* complex face
+geo_VertLoop* geo_meshFaceToVertLoops(mesh_Mesh* m, mesh_Face* f, snz_Arena* scratch, snz_Arena* out) {
+    SNZ_ARENA_ARR_BEGIN(scratch, mesh_Edge*);
+    for (mesh_Edge* e = m->firstEdge; e; e = e->next) {
+        if (e->faceA != f && e->faceB != f) {
+            continue;
+        }
+        *SNZ_ARENA_PUSH(scratch, mesh_Edge*) = e;
+    }
+    // collect edges that match this face from the mesh
+    mesh_EdgePtrSlice edges = SNZ_ARENA_ARR_END_NAMED(scratch, mesh_Edge*, mesh_EdgePtrSlice);
 
-//         HMM_Vec3 start = edge->points.elems[0];
-//         HMM_Vec3 end = edge->points.elems[edge->points.count - 1];
-//     }
+    geo_VertLoop* firstLoop;
+    HMM_Vec3 position = HMM_V3(NAN, NAN, NAN); // nan indicates seeding a new loop
+    HMM_Vec3 firstPosition = HMM_V3(NAN, NAN, NAN);
 
-//     return SNZ_ARENA_ARR_END(out, HMM_Vec3);
-// }
+    int culledEdges = 0;
+    while (culledEdges < edges.count) { // FIXME: cutoff?
+        for (int edgeIndex = 0; edgeIndex < edges.count; edgeIndex++) {
+            mesh_Edge* edge = edges.elems[edgeIndex];
+            if (edge == NULL) {
+                continue;
+            }
+        }
+
+        if (isnan(firstPosition.X)) {
+            firstPosition = edge->points.elems[0];
+            position = firstPosition;
+            SNZ_ARENA_ARR_BEGIN(out, HMM_Vec3);
+        }
+
+        SNZ_ASSERTF(edge->points.count > 0, "edge with %lld points.", edge->points.count);
+        HMM_Vec3 start = edge->points.elems[0];
+        HMM_Vec3 end = edge->points.elems[edge->points.count - 1];
+
+        bool startEqual = geo_v3Equal(position, start);
+        if (startEqual || geo_v3Equal(position, end)) {
+            position = (startEqual ? end : start); // move to the other side
+            HMM_Vec3* pts = SNZ_ARENA_PUSH_ARR(out, edge->points.count, HMM_Vec3);
+            if (startEqual) {
+                // if moving from start to end, the points can be in the same order as the edge
+                memcpy(pts, edge->points.elems, sizeof(HMM_Vec3) * edge->points.count);
+            } else {
+                // otherwise, order should be reversed
+                for (int i = 0; i < edge->points.count; i++) {
+                    pts[edge->points.count - 1 - i] = edge->points.elems[i];
+                }
+            }
+            edges.elems[edgeIndex] = NULL; // mark used
+            culledEdges++;
+        }
+
+        if (geo_v3Equal(position, firstPosition)) {
+            // Finish packaging points into an loop
+            HMM_Vec3Slice pts = SNZ_ARENA_ARR_END(out, HMM_Vec3);
+            geo_VertLoop* loop = SNZ_ARENA_PUSH(out, geo_VertLoop);
+            *loop = (geo_VertLoop){
+                .points = pts,
+                .next = firstLoop,
+            };
+            firstLoop = loop;
+
+            position = HMM_V3(NAN, NAN, NAN);
+            firstPosition = HMM_V3(NAN, NAN, NAN);
+        }
+    }
+    return firstLoop;
+}
 
 
 static bool _mesh_LinesAdjacent(geo_Line a, geo_Line b, HMM_Vec3* outPt) {
