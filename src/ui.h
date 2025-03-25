@@ -70,6 +70,7 @@ void ui_setThemeDark() {
 
 // loads in RGBA, asserts on failue.
 static snzr_Texture* _ui_texFromFile(const char* path, snz_Arena* outForTexture) {
+    SNZ_LOGF("Loading texture from %s.", path);
     int w, h, channels = 0;
     uint8_t* pixels = stbi_load(path, &w, &h, &channels, 4);
     SNZ_ASSERT(pixels, "Texture load failed.");
@@ -81,8 +82,8 @@ static snzr_Texture* _ui_texFromFile(const char* path, snz_Arena* outForTexture)
 
 void ui_init(snz_Arena* fontArena, snz_Arena* scratch) {
     stbi_set_flip_vertically_on_load(true);
-    // ui_darkSky = _ui_texFromFile("res/textures/Deep Dusk Equirect.png", fontArena);
-    // ui_lightSky = _ui_texFromFile("res/textures/Untitled.png", fontArena);
+    ui_darkSky = _ui_texFromFile("res/textures/Deep Dusk Equirect.png", fontArena);
+    ui_lightSky = _ui_texFromFile("res/textures/Untitled.png", fontArena);
 
     ui_cornerTexture = _ui_texFromFile("res/textures/circle.png", fontArena);
     ui_shiftTexture = _ui_texFromFile("res/textures/shiftIcon.png", fontArena);

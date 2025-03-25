@@ -83,12 +83,10 @@ void snz_testPrint(bool result, const char* name) {
     const char* colorCode = (result) ? "\x1B[0;32m" : "\x1B[0;31m";
     const char* resultStr = (result) ? "passed" : "failed";
     printf("\x1B[0m%s\"%s\" %s\x1B[0m\n", colorCode, name, resultStr);
-    SNZ_LOGF("test '%s' %s", name, resultStr);
 }
 
 void snz_testPrintSection(const char* name) {
     printf("\n    -- %s Tests -- \n", name);
-    SNZ_LOGF("-- test section %s --", name);
 }
 
 #define SNZ_SLICE_NAMED(T, name)   \
