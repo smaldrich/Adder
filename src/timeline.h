@@ -154,6 +154,10 @@ static bool tl_timelineAnySelected(tl_Timeline* tl) {
 void tl_timelineCullOpsMarkedForDelete(tl_Timeline* t) {
     // cull dependencies to deleted ops
     for (tl_Op* op = t->firstOp; op; op = op->next) {
+        if (t->activeOp == op && op->markedForDeletion) {
+            t->activeOp = NULL;
+        }
+
         if (!op->dependencies[0]) {
             continue;
         } else if (op->dependencies[0]->markedForDeletion) {
