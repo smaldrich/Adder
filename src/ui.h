@@ -145,12 +145,11 @@ void ui_dropdown(const char** optionStrings, int64_t stringCount, int64_t* selec
         snzu_boxSetFocused();
     }
 
-    snzu_easeExp(&d->openAnim, snzu_boxFocused(), 20);
+    snzu_easeExp(&d->openAnim, snzu_boxFocused(), 30);
     // snzu_easeExp(&d->hoverAnim, d->inter->hovered || snzu_boxFocused(), 20);
 
     snzu_boxSetBorder(ui_borderThickness, ui_colorText);
     snzu_boxSetColor(ui_colorBackground);
-    snzu_boxSetDisplayStr(&ui_labelFont, ui_colorText, optionStrings[*selectedIndex]);
     const char* placeholderSizingString = "AHHHHHHHHHH";
     HMM_Vec2 cellSize = snzr_strSize(&ui_labelFont, placeholderSizingString, strlen(placeholderSizingString), ui_labelFont.renderedSize);
     cellSize = HMM_Add(cellSize, HMM_Mul(HMM_V2(ui_padding, ui_padding), 2.0f));
@@ -163,13 +162,17 @@ void ui_dropdown(const char** optionStrings, int64_t stringCount, int64_t* selec
             snzu_boxSetBorder(1, ui_colorText);
 
             snzu_boxFillParent();
-            snzu_boxSetStartFromParentKeepSizeRecurse(HMM_V2(cellSize.X, 0));
+            snzu_boxSetStartFromParentKeepSizeRecurse(HMM_V2(0, cellSize.Y));
             snzu_boxScope() {
                 for (int i = 0; i < stringCount; i++) {
                     snzu_boxNew(optionStrings[i]);
                     snzu_boxSetDisplayStr(&ui_labelFont, ui_colorText, optionStrings[i]);
                     snzu_boxSetSizeFromStart(cellSize);
-
+                    snzu_Interaction* const inter = SNZU_USE_MEM(snzu_Interaction, "inter");
+                    snzu_boxSetInteractionOutput(inter, SNZU_IF_HOVER | SNZU_IF_MOUSE_BUTTONS);
+                    if (inter->mouseActions[SNZU_MB_LEFT] == SNZU_ACT_DOWN) {
+                        *selectedIndex = i;
+                    }
                     snzu_boxNewF("spacer %d", i);
                     snzu_boxSizePctParent(1.0, SNZU_AX_X);
                     snzu_boxSetSizeFromStartAx(SNZU_AX_Y, 1);
@@ -179,10 +182,11 @@ void ui_dropdown(const char** optionStrings, int64_t stringCount, int64_t* selec
             snzu_boxOrderChildrenInRowRecurse(0, SNZU_AX_Y);
             snzu_boxClipChildren(true);
             float sizeToFitChildren = snzu_boxGetSizeToFitChildrenAx(SNZU_AX_Y);
-            SNZ_LOGF("%f", sizeToFitChildren);
+            snzu_boxSetSizeFromStartAx(SNZU_AX_X, cellSize.X * d->openAnim);
             snzu_boxSetSizeFromStartAx(SNZU_AX_Y, sizeToFitChildren * d->openAnim);
         }
     }
+    snzu_boxSetDisplayStr(&ui_labelFont, ui_colorText, optionStrings[*selectedIndex]);
 }
 
 _snzu_Box* ui_menuMargin() {
@@ -194,12 +198,13 @@ _snzu_Box* ui_menuMargin() {
 }
 
 // constructs at 0, 0
-void ui_switch(const char* label, bool* const state) {
-    float textHeight = ui_labelFont.renderedSize;  // FIXME: no mucking like this
-    float sliderWidth = 50;
-    float innerMargin = 6;
+void ui_switch(const char* boxName, bool* const state) {
+    float height = ui_labelFont.renderedSize + 2 * ui_padding;
+    float sliderWidth = 55;
+    float innerMargin = 8;
 
-    snzu_boxNew(label);
+    snzu_boxNew(boxName);
+    snzu_boxSetSizeFromStart(HMM_V2(sliderWidth, height));
 
     snzu_Interaction* const inter = SNZU_USE_MEM(snzu_Interaction, "inter");
     snzu_boxSetInteractionOutput(inter, SNZU_IF_HOVER | SNZU_IF_MOUSE_BUTTONS);
@@ -207,35 +212,22 @@ void ui_switch(const char* label, bool* const state) {
         *state = !*state;
     }
 
-    snzu_boxScope() {
-        snzu_boxNew("switch back");
-        snzu_boxSetStart(HMM_V2(0, ui_padding - 0.1 * ui_labelFont.renderedSize));  // FIXME: ew
-        snzu_boxSetSizeFromStart(HMM_V2(sliderWidth, textHeight));
-        snzu_boxSetCornerRadius(textHeight / 2);
-        snzu_boxSetBorder(ui_borderThickness, ui_colorText);
-
-        float* const anim = SNZU_USE_MEM(float, "anim");
-        if (snzu_useMemIsPrevNew()) {
-            *anim = *state;
-        }
-        snzu_easeExp(anim, *state, 15);
-        snzu_boxSetColor(HMM_Lerp(ui_colorBackground, *anim, ui_colorAccent));
-
-        snzu_boxScope() {
-            snzu_boxNew("button");
-            snzu_boxSetSizeMarginFromParent(innerMargin);
-            snzu_boxSetColor(HMM_Lerp(ui_colorAccent, *anim, ui_colorBackground));
-            snzu_boxSetCornerRadius((textHeight - innerMargin * 2) / 2);
-            snzu_boxSetStartFromParentAx(*anim * (sliderWidth - textHeight) + innerMargin, SNZU_AX_X);
-            snzu_boxSetSizeFromStartAx(SNZU_AX_X, textHeight - innerMargin * 2);
-        }
-
-        snzu_boxNew("label");
-        snzu_boxSetDisplayStr(&ui_labelFont, ui_colorText, label);
-        snzu_boxSetSizeFitText(ui_padding);
-        snzu_boxSetPosAfterRecurse(10, SNZU_AX_X);  // FIXME: spacing var
+    snzu_boxSetCornerRadius(height / 2);
+    snzu_boxSetBorder(ui_borderThickness, ui_colorText);
+    float* const anim = SNZU_USE_MEM(float, "anim");
+    if (snzu_useMemIsPrevNew()) {
+        *anim = *state;
     }
-    snzu_boxSetSizeFitChildren();
+    snzu_easeExp(anim, *state, 15);
+    snzu_boxSetColor(HMM_Lerp(ui_colorBackground, *anim, ui_colorAccent));
+    snzu_boxScope() {
+        snzu_boxNew("button");
+        snzu_boxSetSizeMarginFromParent(innerMargin);
+        snzu_boxSetColor(HMM_Lerp(ui_colorAccent, *anim, ui_colorBackground));
+        snzu_boxSetCornerRadius((height - innerMargin * 2) / 2);
+        snzu_boxSetStartFromParentAx(*anim * (sliderWidth - height) + innerMargin, SNZU_AX_X);
+        snzu_boxSetSizeFromStartAx(SNZU_AX_X, height - innerMargin * 2);
+    }
 }
 
 #define UI_TEXTAREA_MAX_CHARS 255

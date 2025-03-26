@@ -51,8 +51,11 @@ void set_build(set_Settings* settings) {
         snzu_boxSetDisplayStr(&ui_titleFont, ui_colorText, "Settings");
         snzu_boxSetSizeFitText(ui_padding);
 
-        const char* tags[] = {
-            "dark theme",
+        snzu_boxNew("gap");
+        snzu_boxSetSizeFromStartAx(SNZU_AX_Y, 10);
+
+        const char* labels[] = {
+            "theme",
             "music mode",
             "sky box",
             "keep cheat sheet open",
@@ -61,32 +64,51 @@ void set_build(set_Settings* settings) {
             "squishy camera",
             "crosshair",
         };
-        int tagCount = sizeof(tags) / sizeof(*tags);
 
-        snzu_boxNew()
-            float labelColWidth = 0;
-        for (int i = 0; i < tagCount; i++) {
+        snzu_boxNew("holder");
+        snzu_boxFillParent();
+        snzu_boxScope() {
+            snzu_boxNew("left side");
+            snzu_boxFillParent();
+            snzu_boxScope() {
+                for (uint64_t i = 0; i < (sizeof(labels) / sizeof(*labels)); i++) {
+                    snzu_boxNewF("%d", i);
+                    snzu_boxSetDisplayStr(&ui_labelFont, ui_colorText, labels[i]);
+                    snzu_boxSetSizeFitText(ui_padding);
+                }
+            }
+            snzu_boxOrderChildrenInRowRecurse(10, SNZU_AX_Y);
+            float size = snzu_boxGetSizeToFitChildrenAx(SNZU_AX_Y);
+            snzu_boxSetSizeFromStartAx(SNZU_AX_Y, size);
         }
+        snzu_boxSetSizeFromStartAx(SNZU_AX_Y, snzu_boxGetSizeToFitChildrenAx(SNZU_AX_Y));
+        snzu_boxScope() {
+            snzu_boxNew("right side");
+            snzu_boxFillParent();
+            snzu_boxSizeFromEndPctParent(0.25, SNZU_AX_X);
+            snzu_boxScope() {
+                const char* strs[] = {
+                    "Light",
+                    "Dark",
+                    "who knows what this does",
+                };
+                snzu_boxNew("dropdown");
+                snzu_boxSetDisplayStr(&ui_labelFont, ui_colorText, "AHHHHHHHHHH");
+                snzu_boxSetSizeFitText(ui_padding);
+                int64_t x = settings->darkMode;
+                ui_dropdown(strs, 3, &x);
+                settings->darkMode = (bool)x;
 
-        ui_switch("dark theme", &settings->darkMode);
-        ui_switch("music mode", &settings->musicMode);
-        ui_switch("sky box", &settings->skybox);
-        ui_switch("keep cheat sheet open", &settings->hintWindowAlwaysOpen);
-        ui_switch("keep left bar open", &settings->leftBarAlwaysOpen);
-        ui_switch("spin the background in timeline preview", &settings->timelinePreviewSpinBackground);
-        ui_switch("squishy camera", &settings->squishyCamera);
-        ui_switch("crosshair", &settings->crosshair);
-
-        const char* strs[] = {
-            "Red",
-            "Light",
-            "Space",
-        };
-        int64_t x = 0;
-        snzu_boxNew("dropdown");
-        snzu_boxSetDisplayStr(&ui_labelFont, ui_colorText, "AHHHHHHHHHH");
-        snzu_boxSetSizeFitText(ui_padding);
-        ui_dropdown(strs, 3, &x);
+                ui_switch("music mode", &settings->musicMode);
+                ui_switch("sky box", &settings->skybox);
+                ui_switch("keep cheat sheet open", &settings->hintWindowAlwaysOpen);
+                ui_switch("keep left bar open", &settings->leftBarAlwaysOpen);
+                ui_switch("spin the background in timeline preview", &settings->timelinePreviewSpinBackground);
+                ui_switch("squishy camera", &settings->squishyCamera);
+                ui_switch("crosshair", &settings->crosshair);
+            }
+            snzu_boxOrderChildrenInRowRecurse(10, SNZU_AX_Y);
+        }
     }
     // FIXME: UI variable for gap here (?)
     snzu_boxOrderChildrenInRowRecurse(10, SNZU_AX_Y);

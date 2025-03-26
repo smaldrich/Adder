@@ -1504,7 +1504,7 @@ void snzu_boxSetDisplayStrLen(const snzr_Font* font, HMM_Vec4 color, const char*
 }
 
 // str is null terminated, must last until the end of the frame
-// font must alos last
+// font must also last
 void snzu_boxSetDisplayStr(const snzr_Font* font, HMM_Vec4 color, const char* str) {
     snzu_boxSetDisplayStrLen(font, color, str, strlen(str));
 }
@@ -1570,17 +1570,17 @@ HMM_Vec2 snzu_boxGetSize() {
     return snzu_boxGetSizePtr(_snzu_instance->selectedBox);
 }
 
-static void _snzu_boxSetStartKeepSizeRecurse(_snzu_Box* box, HMM_Vec2 diff) {
+static void _snzu_boxMoveKeepSizeRecurse(_snzu_Box* box, HMM_Vec2 diff) {
     box->start = HMM_AddV2(box->start, diff);
     box->end = HMM_AddV2(box->end, diff);
     for (_snzu_Box* child = box->firstChild; child; child = child->nextSibling) {
-        _snzu_boxSetStartKeepSizeRecurse(child, diff);
+        _snzu_boxMoveKeepSizeRecurse(child, diff);
     }
 }
 
 void snzu_boxSetStartKeepSizeRecursePtr(_snzu_Box* box, HMM_Vec2 newStart) {
     HMM_Vec2 diff = HMM_SubV2(newStart, box->start);
-    _snzu_boxSetStartKeepSizeRecurse(box, diff);
+    _snzu_boxMoveKeepSizeRecurse(box, diff);
 }
 
 // TODO: are there bad perf implications for this??
@@ -1650,21 +1650,26 @@ void snzu_boxAlignOuter(_snzu_Box* other, snzu_Axis ax, snzu_Align align) {
     }
 }
 
-// maintains size, only affects coords on the targeted axis
+// maintains size, only affects coords on the targeted axis - recursive to children
 void snzu_boxAlignInParent(snzu_Axis ax, snzu_Align align) {
-    float initialSize = snzu_boxGetSizePtr(_snzu_instance->selectedBox).Elements[ax];
+    HMM_Vec2 initialSize = snzu_boxGetSizePtr(_snzu_instance->selectedBox);
+    HMM_Vec2 initialPos = _snzu_instance->selectedBox->start;
+    HMM_Vec2 newStart = HMM_V2(0, 0);
+
     if (align == SNZU_ALIGN_MIN) {
-        _snzu_instance->selectedBox->start.Elements[ax] = _snzu_instance->selectedBox->parent->start.Elements[ax];
+        newStart = _snzu_instance->selectedBox->parent->start;
     } else if (align == SNZU_ALIGN_MAX) {
-        _snzu_instance->selectedBox->start.Elements[ax] = _snzu_instance->selectedBox->parent->end.Elements[ax] - initialSize;
+        newStart = HMM_Sub(_snzu_instance->selectedBox->parent->end, initialSize);
     } else if (align == SNZU_ALIGN_CENTER) {
         _snzu_Box* par = _snzu_instance->selectedBox->parent;
-        float midpt = (par->start.Elements[ax] + par->end.Elements[ax]) / 2.0f;
-        _snzu_instance->selectedBox->start.Elements[ax] = midpt - (initialSize / 2);
+        HMM_Vec2 midpt = HMM_DivV2F(HMM_Add(par->start, par->end), 2.0f);
+        newStart = HMM_Sub(midpt, HMM_DivV2F(initialSize, 2.0f));
     } else {
         SNZ_ASSERTF(false, "invalid align value: %d", align);
     }
-    snzu_boxSetSizeFromStartAx(ax, initialSize);
+    HMM_Vec2 change = HMM_Sub(newStart, initialPos);
+    change.Elements[!ax] = 0;
+    _snzu_boxMoveKeepSizeRecurse(_snzu_instance->selectedBox, change);
 }
 
 // stacks this box after it's previous sibling (if none, the parents origin), used to make rows of things easy
