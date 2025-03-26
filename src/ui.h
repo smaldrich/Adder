@@ -53,16 +53,15 @@ void ui_setThemeLight() {
 }
 
 void ui_setThemeDark() {
-    // FIXME: when in dark mode, button with highlight is awful
-    // FIXME: darkmode highligh is the same as err color
     // FIXME: when in dark mode, text in the scene is really weird but only when the left bar is moving
-    ui_colorText = HMM_V4(1, 1, 1, 1);
-    ui_colorAccent = HMM_V4(181 / 255.0, 55 / 255.0, 93 / 255.0, 1);
+    ui_colorText = HMM_V4(220 / 255.0, 205 / 255.0, 177 / 255.0, 1);
+    ui_colorAccent = HMM_V4(54 / 255.0, 73 / 255.0, 61 / 255.0, 1);
     ui_colorTransparentAccent = ui_colorAccent;
     ui_colorTransparentAccent.A = 0.4;
     ui_colorErr = HMM_V4(181 / 255.0, 55 / 255.0, 93 / 255.0, 1);
-    ui_colorBackground = HMM_V4(60 / 255.0, 60 / 255.0, 60 / 255.0, 1);
-    ui_colorAlmostBackground = HMM_V4(52 / 255.0, 52 / 255.0, 52 / 255.0, 1);
+    ui_colorBackground = HMM_V4(17 / 255.0, 16 / 255.0, 24 / 255.0, 1);
+    ui_colorAlmostBackground = HMM_V4(40 / 255.0, 37 / 255.0, 37 / 255.0, 1);
+
     ui_colorTransparentPanel = ui_colorBackground;
     ui_colorTransparentPanel.A = 0.5;
     ui_lightAmbient = 0.2;
