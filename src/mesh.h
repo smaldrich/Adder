@@ -1140,60 +1140,10 @@ geo_VertLoop* geo_meshFaceToVertLoops(mesh_Mesh* m, mesh_Face* f, snz_Arena* scr
     // collect edges that match this face from the mesh
     mesh_EdgePtrSlice edges = SNZ_ARENA_ARR_END_NAMED(scratch, mesh_Edge*, mesh_EdgePtrSlice);
 
-    geo_VertLoop* firstLoop;
+    geo_VertLoop* firstLoop = NULL;
     HMM_Vec3 position = HMM_V3(NAN, NAN, NAN); // nan indicates seeding a new loop
     HMM_Vec3 firstPosition = HMM_V3(NAN, NAN, NAN);
 
-    int culledEdges = 0;
-    while (culledEdges < edges.count) { // FIXME: cutoff?
-        for (int edgeIndex = 0; edgeIndex < edges.count; edgeIndex++) {
-            mesh_Edge* edge = edges.elems[edgeIndex];
-            if (edge == NULL) {
-                continue;
-            }
-        }
-
-        if (isnan(firstPosition.X)) {
-            firstPosition = edge->points.elems[0];
-            position = firstPosition;
-            SNZ_ARENA_ARR_BEGIN(out, HMM_Vec3);
-        }
-
-        SNZ_ASSERTF(edge->points.count > 0, "edge with %lld points.", edge->points.count);
-        HMM_Vec3 start = edge->points.elems[0];
-        HMM_Vec3 end = edge->points.elems[edge->points.count - 1];
-
-        bool startEqual = geo_v3Equal(position, start);
-        if (startEqual || geo_v3Equal(position, end)) {
-            position = (startEqual ? end : start); // move to the other side
-            HMM_Vec3* pts = SNZ_ARENA_PUSH_ARR(out, edge->points.count, HMM_Vec3);
-            if (startEqual) {
-                // if moving from start to end, the points can be in the same order as the edge
-                memcpy(pts, edge->points.elems, sizeof(HMM_Vec3) * edge->points.count);
-            } else {
-                // otherwise, order should be reversed
-                for (int i = 0; i < edge->points.count; i++) {
-                    pts[edge->points.count - 1 - i] = edge->points.elems[i];
-                }
-            }
-            edges.elems[edgeIndex] = NULL; // mark used
-            culledEdges++;
-        }
-
-        if (geo_v3Equal(position, firstPosition)) {
-            // Finish packaging points into an loop
-            HMM_Vec3Slice pts = SNZ_ARENA_ARR_END(out, HMM_Vec3);
-            geo_VertLoop* loop = SNZ_ARENA_PUSH(out, geo_VertLoop);
-            *loop = (geo_VertLoop){
-                .points = pts,
-                .next = firstLoop,
-            };
-            firstLoop = loop;
-
-            position = HMM_V3(NAN, NAN, NAN);
-            firstPosition = HMM_V3(NAN, NAN, NAN);
-        }
-    }
     return firstLoop;
 }
 
