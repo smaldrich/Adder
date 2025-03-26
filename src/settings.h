@@ -92,18 +92,15 @@ void set_build(set_Settings* settings) {
                     "Dark",
                     "who knows what this does",
                 };
-                snzu_boxNew("dropdown");
-                snzu_boxSetDisplayStr(&ui_labelFont, ui_colorText, "AHHHHHHHHHH");
-                snzu_boxSetSizeFitText(ui_padding);
-                int64_t x = settings->darkMode;
-                ui_dropdown(strs, 3, &x);
+                int x = settings->darkMode;
+                ui_dropdown("theme", strs, 3, &x);
                 settings->darkMode = (bool)x;
 
-                ui_switch("music mode", &settings->musicMode);
-                ui_switch("sky box", &settings->skybox);
-                ui_switch("keep cheat sheet open", &settings->hintWindowAlwaysOpen);
-                ui_switch("keep left bar open", &settings->leftBarAlwaysOpen);
-                ui_switch("spin the background in timeline preview", &settings->timelinePreviewSpinBackground);
+                ui_switch("music", &settings->musicMode);
+                ui_switch("sky", &settings->skybox);
+                ui_switch("cheat sheet", &settings->hintWindowAlwaysOpen);
+                ui_switch("left bar", &settings->leftBarAlwaysOpen);
+                ui_switch("timeline preview", &settings->timelinePreviewSpinBackground);
                 ui_switch("squishy camera", &settings->squishyCamera);
                 ui_switch("crosshair", &settings->crosshair);
             }

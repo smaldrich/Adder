@@ -138,7 +138,9 @@ typedef struct {
 } _ui_DropdownState;
 
 // selected index written to on click
-void ui_dropdown(const char** optionStrings, int64_t stringCount, int64_t* selectedIndex) {
+void ui_dropdown(const char* boxTag, const char** optionStrings, int stringCount, int* selectedIndex) {
+    snzu_boxNew(boxTag);
+
     _ui_DropdownState* d = SNZU_USE_MEM(_ui_DropdownState, "dropdown");
     snzu_boxSetInteractionOutput(&d->inter, SNZU_IF_MOUSE_BUTTONS | SNZU_IF_HOVER);
     if (d->inter.mouseActions[SNZU_MB_LEFT] == SNZU_ACT_DOWN) {
