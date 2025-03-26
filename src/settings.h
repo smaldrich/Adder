@@ -43,8 +43,6 @@ set_Settings set_settingsDefault() {
     return out;
 }
 
-// FIXME: save/load settings to disk
-
 // sets members in the settings struct, but won't do anything else, including modifying theme globals etc.
 void set_build(set_Settings* settings) {
     ui_menuMargin();
@@ -52,6 +50,23 @@ void set_build(set_Settings* settings) {
         snzu_boxNew("title");
         snzu_boxSetDisplayStr(&ui_titleFont, ui_colorText, "Settings");
         snzu_boxSetSizeFitText(ui_padding);
+
+        const char* tags[] = {
+            "dark theme",
+            "music mode",
+            "sky box",
+            "keep cheat sheet open",
+            "keep left bar open",
+            "spin the background in timeline preview",
+            "squishy camera",
+            "crosshair",
+        };
+        int tagCount = sizeof(tags) / sizeof(*tags);
+
+        snzu_boxNew()
+            float labelColWidth = 0;
+        for (int i = 0; i < tagCount; i++) {
+        }
 
         ui_switch("dark theme", &settings->darkMode);
         ui_switch("music mode", &settings->musicMode);
@@ -61,6 +76,17 @@ void set_build(set_Settings* settings) {
         ui_switch("spin the background in timeline preview", &settings->timelinePreviewSpinBackground);
         ui_switch("squishy camera", &settings->squishyCamera);
         ui_switch("crosshair", &settings->crosshair);
+
+        const char* strs[] = {
+            "Red",
+            "Light",
+            "Space",
+        };
+        int64_t x = 0;
+        snzu_boxNew("dropdown");
+        snzu_boxSetDisplayStr(&ui_labelFont, ui_colorText, "AHHHHHHHHHH");
+        snzu_boxSetSizeFitText(ui_padding);
+        ui_dropdown(strs, 3, &x);
     }
     // FIXME: UI variable for gap here (?)
     snzu_boxOrderChildrenInRowRecurse(10, SNZU_AX_Y);

@@ -195,14 +195,17 @@ char* snz_arenaCopyStr(snz_Arena* arena, const char* str) {
     return chars;
 }
 
-char* snz_arenaFormatStr(snz_Arena* arena, const char* fmt, ...) {
-    va_list args;
-    va_start(args, fmt);
-
+char* snz_arenaFormatStrV(snz_Arena* arena, const char* fmt, va_list args) {
     uint64_t len = vsnprintf(NULL, 0, fmt, args);
     char* out = SNZ_ARENA_PUSH_ARR(arena, len + 1, char);
     vsprintf_s(out, len + 1, fmt, args);
+    return out;
+}
 
+char* snz_arenaFormatStr(snz_Arena* arena, const char* fmt, ...) {
+    va_list args;
+    va_start(args, fmt);
+    char* out = snz_arenaFormatStrV(arena, fmt, args);
     va_end(args);
     return out;
 }
@@ -1142,7 +1145,6 @@ void snzu_instanceSelect(snzu_Instance* instance) {
     _snzu_instance = instance;
 }
 
-// TODO: formatted version
 _snzu_Box* snzu_boxNew(const char* tag) {
     SNZ_ASSERT(_snzu_instance->currentParentBox != NULL, "creating a new box, parent was null");
     _snzu_Box* b = SNZ_ARENA_PUSH(_snzu_instance->frameArena, _snzu_Box);
@@ -1171,6 +1173,14 @@ _snzu_Box* snzu_boxNew(const char* tag) {
     }
 
     return b;
+}
+
+_snzu_Box* snzu_boxNewF(const char* fmt, ...) {
+    va_list args;
+    va_start(args, fmt);
+    char* name = snz_arenaFormatStrV(_snzu_instance->frameArena, fmt, args);
+    va_end(args);
+    return snzu_boxNew(name);
 }
 
 // preps for a new frame with the currently selected instance
@@ -1713,6 +1723,10 @@ void snzu_boxSetSizeFitText(float padding) {
     HMM_Vec2 size = snzr_strSize(font, box->displayStr, box->displayStrLen, box->displayStrRenderedHeight);
     size = HMM_AddV2(size, HMM_V2(padding * 2, padding * 2));
     box->end = HMM_AddV2(box->start, size);
+}
+
+float snzu_boxGetTextHeight(snzr_Font* f, float padding) {
+    return f->renderedSize + 2 * padding;
 }
 
 float snzu_boxGetMaxChildSizeAx(snzu_Axis ax) {

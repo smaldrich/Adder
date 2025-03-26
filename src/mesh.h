@@ -1129,23 +1129,23 @@ struct geo_VertLoop {
 
 // The time complexity of this one is awful, but shouldn't be too bad because of quick skips and
 // how unlikely it is to have a *hugely* complex face
-geo_VertLoop* geo_meshFaceToVertLoops(mesh_Mesh* m, mesh_Face* f, snz_Arena* scratch, snz_Arena* out) {
-    SNZ_ARENA_ARR_BEGIN(scratch, mesh_Edge*);
-    for (mesh_Edge* e = m->firstEdge; e; e = e->next) {
-        if (e->faceA != f && e->faceB != f) {
-            continue;
-        }
-        *SNZ_ARENA_PUSH(scratch, mesh_Edge*) = e;
-    }
+// geo_VertLoop* geo_meshFaceToVertLoops(mesh_Mesh* m, mesh_Face* f, snz_Arena* scratch, snz_Arena* out) {
+    // SNZ_ARENA_ARR_BEGIN(scratch, mesh_Edge*);
+    // for (mesh_Edge* e = m->firstEdge; e; e = e->next) {
+    //     if (e->faceA != f && e->faceB != f) {
+    //         continue;
+    //     }
+    //     *SNZ_ARENA_PUSH(scratch, mesh_Edge*) = e;
+    // }
     // collect edges that match this face from the mesh
-    mesh_EdgePtrSlice edges = SNZ_ARENA_ARR_END_NAMED(scratch, mesh_Edge*, mesh_EdgePtrSlice);
+    // mesh_EdgePtrSlice edges = SNZ_ARENA_ARR_END_NAMED(scratch, mesh_Edge*, mesh_EdgePtrSlice);
 
-    geo_VertLoop* firstLoop = NULL;
-    HMM_Vec3 position = HMM_V3(NAN, NAN, NAN); // nan indicates seeding a new loop
-    HMM_Vec3 firstPosition = HMM_V3(NAN, NAN, NAN);
+    // geo_VertLoop* firstLoop = NULL;
+    // HMM_Vec3 position = HMM_V3(NAN, NAN, NAN); // nan indicates seeding a new loop
+    // HMM_Vec3 firstPosition = HMM_V3(NAN, NAN, NAN);
 
-    return firstLoop;
-}
+//     return firstLoop;
+// }
 
 
 static bool _mesh_LinesAdjacent(geo_Line a, geo_Line b, HMM_Vec3* outPt) {

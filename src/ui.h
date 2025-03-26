@@ -2,6 +2,7 @@
 
 #include "snooze.h"
 #include "stb/stb_image.h"
+#include "geometry.h"
 
 snzr_Font ui_titleFont;
 snzr_Font ui_paragraphFont;
@@ -130,6 +131,60 @@ bool ui_buttonWithHighlight(bool selected, const char* name) {
     return out;
 }
 
+typedef struct {
+    float openAnim;
+    // float hoverAnim;
+    snzu_Interaction inter;
+} _ui_DropdownState;
+
+// selected index written to on click
+void ui_dropdown(const char** optionStrings, int64_t stringCount, int64_t* selectedIndex) {
+    _ui_DropdownState* d = SNZU_USE_MEM(_ui_DropdownState, "dropdown");
+    snzu_boxSetInteractionOutput(&d->inter, SNZU_IF_MOUSE_BUTTONS | SNZU_IF_HOVER);
+    if (d->inter.mouseActions[SNZU_MB_LEFT] == SNZU_ACT_DOWN) {
+        snzu_boxSetFocused();
+    }
+
+    snzu_easeExp(&d->openAnim, snzu_boxFocused(), 20);
+    // snzu_easeExp(&d->hoverAnim, d->inter->hovered || snzu_boxFocused(), 20);
+
+    snzu_boxSetBorder(ui_borderThickness, ui_colorText);
+    snzu_boxSetColor(ui_colorBackground);
+    snzu_boxSetDisplayStr(&ui_labelFont, ui_colorText, optionStrings[*selectedIndex]);
+    const char* placeholderSizingString = "AHHHHHHHHHH";
+    HMM_Vec2 cellSize = snzr_strSize(&ui_labelFont, placeholderSizingString, strlen(placeholderSizingString), ui_labelFont.renderedSize);
+    cellSize = HMM_Add(cellSize, HMM_Mul(HMM_V2(ui_padding, ui_padding), 2.0f));
+    snzu_boxSetSizeFromStart(cellSize);
+
+    snzu_boxScope() {
+        if (!geo_floatZero(d->openAnim)) {
+            snzu_boxNew("openDialogue");
+            snzu_boxSetColor(ui_colorBackground);
+            snzu_boxSetBorder(1, ui_colorText);
+
+            snzu_boxFillParent();
+            snzu_boxSetStartFromParentKeepSizeRecurse(HMM_V2(cellSize.X, 0));
+            snzu_boxScope() {
+                for (int i = 0; i < stringCount; i++) {
+                    snzu_boxNew(optionStrings[i]);
+                    snzu_boxSetDisplayStr(&ui_labelFont, ui_colorText, optionStrings[i]);
+                    snzu_boxSetSizeFromStart(cellSize);
+
+                    snzu_boxNewF("spacer %d", i);
+                    snzu_boxSizePctParent(1.0, SNZU_AX_X);
+                    snzu_boxSetSizeFromStartAx(SNZU_AX_Y, 1);
+                    snzu_boxSetColor(ui_colorText);
+                }
+            }
+            snzu_boxOrderChildrenInRowRecurse(0, SNZU_AX_Y);
+            snzu_boxClipChildren(true);
+            float sizeToFitChildren = snzu_boxGetSizeToFitChildrenAx(SNZU_AX_Y);
+            SNZ_LOGF("%f", sizeToFitChildren);
+            snzu_boxSetSizeFromStartAx(SNZU_AX_Y, sizeToFitChildren * d->openAnim);
+        }
+    }
+}
+
 _snzu_Box* ui_menuMargin() {
     _snzu_Box* box = snzu_boxNew("menu margin");
     HMM_Vec2 parentSize = snzu_boxGetSizePtr(snzu_boxGetParent());
@@ -141,8 +196,8 @@ _snzu_Box* ui_menuMargin() {
 // constructs at 0, 0
 void ui_switch(const char* label, bool* const state) {
     float textHeight = ui_labelFont.renderedSize;  // FIXME: no mucking like this
-    float sliderWidth = 40;
-    float innerMargin = 4;
+    float sliderWidth = 50;
+    float innerMargin = 6;
 
     snzu_boxNew(label);
 
@@ -157,6 +212,7 @@ void ui_switch(const char* label, bool* const state) {
         snzu_boxSetStart(HMM_V2(0, ui_padding - 0.1 * ui_labelFont.renderedSize));  // FIXME: ew
         snzu_boxSetSizeFromStart(HMM_V2(sliderWidth, textHeight));
         snzu_boxSetCornerRadius(textHeight / 2);
+        snzu_boxSetBorder(ui_borderThickness, ui_colorText);
 
         float* const anim = SNZU_USE_MEM(float, "anim");
         if (snzu_useMemIsPrevNew()) {
