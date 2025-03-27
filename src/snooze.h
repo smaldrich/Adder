@@ -126,10 +126,10 @@ typedef struct {
 } snz_Arena;
 
 // returns a pointer to memory that is zeroed
-#define SNZ_ARENA_PUSH(bump, T) ((T*)(snz_arenaPush((bump), sizeof(T))))
+#define SNZ_ARENA_PUSH(bump, T) ((T*)(snz_arenaPush((bump), sizeof(T), 1)))
 
 // returns a pointer to memory that is zeroed
-#define SNZ_ARENA_PUSH_ARR(bump, count, T) (T*)(snz_arenaPush((bump), sizeof(T) * (count)))
+#define SNZ_ARENA_PUSH_ARR(bump, count, T) (T*)(snz_arenaPush((bump), sizeof(T), count))
 
 snz_Arena snz_arenaInit(int64_t size, const char* name) {
     snz_Arena a = { 0 };
@@ -147,22 +147,22 @@ void snz_arenaDeinit(snz_Arena* a) {
 }
 
 // FIXME: file and line of req.
-void* snz_arenaPush(snz_Arena* a, int64_t size) {
-    SNZ_ASSERTF(a->arrModeElemSize == 0 || a->arrModeElemSize == size,
+void* snz_arenaPush(snz_Arena* a, int64_t size, int64_t count) {
+    SNZ_ASSERTF(a->arrModeElemSize == 0 || size == a->arrModeElemSize,
                 "arena push failed for '%s'. Active array elem: '%s' (size %lld), requested: %lld",
                 a->name, a->arrModeTypeName, a->arrModeElemSize, size);
-    a->arrModeElemCount++;  // this will always be correct when inside arr mode, and it will just get reset on enter, so we don't need to branch here.
+    a->arrModeElemCount += count;  // this will always be correct when inside arr mode, and it will just get reset on enter, so we don't need to branch here.
 
     if (!a->arrModeElemSize) {  // only align allocations when not in array mode
         size += sizeof(uint64_t) - (size % sizeof(uint64_t));
     }
     char* o = (char*)(a->end);
-    if (!(o + size < (char*)(a->start) + a->reserved)) {
+    if (!(o + (size * count) < (char*)(a->start) + a->reserved)) {
         SNZ_ASSERTF(false,
                     "arena push failed for '%s'. Cap: %lld, Used: %llu, Requested: %llu",
                     a->name, a->reserved, (uint64_t)a->end - (uint64_t)a->start, size);
     }
-    a->end = o + size;
+    a->end = o + (size * count);
     return o;
 }
 

@@ -444,7 +444,7 @@ bool _ser_isSystemLittleEndian() {
 ser_WriteError _serw_writeBytes(_serw_WriteInst* write, const void* src, int64_t size, bool swapWithEndianness) {
     uint8_t* srcChars = (uint8_t*)src;
     if (swapWithEndianness && _ser_isSystemLittleEndian()) {
-        uint8_t* buf = snz_arenaPush(write->scratch, size);
+        uint8_t* buf = snz_arenaPush(write->scratch, size, 1);
         for (int64_t i = 0; i < size; i++) {
             buf[i] = srcChars[size - 1 - i];
         }
@@ -649,7 +649,7 @@ ser_ReadError _serr_readBytes(_serr_ReadInst* read, void* out, int64_t size, boo
             err = SER_RE_READ_FAILED;
         }
     } else if (swapWithEndianness) {
-        uint8_t* bytes = snz_arenaPush(read->scratch, size); // FIXME: static cache the space for these & just assert on size? - same w/ write?
+        uint8_t* bytes = snz_arenaPush(read->scratch, size, 1); // FIXME: static cache the space for these & just assert on size? - same w/ write?
         if (fread(bytes, size, 1, read->file) != 1) {
             err = SER_RE_READ_FAILED;
         }
@@ -691,7 +691,7 @@ ser_ReadError _serr_readField(_serr_ReadInst* read, _ser_SpecField* field, void*
 
         void* slice = NULL;
         if (obj != NULL) {
-            slice = snz_arenaPush(read->outArena, count * structSpec->size);
+            slice = snz_arenaPush(read->outArena, count * structSpec->size, 1);
             *(void**)((char*)obj + field->offsetInStruct) = slice;
             *(int64_t*)((char*)obj + field->type->offsetOfSliceLengthIntoStruct) = count; // FIXME: again, ensure length field is the correct size/type
         }
@@ -857,7 +857,7 @@ ser_ReadError _ser_read(FILE* file, const char* typename, snz_Arena* outArena, s
             }
 
             _ser_SpecStruct* spec = &structSpecs[kind];
-            void* obj = snz_arenaPush(outArena, spec->size);
+            void* obj = snz_arenaPush(outArena, spec->size, 1);
 
             if (spec->pointable) {
                 _ser_ptrTranslationSet(&read.ptrTable, read.positionIntoFile, (uint64_t)obj);
