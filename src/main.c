@@ -35,8 +35,6 @@ sc_View main_currentView = SC_VIEW_TIMELINE;
 set_Settings main_settings;
 tl_Timeline main_timeline;
 
-mesh_VertLoop* demoLoop = NULL;
-
 #define MAIN_SETTINGS_PATH "settings.adder"
 
 void main_init(snz_Arena* scratch, SDL_Window* window) {
@@ -168,7 +166,6 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
         mesh_stlFileToMesh("res/demos/bracket.stl", &main_baseMeshArena, scratch, &main_baseMeshPool, &m);
         // mesh_stlFileToMesh("testing/intersection.stl", &main_meshArena, scratch, &p, &m);
         tl_timelinePushBaseGeometry(&main_timeline, HMM_V2(0, -200), m);
-        demoLoop = mesh_faceToVertLoops(&m, m.firstFace, scratch, &main_baseMeshArena);
     }
 
     {
@@ -491,15 +488,6 @@ void main_frame(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screen
                             if (op->scene.mesh) {
                                 mesh_meshBuild(op->scene.mesh, vp, cameraPos, mouseDir, inter, HMM_V2(w, h), scratch);
                                 snzu_frameDrawAndGenInteractions(inputs, HMM_M4D(1.0f));
-                            }
-                            // DEMO REMOVE DEMO REMOVE DEMO REMOVE DEMO REMOVE
-                            for (mesh_VertLoop* loop = demoLoop; loop; loop = loop->next) {
-                                HMM_Vec4* pts = SNZ_ARENA_PUSH_ARR(scratch, loop->points.count, HMM_Vec4);
-                                for (int64_t i = 0; i < loop->points.count; i++) {
-                                    pts[i].XYZ = loop->points.elems[i];
-                                    ren3d_drawBillboard(vp, screenSize, *ui_cornerTexture, ui_colorErr, pts[i].XYZ, HMM_V2(20, 20));
-                                }
-                                snzr_drawLine(pts, loop->points.count, ui_colorErr, 4, vp);
                             }
                         }
 
