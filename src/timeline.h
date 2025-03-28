@@ -49,6 +49,7 @@ bool _tl_OpExpectedDeps[][1] = {
 
 struct tl_Op {
     tl_Op* next;
+    int64_t uniqueId;
     bool markedForDeletion;
 
     struct {
@@ -72,6 +73,7 @@ SNZ_SLICE_NAMED(tl_Op*, tl_OpPtrSlice);
 typedef struct {
     tl_Op* firstOp;
     tl_Op* activeOp;
+    int64_t nextUniqueId; // used to safely id nodes even if the address is reused
     HMM_Vec2 camPos;
     float camHeight;
     snz_Arena* operationArena;
@@ -87,52 +89,47 @@ tl_Timeline tl_timelineInit(snz_Arena* opArena, snz_Arena* generatedArena, PoolA
         .generatedPool = generatedPool,
         .camHeight = 1000,
         .camPos = HMM_V2(0, 0),
+        .nextUniqueId = 1,
     };
+    return out;
+}
+
+// pushes to list for the TL, sets a good uniqueID, and inits scene to a default
+static tl_Op* _tl_timelinePushOp(tl_Timeline* tl) {
+    tl_Op* out = SNZ_ARENA_PUSH(tl->operationArena, tl_Op);
+    *out = (tl_Op){
+        .next = tl->firstOp,
+        .uniqueId = tl->nextUniqueId,
+        .scene = tl_sceneInit(),
+    };
+    tl->firstOp = out;
+    tl->nextUniqueId++;
     return out;
 }
 
 tl_Op* tl_timelinePushSketch(tl_Timeline* tl, HMM_Vec2 pos, sk_Sketch sketch) {
-    tl_Op* out = SNZ_ARENA_PUSH(tl->operationArena, tl_Op);
-    *out = (tl_Op){
-        .ui.pos = pos,
-        .kind = TL_OPK_SKETCH,
-        .val.sketch.sketch = sketch,
-        .next = tl->firstOp,
-        .scene = tl_sceneInit(),
-    };
-    tl->firstOp = out;
+    tl_Op* out = _tl_timelinePushOp(tl);
+    out->ui.pos = pos;
+    out->kind = TL_OPK_SKETCH;
+    out->val.sketch.sketch = sketch;
     return out;
 }
 
 tl_Op* tl_timelinePushBaseGeometry(tl_Timeline* tl, HMM_Vec2 pos, mesh_Mesh mesh) {
-    tl_Op* out = SNZ_ARENA_PUSH(tl->operationArena, tl_Op);
-    *out = (tl_Op){
-        .ui.pos = pos,
-        .kind = TL_OPK_BASE_GEOMETRY,
-        .next = tl->firstOp,
-        .val.baseGeometry.mesh = mesh,
-        .scene = tl_sceneInit(),
-    };
+    tl_Op* out = _tl_timelinePushOp(tl);
+    out->ui.pos = pos;
+    out->kind = TL_OPK_BASE_GEOMETRY;
+    out->val.baseGeometry.mesh = mesh;
     out->scene.mesh = &out->val.baseGeometry.mesh;
-
-    tl->firstOp = out;
     return out;
 }
 
 tl_Op* tl_timelinePushSketchGeometry(tl_Timeline* tl, HMM_Vec2 pos, tl_Op* sketch) {
     SNZ_ASSERTF(sketch->kind == TL_OPK_SKETCH, "tried to add sketch geo for op with kind %d.", sketch->kind);
-
-    tl_Op* out = SNZ_ARENA_PUSH(tl->operationArena, tl_Op);
-    *out = (tl_Op){
-        .kind = TL_OPK_SKETCH_GEOMETRY,
-        .dependencies[0] = sketch,
-        .next = tl->firstOp,
-        .ui.pos = pos,
-        .scene = tl_sceneInit(),
-    };
-    out->scene.mesh = &out->val.baseGeometry.mesh;
-
-    tl->firstOp = out;
+    tl_Op* out = _tl_timelinePushOp(tl);
+    out->ui.pos = pos;
+    out->kind = TL_OPK_SKETCH_GEOMETRY;
+    out->dependencies[0] = sketch;
     return out;
 }
 
