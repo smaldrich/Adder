@@ -47,7 +47,21 @@ struct ops_GeoRef {
     ops_GeoRefKind refKind;
     union {
         struct {
-            sketch_Ref skGeo; // again, incrementing ids
+            union {
+                struct {
+                    sk_Point* ptr;
+                    uint64_t uniqueId;
+                } point;
+
+                struct {
+                    sk_Line* ptr;
+                    uint64_t uniqueId;
+                } line;
+
+                struct {
+                    uint64_t lineUIDsHash;
+                } face;
+            } ptr;
         } sketch;
 
         struct {
@@ -80,7 +94,7 @@ static _ops_GeoPtr _ops_geoRefDerefToGeoPtr(const mesh_Mesh* m, ops_GeoRef ref) 
         if (ref.geoKind == OPS_GK_CORNER) {
             SNZ_ASSERTF(
                 index < m->corners.count,
-                "Ref index out of bounds. %lld corneres in base mesh, wanted idx %lld.",
+                "Ref index out of bounds. %lld corners in base mesh, wanted idx %lld.",
                 m->corners.count, index);
             out.corner = &m->corners.elems[index];
         } else if (ref.geoKind == OPS_GK_EDGE) {
