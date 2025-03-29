@@ -1570,6 +1570,14 @@ HMM_Vec2 snzu_boxGetSize() {
     return snzu_boxGetSizePtr(_snzu_instance->selectedBox);
 }
 
+HMM_Vec2 snzu_boxGetStart() {
+    return _snzu_instance->selectedBox->start;
+}
+
+HMM_Vec2 snzu_boxGetEnd() {
+    return _snzu_instance->selectedBox->end;
+}
+
 static void _snzu_boxMoveKeepSizeRecurse(_snzu_Box* box, HMM_Vec2 diff) {
     box->start = HMM_AddV2(box->start, diff);
     box->end = HMM_AddV2(box->end, diff);

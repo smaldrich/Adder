@@ -50,16 +50,16 @@ struct ops_GeoRef {
             union {
                 struct {
                     sk_Point* ptr;
-                    uint64_t uniqueId;
+                    int64_t uniqueId;
                 } point;
 
                 struct {
                     sk_Line* ptr;
-                    uint64_t uniqueId;
+                    int64_t uniqueId;
                 } line;
 
                 struct {
-                    uint64_t lineUIDsHash;
+                    int64_t lineUIDsHash;
                 } face;
             } ptr;
         } sketch;

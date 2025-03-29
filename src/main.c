@@ -385,61 +385,6 @@ void main_frame(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screen
             rightPanelSize.X -= leftPanelSize;
         }
 
-        snzu_boxNew("leftPanel");
-        snzu_boxFillParent();
-        snzu_boxSetSizeFromStartAx(SNZU_AX_X, leftPanelSize);
-        snzu_boxSetColor(ui_colorBackground);
-        snzu_boxScope() {
-            snzu_boxNew("padding");
-            snzu_boxSetSizeMarginFromParent(20);
-            snzu_boxScope() {
-                snzu_boxNew("scene list");
-                snzu_boxFillParent();
-                snzu_boxSizePctParent(0.5, SNZU_AX_Y);
-                snzu_boxScope() {
-                    if (ui_buttonWithHighlight(main_currentView == SC_VIEW_SCENE, "demo scene")) {
-                        *leftPanelStayClosedTimer = 0.25;
-                        main_currentView = SC_VIEW_SCENE;
-                    }
-                    if (ui_buttonWithHighlight(main_currentView == SC_VIEW_TIMELINE, "timeline")) {
-                        *leftPanelStayClosedTimer = 0.25;
-                        main_currentView = SC_VIEW_TIMELINE;
-                    }
-                }
-                snzu_boxOrderChildrenInRowRecurse(5, SNZU_AX_Y);
-                snzuc_scrollArea();
-
-                snzu_boxNew("other view list");
-                snzu_boxFillParent();
-                snzu_boxSizeFromEndPctParent(0.5, SNZU_AX_Y);
-                snzu_boxScope() {
-                    if (ui_buttonWithHighlight(main_currentView == SC_VIEW_DOCS, "docs")) {
-                        *leftPanelStayClosedTimer = 0.25;
-                        main_currentView = SC_VIEW_DOCS;
-                    }
-                    if (ui_buttonWithHighlight(main_currentView == SC_VIEW_SETTINGS, "settings")) {
-                        *leftPanelStayClosedTimer = 0.25;
-                        main_currentView = SC_VIEW_SETTINGS;
-                    }
-                    if (ui_buttonWithHighlight(main_currentView == SC_VIEW_SHORTCUTS, "shortcuts")) {
-                        *leftPanelStayClosedTimer = 0.25;
-                        main_currentView = SC_VIEW_SHORTCUTS;
-                    }
-                    if (ui_buttonWithHighlight(false, "quit")) {
-                        snz_quit();
-                    }
-                }
-                snzu_boxOrderChildrenInRowRecurseAlignEnd(5, SNZU_AX_Y);
-            }  // end padding
-
-            snzu_boxNew("leftPanelBorder");
-            snzu_boxFillParent();
-            snzu_boxSetSizeFromEndAx(SNZU_AX_X, ui_borderThickness);
-            snzu_boxSetColor(ui_colorText);
-        }  // end leftpanel
-        snzu_boxClipChildren(true);
-        // FIXME: some hint in the lower left corner that this menu exists, same w/ right panel
-
         snzu_boxNew("rightPanel");
         snzu_boxFillParent();
         snzu_boxSetSizeFromEndAx(SNZU_AX_X, rightPanelSize.X);  // FIXME: set size remaining util fn
@@ -542,6 +487,65 @@ void main_frame(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screen
             }
         } // end right panel
 
+        snzu_boxNew("leftPanel");
+        snzu_boxFillParent();
+        snzu_boxSetSizeFromStartAx(SNZU_AX_X, leftPanelSize);
+        snzu_boxSetColor(ui_colorBackground);
+        snzu_boxScope() {
+            snzu_boxNew("padding");
+            snzu_boxSetSizeMarginFromParent(20);
+            snzu_boxScope() {
+                snzu_boxNew("scene list");
+                snzu_boxFillParent();
+                snzu_boxSizePctParent(0.5, SNZU_AX_Y);
+                snzu_boxScope() {
+                    if (ui_buttonWithHighlight(main_currentView == SC_VIEW_SCENE, "demo scene")) {
+                        *leftPanelStayClosedTimer = 0.25;
+                        main_currentView = SC_VIEW_SCENE;
+                    }
+                    if (ui_buttonWithHighlight(main_currentView == SC_VIEW_TIMELINE, "timeline")) {
+                        *leftPanelStayClosedTimer = 0.25;
+                        main_currentView = SC_VIEW_TIMELINE;
+                    }
+                }
+                snzu_boxOrderChildrenInRowRecurse(5, SNZU_AX_Y);
+                snzuc_scrollArea();
+
+                snzu_boxNew("other view list");
+                snzu_boxFillParent();
+                snzu_boxSizeFromEndPctParent(0.5, SNZU_AX_Y);
+                snzu_boxScope() {
+                    if (ui_buttonWithHighlight(main_currentView == SC_VIEW_DOCS, "docs")) {
+                        *leftPanelStayClosedTimer = 0.25;
+                        main_currentView = SC_VIEW_DOCS;
+                    }
+                    if (ui_buttonWithHighlight(main_currentView == SC_VIEW_SETTINGS, "settings")) {
+                        *leftPanelStayClosedTimer = 0.25;
+                        main_currentView = SC_VIEW_SETTINGS;
+                    }
+                    if (ui_buttonWithHighlight(main_currentView == SC_VIEW_SHORTCUTS, "shortcuts")) {
+                        *leftPanelStayClosedTimer = 0.25;
+                        main_currentView = SC_VIEW_SHORTCUTS;
+                    }
+                    if (ui_buttonWithHighlight(false, "quit")) {
+                        snz_quit();
+                    }
+                }
+                snzu_boxOrderChildrenInRowRecurseAlignEnd(5, SNZU_AX_Y);
+            }  // end padding
+
+            snzu_boxNew("leftPanelBorder");
+            snzu_boxFillParent();
+            snzu_boxSetSizeFromEndAx(SNZU_AX_X, ui_borderThickness);
+            snzu_boxSetColor(ui_colorText);
+        }  // end leftpanel
+        snzu_boxClipChildren(true);
+        // FIXME: some hint in the lower left corner that this menu exists, same w/ right panel
+
+        if (leftPanelSize < 10) {
+            ui_hiddenPanelIndicator(0, true, "leftHoverIndicator");
+        }
+
         snzu_boxNew("leftHoverDetector");
         snzu_boxFillParent();
         snzu_boxSetSizeFromStartAx(SNZU_AX_X, leftPanelSize + 20);
@@ -553,11 +557,9 @@ void main_frame(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screen
         }
 
         sk_Sketch* activeSketch = NULL;
-        {
-            if (main_timeline.activeOp) {
-                if (main_timeline.activeOp->kind == TL_OPK_SKETCH) {
-                    activeSketch = &main_timeline.activeOp->val.sketch.sketch;
-                }
+        if (main_timeline.activeOp) {
+            if (main_timeline.activeOp->kind == TL_OPK_SKETCH) {
+                activeSketch = &main_timeline.activeOp->val.sketch.sketch;
             }
         }
         sc_updateAndBuildHintWindow(activeSketch, &main_timeline, &main_currentView, scratch, openHintWindow);

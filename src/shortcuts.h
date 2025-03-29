@@ -714,6 +714,11 @@ void sc_updateAndBuildHintWindow(sk_Sketch* activeSketch, tl_Timeline* timeline,
             }  // end hints window
             snzu_boxClipChildren(true);
         }
+
+        float width = snzu_boxGetSize().X;
+        if (width < 10) {
+            ui_hiddenPanelIndicator(snzu_boxGetEnd().X, false, "panelIndicator");
+        }
     }  // end entire window parent
 }
 

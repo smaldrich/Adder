@@ -190,6 +190,17 @@ void ui_dropdown(const char* boxTag, const char** optionStrings, int stringCount
     snzu_boxSetDisplayStr(&ui_labelFont, ui_colorText, optionStrings[*selectedIndex]);
 }
 
+void ui_hiddenPanelIndicator(float startingX, bool placeToTheRight, const char* boxTag) {
+    snzu_boxNew(boxTag);
+    float offset = (placeToTheRight ? 2 * ui_borderThickness : -3 * ui_borderThickness);
+    snzu_boxSetColor(ui_colorText);
+    snzu_boxSetCornerRadius(ui_borderThickness / 2 + 1);
+    snzu_boxSetStartAx(startingX + offset, SNZU_AX_X);
+    snzu_boxSetSizeFromStart(HMM_V2(ui_borderThickness, 50));
+    snzu_boxAlignInParent(SNZU_AX_Y, SNZU_ALIGN_CENTER);
+}
+
+
 _snzu_Box* ui_menuMargin() {
     _snzu_Box* box = snzu_boxNew("menu margin");
     HMM_Vec2 parentSize = snzu_boxGetSizePtr(snzu_boxGetParent());
