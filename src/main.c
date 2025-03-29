@@ -563,6 +563,25 @@ void main_frame(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screen
             }
         }
         sc_updateAndBuildHintWindow(activeSketch, &main_timeline, &main_currentView, scratch, openHintWindow);
+
+        snzu_boxNew("capsIndicator");
+        snzu_boxFillParent();
+        snzu_Interaction* inter = SNZU_USE_MEM(snzu_Interaction, "inter");
+        snzu_boxSetInteractionOutput(inter, SNZU_IF_ALLOW_EVENT_FALLTHROUGH);
+        if (inter->keyMods & KMOD_CAPS) {
+            snzu_boxScope() {
+                snzu_boxNew("text");
+                snzu_boxSetDisplayStr(&ui_labelFont, ui_colorErr, "Caps lock on");
+                snzu_boxSetSizeFitText(ui_padding);
+                snzu_boxAlignInParent(SNZU_AX_X, SNZU_ALIGN_CENTER);
+                snzu_boxAlignInParent(SNZU_AX_Y, SNZU_ALIGN_BOTTOM);
+
+                snzu_boxNew("bar");
+                snzu_boxFillParent();
+                snzu_boxSetColor(ui_colorErr);
+                snzu_boxSetSizeFromEndAx(SNZU_AX_Y, ui_borderThickness);
+            }
+        }
     }
 
     snzr_callGLFnOrError(glBindFramebuffer(GL_FRAMEBUFFER, 0));
