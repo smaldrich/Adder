@@ -3,19 +3,6 @@
 #include "timeline.h"
 #include "mesh.h"
 
-/*
-Geo references
-
-need to break if dependency disappears
-i.e. get/deref fn
-also lazy evals of edges and corners / face loops would be great - but thats xcr
-
-has safe node ptrs to the expected geometry
-or safe sketch geo ptrs for sources
-and a differentiator for different comps of operation results
-theres gonna be a big assert in there to make sure only one piece of geometry matches every ptr
-*/
-
 typedef enum {
     OPS_GK_DEREF_FAILED,
     OPS_GK_CORNER,
@@ -30,7 +17,7 @@ typedef struct {
         mesh_Edge* edge;
         mesh_Face* face;
     };
-} _ops_GeoPtr;
+} ops_GeoPtr;
 
 typedef enum {
     OPS_GRK_SKETCH,
@@ -38,106 +25,78 @@ typedef enum {
     OPS_GRK_RESULT,
 } ops_GeoRefKind;
 
+/*
+Geo refs are the backend tech to make the parametric part of this thing work.
+there is one embedded in every piece of geometry, describing it in terms of the operations that created it.
+Other operations use georefs to find the geometry they are supposed to be operating on at solve time
+*/
+
 typedef struct ops_GeoRef ops_GeoRef;
 struct ops_GeoRef {
     ops_GeoKind geoKind;
-    tl_Op* op;
-    int64_t opUniqueId;
+    int64_t opUniqueId; // uid of the operation that created/last changed this piece of geo
+    int64_t sourceUniqueId; // if from a sketch or base geo node, a uid matching what part
+    // used to label different parts of an operation
+    // (i.e. extrude labels corners and edges from one source corner with the same source geo, but a different diffInt)
+    int64_t differentiationInt;
 
-    ops_GeoRefKind refKind;
-    union {
-        struct {
-            union {
-                struct {
-                    sk_Point* ptr;
-                    int64_t uniqueId;
-                } point;
-
-                struct {
-                    sk_Line* ptr;
-                    int64_t uniqueId;
-                } line;
-
-                struct {
-                    int64_t lineUIDsHash;
-                } face;
-            } ptr;
-        } sketch;
-
-        struct {
-            int diffInt;
-            ops_GeoRef* diffGeo1;
-            ops_GeoRef* diffGeo2;
-        } opResult;
-
-        struct {
-            int idx;
-        } baseGeo;
-    } ref;
+    // used for unions and other operations that need to reference another piece of geometry to refer to a resulting piece of geometry
+    ops_GeoRef* diffGeo1;
+    ops_GeoRef* diffGeo2;
 };
 
-static _ops_GeoPtr _ops_geoRefDerefToGeoPtr(const mesh_Mesh* m, ops_GeoRef ref) {
-    if (!ref.op || ref.op->uniqueId != ref.opUniqueId) {
-        return (_ops_GeoPtr) { .kind = OPS_GK_DEREF_FAILED };
+bool _ops_geoRefEqual(ops_GeoRef a, ops_GeoRef b) {
+    bool equal = false;
+    equal &= a.geoKind == b.geoKind;
+    equal &= a.opUniqueId == b.opUniqueId;
+    equal &= a.sourceUniqueId == b.sourceUniqueId;
+    equal &= a.differentiationInt == b.differentiationInt;
+    equal &= (a.diffGeo1 == NULL) == (b.diffGeo1 == NULL);
+    equal &= (a.diffGeo2 == NULL) == (b.diffGeo2 == NULL);
+
+    if (a.diffGeo1) {
+        equal &= _ops_geoRefEqual(*a.diffGeo1, *b.diffGeo1);
     }
+    if (a.diffGeo2) {
+        equal &= _ops_geoRefEqual(*a.diffGeo2, *b.diffGeo2);
+    }
+    return equal;
+}
 
-    _ops_GeoPtr out = { .kind = ref.geoKind };
-    if (ref.refKind == OPS_GRK_BASE_GEO) {
-        SNZ_ASSERTF(
-            ref.op->kind == TL_OPK_BASE_GEOMETRY,
-            "Geo ref op has the wrong kind. Expected %d was %d.",
-            TL_OPK_BASE_GEOMETRY, ref.op->kind);
+// searches the given mesh for a piece of geometry with a matching geo ref to the one given
+// return will have a null ptr and kind of OPS_GK_DEREF_FAILED if nothing is found
+// FIXME: for a perf boost, use a hashtable for geoRef -> geo in each mesh instead of looping
+ops_GeoPtr ops_geoRefDerefToGeoPtr(const mesh_Mesh* m, ops_GeoRef ref) {
+    ops_GeoPtr out = (ops_GeoPtr){
+        .kind = ref.geoKind,
+    };
 
-        mesh_Mesh* m = &ref.op->val.baseGeometry.mesh;
-        int64_t index = ref.ref.baseGeo.idx;
-
-        if (ref.geoKind == OPS_GK_CORNER) {
-            SNZ_ASSERTF(
-                index < m->corners.count,
-                "Ref index out of bounds. %lld corners in base mesh, wanted idx %lld.",
-                m->corners.count, index);
-            out.corner = &m->corners.elems[index];
-        } else if (ref.geoKind == OPS_GK_EDGE) {
-            int64_t i = 0;
-            for (out.edge = m->firstEdge; i < index; i++) {
-                out.edge = out.edge->next;
-                if (out.edge == NULL) {
-                    SNZ_ASSERTF(false, "Ref index of %lld out of bounds.", i);
-                }
+    if (out.kind == OPS_GK_CORNER) {
+        for (int64_t i = 0; i < m->corners.count; i++) {
+            mesh_Corner* corner = &m->corners.elems[i];
+            if (_ops_geoRefEqual(ref, corner)) {
+                out.corner = corner;
+                return out;
             }
-        } else if (ref.geoKind == OPS_GK_FACE) {
-            int64_t i = 0;
-            for (out.face = m->firstFace; i < index; i++) {
-                out.face = out.face->next;
-                if (out.face == NULL) {
-                    SNZ_ASSERTF(false, "Ref index of %lld out of bounds.", i);
-                }
-            }
-        } else {
-            SNZ_ASSERTF(false, "unreachable. kind: %d", ref.geoKind);
         }
-    } else if (ref.refKind == OPS_GRK_SKETCH) {
-    } else if (ref.refKind == OPS_GRK_RESULT) {
+    } else if (out.kind == OPS_GK_EDGE) {
+        for (mesh_Edge* e = m->firstEdge; e; e = e->next) {
+            if (_ops_geoRefEqual(ref, e)) {
+                out.edge = e;
+                return out;
+            }
+        }
+    } else if (out.kind == OPS_GK_FACE) {
+        for (mesh_Face* f = m->firstFace; f; f = f->next) {
+            if (_ops_geoRefEqual(ref, f)) {
+                out.face = f;
+                return out;
+            }
+        }
     } else {
-        SNZ_ASSERTF(false, "unreachable. code: %d", ref.refKind);
+        SNZ_ASSERTF(false, "unreachable. kind: %d", ref.geoKind);
     }
+
+    out.kind = OPS_GK_DEREF_FAILED;
     return out;
-}
-
-mesh_Corner* mesh_geoRefDerefToCorner(const mesh_Mesh* m, ops_GeoRef ref) {
-    _ops_GeoPtr geo = _ops_geoRefDerefToGeoPtr(m, ref);
-    SNZ_ASSERTF(geo.kind == OPS_GK_CORNER, "Derefing a geoRef failed. Kind expected: %d, got %d.", OPS_GK_CORNER, geo.kind);
-    return geo.corner;
-}
-
-mesh_Edge* mesh_geoRefDerefToEdge(const mesh_Mesh* m, ops_GeoRef ref) {
-    _ops_GeoPtr geo = _ops_geoRefDerefToGeoPtr(m, ref);
-    SNZ_ASSERTF(geo.kind == OPS_GK_EDGE, "Derefing a geoRef failed. Kind expected: %d, got %d.", OPS_GK_EDGE, geo.kind);
-    return geo.edge;
-}
-
-mesh_Face* mesh_geoRefDerefToFace(const mesh_Mesh* m, ops_GeoRef ref) {
-    _ops_GeoPtr geo = _ops_geoRefDerefToGeoPtr(m, ref);
-    SNZ_ASSERTF(geo.kind == OPS_GK_FACE, "Derefing a geoRef failed. Kind expected: %d, got %d.", OPS_GK_FACE, geo.kind);
-    return geo.face;
 }

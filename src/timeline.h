@@ -49,7 +49,7 @@ bool _tl_OpExpectedDeps[][1] = {
 
 struct tl_Op {
     tl_Op* next;
-    int64_t uniqueId;
+    int64_t uniqueId; // incrementing number to safely identify tl nodes in geo refs (and break them when tl_ops are deleted)
     bool markedForDeletion;
 
     struct {

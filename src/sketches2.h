@@ -42,6 +42,7 @@ struct sk_Point {
     sk_Point* next;
     sk_Manifold manifold;
     int indexIntoSketch; // temp var for triangulation
+    int64_t uniqueId; // used for safer ops_GeoRefs
     bool solved;
     bool markedForDelete;
 
@@ -60,6 +61,7 @@ struct sk_Line {
         sk_Point* pts[2];
     };
     sk_Line* next;
+    int64_t uniqueId; // used for safer ops_GeoRefs
     bool angleApplied;
     bool angleSolved;
     float expectedAngle;  // from p1 to p2, may not be normalized
@@ -91,6 +93,7 @@ struct sk_Constraint {
 
     sk_Constraint* nextAllocated;
     sk_Constraint* nextUnapplied;
+    int64_t uniqueId; // used for safer ops_GeoRefs
 
     // ui info things
     struct {
@@ -122,6 +125,9 @@ typedef struct {
     sk_Point* firstPoint;
     sk_Line* firstLine;
     sk_Constraint* firstConstraint;
+    // increments on add, gives a unique number (within one sketch) to each point, line, and constraint
+    // used to correctly break ops_GeoRefs when an elt gets deleted and the memory pooled
+    int64_t nextUniqueId;
 
     sk_Constraint* firstUnappliedConstraint;
 
@@ -143,8 +149,10 @@ sk_Point* sk_sketchAddPoint(sk_Sketch* sketch, HMM_Vec2 pos) {
     *p = (sk_Point){
         .pos = pos,
         .next = sketch->firstPoint,
+        .uniqueId = sketch->nextUniqueId,
     };
     sketch->firstPoint = p;
+    sketch->nextUniqueId++;
     return p;
 }
 
@@ -164,22 +172,29 @@ sk_Line* sk_sketchAddLine(sk_Sketch* sketch, sk_Point* p1, sk_Point* p2) {
         }
     }
 
-    if (line == NULL) {
-        line = SNZ_ARENA_PUSH(sketch->arena, sk_Line);
-        *line = (sk_Line){
-            .p1 = p1,
-            .p2 = p2,
-            .next = sketch->firstLine,
-        };
-        sketch->firstLine = line;
+    if (line != NULL) {
+        return line;
     }
+
+    line = SNZ_ARENA_PUSH(sketch->arena, sk_Line);
+    *line = (sk_Line){
+        .p1 = p1,
+        .p2 = p2,
+        .next = sketch->firstLine,
+        .uniqueId = sketch->nextUniqueId,
+    };
+    sketch->firstLine = line;
+    sketch->nextUniqueId++;
     return line;
 }
 
 // arena is retained
 // adds an initial origin line and two pts for it
 sk_Sketch sk_sketchInit(snz_Arena* arena) {
-    sk_Sketch out = (sk_Sketch){ .arena = arena };
+    sk_Sketch out = (sk_Sketch){
+        .arena = arena,
+        .nextUniqueId = 1, // set to one so that an id of zero is invalid (i.e. deinited memory is invalid)
+    };
 
     // initial origin, because sketches shouldn't be empty FIXME: kinda clunky way to do it
     sk_Point* p1 = sk_sketchAddPoint(&out, HMM_V2(0, 0));
@@ -200,7 +215,9 @@ sk_Constraint* sk_sketchAddConstraintDistance(sk_Sketch* sketch, sk_Line* l, flo
         .line1 = l,
         .value = length,
         .nextAllocated = sketch->firstConstraint,
+        .uniqueId = sketch->nextUniqueId,
     };
+    sketch->nextUniqueId++;
     sketch->firstConstraint = c;
     return c;
 }
@@ -219,7 +236,9 @@ sk_Constraint* sk_sketchAddConstraintAngle(sk_Sketch* sketch, sk_Line* line1, bo
         .flipLine2 = flipLine2,
         .value = angle,
         .nextAllocated = sketch->firstConstraint,
+        .uniqueId = sketch->nextUniqueId,
     };
+    sketch->nextUniqueId++;
     sketch->firstConstraint = c;
     return c;
 }
