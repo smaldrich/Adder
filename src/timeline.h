@@ -10,7 +10,6 @@ typedef enum {
     TL_OPK_NONE,
     TL_OPK_SKETCH,
     TL_OPK_BASE_GEOMETRY,
-    TL_OPK_SKETCH_GEOMETRY,
 } tl_OpKind;
 
 typedef struct tl_Op tl_Op;
@@ -44,7 +43,6 @@ tl_Scene tl_sceneInit() {
 bool _tl_OpExpectedDeps[][1] = {
     [TL_OPK_SKETCH] = { false },
     [TL_OPK_BASE_GEOMETRY] = { false },
-    [TL_OPK_SKETCH_GEOMETRY] = { true },
 };
 
 struct tl_Op {
@@ -65,7 +63,7 @@ struct tl_Op {
     } val;
     tl_Op* dependencies[1];
 
-    tl_Scene scene;
+    tl_Scene scene; // updated per solve - camera data persists tho
 };
 
 SNZ_SLICE_NAMED(tl_Op*, tl_OpPtrSlice);
@@ -115,12 +113,41 @@ tl_Op* tl_timelinePushSketch(tl_Timeline* tl, HMM_Vec2 pos, sk_Sketch sketch) {
     return out;
 }
 
+// also generates geoIds for everything in the mesh - mesh shouldn't be retained after this call
 tl_Op* tl_timelinePushBaseGeometry(tl_Timeline* tl, HMM_Vec2 pos, mesh_Mesh mesh) {
     tl_Op* out = _tl_timelinePushOp(tl);
     out->ui.pos = pos;
     out->kind = TL_OPK_BASE_GEOMETRY;
     out->val.baseGeometry.mesh = mesh;
     out->scene.mesh = &out->val.baseGeometry.mesh;
+
+    int64_t nextId = 0;
+    for (int64_t i = 0; i < mesh.corners.count; i++) {
+        mesh.corners.elems[i].id = (mesh_GeoID){
+            .geoKind = MESH_GK_CORNER,
+            .sourceUniqueId = nextId,
+            .opUniqueId = out->uniqueId,
+        };
+        nextId++;
+    }
+
+    for (mesh_Edge* e = mesh.firstEdge; e; e = e->next) {
+        e->id = (mesh_GeoID){
+            .geoKind = MESH_GK_EDGE,
+            .sourceUniqueId = nextId,
+            .opUniqueId = out->uniqueId,
+        };
+        nextId++;
+    }
+
+    for (mesh_Face* f = mesh.firstFace; f; f = f->next) {
+        f->id = (mesh_GeoID){
+            .geoKind = MESH_GK_FACE,
+            .sourceUniqueId = nextId,
+            .opUniqueId = out->uniqueId,
+        };
+        nextId++;
+    }
     return out;
 }
 
@@ -225,20 +252,20 @@ void tl_solveForNode(tl_Timeline* t, tl_Op* targetOp, snz_Arena* scratch) {
 
         if (op->kind == TL_OPK_SKETCH) {
             sk_sketchSolve(&op->val.sketch.sketch);
-        } else if (op->kind == TL_OPK_SKETCH_GEOMETRY) {
-            tl_Op* other = op->dependencies[0];
-            SNZ_ASSERTF(other->kind == TL_OPK_SKETCH, "dependent op wasn't expected kind. Was: %d, expected %d.", other->kind, TL_OPK_SKETCH);
 
             mesh_Mesh* m = SNZ_ARENA_PUSH(t->generatedArena, mesh_Mesh);
-            *m = skt_sketchTriangulate(&other->val.sketch.sketch, t->generatedArena, scratch);
+            *m = skt_sketchTriangulate(&op->val.sketch.sketch, t->generatedArena, scratch);
             if (m->renderMesh.vaId) { // FIXME: get a decent check for null rendermeshes
                 // FIXME: probably shouldnt store one of these per scene if solves only happen for one op
                 ren3d_meshDeinit(&op->scene.mesh->renderMesh);
             }
             m->renderMesh = mesh_BSPTriListToRenderMesh(m->bspTris, scratch);
             mesh_BSPTriListToFaceTris(t->generatedPool, m);
-            other->scene.mesh = m;
             op->scene.mesh = m;
+        } else if (op->kind == TL_OPK_BASE_GEOMETRY) {
+            continue;
+        } else {
+            SNZ_ASSERTF(false, "unreachable. kind: %lld", op->kind);
         }
     } // end loop solving
 }

@@ -10,6 +10,7 @@ SNZ_SLICE(_skt_Point);
 SNZ_SLICE_NAMED(_skt_Point*, _skt_PointPtrSlice);
 
 typedef struct {
+    int64_t sourceUniqueId;
     _skt_Point* other;
     bool traversed; // FIXME: the padding on this one hurts but who cares
 } _skt_Edge;
@@ -17,6 +18,7 @@ typedef struct {
 SNZ_SLICE(_skt_Edge);
 
 struct _skt_Point {
+    int64_t sourceUniqueId;
     _skt_Point* next;
     _skt_Island* island;
     _skt_EdgeSlice edges;
@@ -136,6 +138,11 @@ bool _skt_vertLoopContainsVertLoop(_skt_VertLoop* a, _skt_VertLoop* b) {
 
 static mesh_Face* _skt_vertLoopToMeshFace(_skt_VertLoop* l, mesh_BSPTriList* list, snz_Arena* scratch, snz_Arena* out) {
     mesh_Face* f = SNZ_ARENA_PUSH(out, mesh_Face);
+    f->id = (mesh_GeoID){
+        .geoKind = MESH_GK_FACE,
+        .sourceUniqueId = ,
+        .opUniqueId = ,
+    };
 
     // FIXME: move this data to be inline with the vert loop points ? // actually also profile if that is worth doing
     bool* culledFlags = SNZ_ARENA_PUSH_ARR(scratch, l->pts.count, bool);
@@ -207,6 +214,11 @@ static mesh_Face* _skt_vertLoopToMeshFace(_skt_VertLoop* l, mesh_BSPTriList* lis
 
 typedef struct _skt_IntersectionEdge _skt_IntersectionEdge;
 struct _skt_IntersectionEdge {
+    int64_t sourceUniqueId; // so that correct geoIds get generated at the end that can trace themselves back to sketch elts.
+    // diff. here for the cases where one edge gets intersected by another
+    // FIXME: this adds a little bit of inconsistancy user side in cases where the solver decides to change it's ordering - making different edges get different diff. ints.
+    int64_t sourceDifferentiator;
+
     _skt_Point* p1;
     _skt_Point* p2;
     _skt_IntersectionEdge* next;
@@ -215,11 +227,12 @@ struct _skt_IntersectionEdge {
 };
 
 // FIXME: does this function gauranteed crash on a malformed sketch??
-// arena and scratch can be the same arena
-// only fills out BSPTri list for a new mesh
 // FIXME: exhaustive checks to make sure that there aren't any colinear & fully overlapped edges in the sketch before starting this
 // FIXME: decide whether we are going to cope with T intersections here, and if not, add checks to make sure they don't exist on inputs
-mesh_Mesh skt_sketchTriangulate(const sk_Sketch* sketch, snz_Arena* arena, snz_Arena* scratch) {
+// arena and scratch can be the same arena
+// fills out BSPTri list, edges, corners, faces, but not face tris or bspTree in mesh
+// uid used to correctly fill in geoIds for the result mesh
+mesh_Mesh skt_sketchTriangulate(int64_t opUniqueId, const sk_Sketch* sketch, snz_Arena* arena, snz_Arena* scratch) {
     _skt_Point* firstPoint = NULL;
     _skt_IntersectionEdge* firstIntersectionEdge = NULL;
     { // intersections
@@ -233,6 +246,7 @@ mesh_Mesh skt_sketchTriangulate(const sk_Sketch* sketch, snz_Arena* arena, snz_A
             *pt = (_skt_Point){
                 .pos = p->pos,
                 .dbgIndex = i,
+                .sourceUniqueId = p->uniqueId,
                 .next = firstPoint, // storing as a LL as well because of appends happening down the road
             };
             firstPoint = pt;
@@ -245,6 +259,7 @@ mesh_Mesh skt_sketchTriangulate(const sk_Sketch* sketch, snz_Arena* arena, snz_A
         for (sk_Line* l = sketch->firstLine; l;l = l->next) {
             _skt_IntersectionEdge* e = SNZ_ARENA_PUSH(scratch, _skt_IntersectionEdge);
             *e = (_skt_IntersectionEdge){
+                .sourceUniqueId = l->uniqueId,
                 .p1 = &initialPointsArr.elems[l->p1->indexIntoSketch],
                 .p2 = &initialPointsArr.elems[l->p2->indexIntoSketch],
                 .next = firstIntersectionEdge,
@@ -291,12 +306,21 @@ mesh_Mesh skt_sketchTriangulate(const sk_Sketch* sketch, snz_Arena* arena, snz_A
                     // swap around where things are pointing to form the new edges
                     newEdges[0].p1 = edge->p1;
                     newEdges[0].p2 = newPt;
+                    newEdges[0].sourceUniqueId = edge->sourceUniqueId;
+                    newEdges[0].sourceDifferentiator = edge->sourceDifferentiator;
                     newEdges[1].p1 = edge->p2;
                     newEdges[1].p2 = newPt;
+                    newEdges[1].sourceUniqueId = edge->sourceUniqueId;
+                    newEdges[1].sourceDifferentiator = edge->sourceDifferentiator + 1;
+
                     edge->p1 = other->p1;
                     edge->p2 = newPt;
+                    edge->sourceUniqueId = other->sourceUniqueId;
+                    edge->sourceDifferentiator = other->sourceDifferentiator;
                     other->p1 = other->p2;
                     other->p2 = newPt;
+                    other->sourceUniqueId = other->sourceUniqueId;
+                    edge->sourceDifferentiator = other->sourceDifferentiator + 1;
 
                     anyIntersection = true;
                     break;
@@ -554,6 +578,12 @@ mesh_Mesh skt_sketchTriangulate(const sk_Sketch* sketch, snz_Arena* arena, snz_A
                     .count = 2,
                     .elems = points,
                 },
+                .id = (mesh_GeoID) {
+                    .geoKind = MESH_GK_EDGE,
+                    .sourceUniqueId = edge->sourceUniqueId,
+                    .differentiationInt = edge->sourceDifferentiator,
+                    .opUniqueId = opUniqueId,
+                }
             };
             firstEdge = e;
         }
@@ -562,6 +592,11 @@ mesh_Mesh skt_sketchTriangulate(const sk_Sketch* sketch, snz_Arena* arena, snz_A
         for (_skt_Point* p = firstPoint; p; p = p->next) {
             *SNZ_ARENA_PUSH(arena, mesh_Corner) = (mesh_Corner){
                 .pos.XY = p->pos,
+                .id = (mesh_GeoID) {
+                    .geoKind = MESH_GK_CORNER,
+                    .sourceUniqueId = p->sourceUniqueId,
+                    .opUniqueId = opUniqueId,
+                },
             };
         }
         corners = SNZ_ARENA_ARR_END(arena, mesh_Corner);
