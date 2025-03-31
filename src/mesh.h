@@ -9,13 +9,70 @@
 #include "snooze.h"
 #include "ui.h"
 #include "geometry.h"
+#include "timeline.h"
+
+typedef enum {
+    MESH_GK_DEREF_FAILED,
+    MESH_GK_CORNER,
+    MESH_GK_EDGE,
+    MESH_GK_FACE,
+} mesh_GeoKind;
+
+typedef struct {
+    mesh_GeoKind kind;
+    union {
+        mesh_Corner* corner;
+        mesh_Edge* edge;
+        mesh_Face* face;
+    };
+} mesh_GeoPtr;
+
+/*
+Geo ids are the backend tech to make the parametric part of this thing work.
+there is one embedded in every piece of geometry, describing it in terms of the operations that created it.
+Other operations use ids to find the geometry they are supposed to be operating on at solve time
+*/
+
+typedef struct mesh_GeoID mesh_GeoID;
+struct mesh_GeoID {
+    mesh_GeoKind geoKind;
+    int64_t opUniqueId; // uid of the operation that created/last changed this piece of geo
+    int64_t sourceUniqueId; // if from a sketch or base geo node, a uid matching what part
+    // used to label different parts of an operation
+    // (i.e. extrude labels corners and edges from one source corner with the same source geo, but a different diffInt)
+    int64_t differentiationInt;
+
+    // used for unions and other operations that need to reference another piece of geometry to refer to a resulting piece of geometry
+    mesh_GeoID* diffGeo1;
+    mesh_GeoID* diffGeo2;
+};
 
 typedef struct mesh_Face mesh_Face;
 struct mesh_Face {
     mesh_Face* next;
+    mesh_GeoID id;
     geo_TriSlice tris;
     ui_SelectionState sel;
 };
+
+typedef struct mesh_Edge mesh_Edge;
+struct mesh_Edge {
+    mesh_Edge* next;
+    mesh_GeoID id;
+    HMM_Vec3Slice points;
+    ui_SelectionState sel;
+
+    mesh_Face* faceA;
+    mesh_Face* faceB;
+};
+
+typedef struct {
+    mesh_GeoID id;
+    HMM_Vec3 pos;
+    ui_SelectionState sel;
+} mesh_Corner;
+
+SNZ_SLICE(mesh_Corner);
 
 typedef struct mesh_BSPTri mesh_BSPTri;
 struct mesh_BSPTri {
@@ -43,23 +100,6 @@ struct mesh_BSPNode {
     geo_Tri tri;
 };
 
-typedef struct mesh_Edge mesh_Edge;
-struct mesh_Edge {
-    mesh_Edge* next;
-    HMM_Vec3Slice points;
-    ui_SelectionState sel;
-
-    mesh_Face* faceA;
-    mesh_Face* faceB;
-};
-
-typedef struct {
-    HMM_Vec3 pos;
-    ui_SelectionState sel;
-} mesh_Corner;
-
-SNZ_SLICE(mesh_Corner);
-
 typedef struct {
     ren3d_Mesh renderMesh;
 
@@ -70,6 +110,63 @@ typedef struct {
     mesh_Edge* firstEdge;
     mesh_CornerSlice corners;
 } mesh_Mesh;
+
+static bool _mesh_geoIdEqual(mesh_GeoID a, mesh_GeoID b) {
+    bool equal = false;
+    equal &= a.geoKind == b.geoKind;
+    equal &= a.opUniqueId == b.opUniqueId;
+    equal &= a.sourceUniqueId == b.sourceUniqueId;
+    equal &= a.differentiationInt == b.differentiationInt;
+    equal &= (a.diffGeo1 == NULL) == (b.diffGeo1 == NULL);
+    equal &= (a.diffGeo2 == NULL) == (b.diffGeo2 == NULL);
+
+    if (a.diffGeo1) {
+        equal &= _mesh_geoIdEqual(*a.diffGeo1, *b.diffGeo1);
+    }
+    if (a.diffGeo2) {
+        equal &= _mesh_geoIdEqual(*a.diffGeo2, *b.diffGeo2);
+    }
+    return equal;
+}
+
+// searches the given mesh for a piece of geometry with a matching geo id to the one given
+// return will have a null ptr and kind of OPS_GK_DEREF_FAILED if nothing is found
+// FIXME: for a perf boost, use a hashtable for id -> geo in each mesh instead of looping
+// FIXME: assert no more than one match
+mesh_GeoPtr mesh_geoIdFind(const mesh_Mesh* m, mesh_GeoID ref) {
+    mesh_GeoPtr out = (mesh_GeoPtr){
+        .kind = ref.geoKind,
+    };
+
+    if (out.kind == MESH_GK_CORNER) {
+        for (int64_t i = 0; i < m->corners.count; i++) {
+            mesh_Corner* corner = &m->corners.elems[i];
+            if (_mesh_geoIdEqual(ref, corner->id)) {
+                out.corner = corner;
+                return out;
+            }
+        }
+    } else if (out.kind == MESH_GK_EDGE) {
+        for (mesh_Edge* e = m->firstEdge; e; e = e->next) {
+            if (_mesh_geoIdEqual(ref, e->id)) {
+                out.edge = e;
+                return out;
+            }
+        }
+    } else if (out.kind == MESH_GK_FACE) {
+        for (mesh_Face* f = m->firstFace; f; f = f->next) {
+            if (_mesh_geoIdEqual(ref, f->id)) {
+                out.face = f;
+                return out;
+            }
+        }
+    } else {
+        SNZ_ASSERTF(false, "unreachable. kind: %d", ref.geoKind);
+    }
+
+    out.kind = MESH_GK_DEREF_FAILED;
+    return out;
+}
 
 typedef enum {
     MESH_PR_COPLANAR,
