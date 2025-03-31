@@ -18,15 +18,6 @@ typedef enum {
     MESH_GK_FACE,
 } mesh_GeoKind;
 
-typedef struct {
-    mesh_GeoKind kind;
-    union {
-        mesh_Corner* corner;
-        mesh_Edge* edge;
-        mesh_Face* face;
-    };
-} mesh_GeoPtr;
-
 /*
 Geo ids are the backend tech to make the parametric part of this thing work.
 there is one embedded in every piece of geometry, describing it in terms of the operations that created it.
@@ -73,6 +64,15 @@ typedef struct {
 } mesh_Corner;
 
 SNZ_SLICE(mesh_Corner);
+
+typedef struct {
+    mesh_GeoKind kind;
+    union {
+        mesh_Corner* corner;
+        mesh_Edge* edge;
+        mesh_Face* face;
+    };
+} mesh_GeoPtr;
 
 typedef struct mesh_BSPTri mesh_BSPTri;
 struct mesh_BSPTri {

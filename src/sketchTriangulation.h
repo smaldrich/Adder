@@ -30,6 +30,7 @@ typedef struct _skt_VertLoop _skt_VertLoop;
 struct _skt_VertLoop {
     _skt_VertLoop* next;
     HMM_Vec2Slice pts;
+    int64_t sumOfLineUidHashes;
 };
 
 struct _skt_Island {
@@ -136,12 +137,12 @@ bool _skt_vertLoopContainsVertLoop(_skt_VertLoop* a, _skt_VertLoop* b) {
 //     }
 // }
 
-static mesh_Face* _skt_vertLoopToMeshFace(_skt_VertLoop* l, mesh_BSPTriList* list, snz_Arena* scratch, snz_Arena* out) {
+static mesh_Face* _skt_vertLoopToMeshFace(int64_t opUniqueId, _skt_VertLoop* l, mesh_BSPTriList* list, snz_Arena* scratch, snz_Arena* out) {
     mesh_Face* f = SNZ_ARENA_PUSH(out, mesh_Face);
     f->id = (mesh_GeoID){
         .geoKind = MESH_GK_FACE,
-        .sourceUniqueId = ,
-        .opUniqueId = ,
+        .opUniqueId = opUniqueId,
+        .sourceUniqueId = l->sumOfLineUidHashes,
     };
 
     // FIXME: move this data to be inline with the vert loop points ? // actually also profile if that is worth doing
@@ -225,6 +226,16 @@ struct _skt_IntersectionEdge {
     bool clean;
     bool culled;
 };
+
+// https://zimbry.blogspot.com/2011/09/better-bit-mixing-improving-on.html
+static int64_t _skt_hashUid(int64_t id) {
+    id ^= (id >> 33);
+    id *= 0xff51afd7ed558ccd;
+    id ^= (id >> 33);
+    id *= 0xc4ceb9fe1a85ec53;
+    id ^= (id >> 33);
+    return id;
+}
 
 // FIXME: does this function gauranteed crash on a malformed sketch??
 // FIXME: exhaustive checks to make sure that there aren't any colinear & fully overlapped edges in the sketch before starting this
@@ -388,6 +399,7 @@ mesh_Mesh skt_sketchTriangulate(int64_t opUniqueId, const sk_Sketch* sketch, snz
                 *SNZ_ARENA_PUSH(scratch, _skt_Edge) = (_skt_Edge){
                     .other = ((e->p1 == p) ? e->p2 : e->p1),
                     .traversed = false,
+                    .sourceUniqueId = e->sourceUniqueId,
                 };
             }
             p->edges = SNZ_ARENA_ARR_END(scratch, _skt_Edge);
@@ -463,6 +475,7 @@ mesh_Mesh skt_sketchTriangulate(int64_t opUniqueId, const sk_Sketch* sketch, snz
 
         SNZ_ARENA_ARR_BEGIN(scratch, HMM_Vec2);
         *SNZ_ARENA_PUSH(scratch, HMM_Vec2) = currentPt->pos;
+        int64_t lineIdHashSum = 0;
 
         while (currentPt != startPt) { // FIXME: emergency cutoff
             _skt_Edge* selected = NULL;
@@ -489,6 +502,8 @@ mesh_Mesh skt_sketchTriangulate(int64_t opUniqueId, const sk_Sketch* sketch, snz
             currentPt = selected->other;
             dir = maxAngle;
             *SNZ_ARENA_PUSH(scratch, HMM_Vec2) = currentPt->pos;
+
+            lineIdHashSum += _skt_hashUid(selected->sourceUniqueId);
         } // end finding points for a loop
         HMM_Vec2Slice loopPoints = SNZ_ARENA_ARR_END(scratch, HMM_Vec2);
 
@@ -497,6 +512,7 @@ mesh_Mesh skt_sketchTriangulate(int64_t opUniqueId, const sk_Sketch* sketch, snz
         _skt_VertLoop* loop = SNZ_ARENA_PUSH(scratch, _skt_VertLoop);
         *loop = (_skt_VertLoop){
             .pts = loopPoints,
+            .sumOfLineUidHashes = lineIdHashSum,
         };
 
         float area = 0;
@@ -553,7 +569,7 @@ mesh_Mesh skt_sketchTriangulate(int64_t opUniqueId, const sk_Sketch* sketch, snz
 
     for (_skt_Island* island = firstIsland; island; island = island->next) {
         for (_skt_VertLoop* l = island->firstLoop; l; l = l->next) {
-            mesh_Face* new = _skt_vertLoopToMeshFace(l, &tris, scratch, arena);
+            mesh_Face* new = _skt_vertLoopToMeshFace(opUniqueId, l, &tris, scratch, arena);
             new->next = firstFace;
             firstFace = new;
         }
