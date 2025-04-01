@@ -215,10 +215,8 @@ static mesh_Face* _skt_vertLoopToMeshFace(int64_t opUniqueId, _skt_VertLoop* l, 
 
 typedef struct _skt_IntersectionEdge _skt_IntersectionEdge;
 struct _skt_IntersectionEdge {
+    // for intersections, source ids get hashed based on the two lines and some constants. a little inconsistant, but works.
     int64_t sourceUniqueId; // so that correct geoIds get generated at the end that can trace themselves back to sketch elts.
-    // diff. here for the cases where one edge gets intersected by another
-    // FIXME: this adds a little bit of inconsistancy user side in cases where the solver decides to change it's ordering - making different edges get different diff. ints.
-    int64_t sourceDifferentiator;
 
     _skt_Point* p1;
     _skt_Point* p2;
@@ -229,12 +227,13 @@ struct _skt_IntersectionEdge {
 
 // https://zimbry.blogspot.com/2011/09/better-bit-mixing-improving-on.html
 static int64_t _skt_hashUid(int64_t id) {
-    id ^= (id >> 33);
-    id *= 0xff51afd7ed558ccd;
-    id ^= (id >> 33);
-    id *= 0xc4ceb9fe1a85ec53;
-    id ^= (id >> 33);
-    return id;
+    uint64_t out = id;
+    out ^= (out >> 33);
+    out *= 0xff51afd7ed558ccd;
+    out ^= (out >> 33);
+    out *= 0xc4ceb9fe1a85ec53;
+    out ^= (out >> 33);
+    return out;
 }
 
 // FIXME: does this function gauranteed crash on a malformed sketch??
@@ -305,6 +304,7 @@ mesh_Mesh skt_sketchTriangulate(int64_t opUniqueId, const sk_Sketch* sketch, snz
                     newPt->dbgIndex = (int)(uint64_t)newPt;
                     newPt->pos = HMM_Lerp(edge->p1->pos, t, edge->p2->pos);
                     newPt->next = firstPoint;
+                    newPt->sourceUniqueId = _skt_hashUid(edge->sourceUniqueId) + _skt_hashUid(edge->sourceUniqueId);
                     firstPoint = newPt;
 
                     // create new edges
@@ -315,23 +315,20 @@ mesh_Mesh skt_sketchTriangulate(int64_t opUniqueId, const sk_Sketch* sketch, snz
                     firstIntersectionEdge = &newEdges[1];
 
                     // swap around where things are pointing to form the new edges
+                    // source ids are now hashes of the two intersecting lines
                     newEdges[0].p1 = edge->p1;
                     newEdges[0].p2 = newPt;
-                    newEdges[0].sourceUniqueId = edge->sourceUniqueId;
-                    newEdges[0].sourceDifferentiator = edge->sourceDifferentiator;
+                    newEdges[0].sourceUniqueId = newPt->sourceUniqueId + 1;
                     newEdges[1].p1 = edge->p2;
                     newEdges[1].p2 = newPt;
-                    newEdges[1].sourceUniqueId = edge->sourceUniqueId;
-                    newEdges[1].sourceDifferentiator = edge->sourceDifferentiator + 1;
+                    newEdges[1].sourceUniqueId = newPt->sourceUniqueId + 2;
 
                     edge->p1 = other->p1;
                     edge->p2 = newPt;
-                    edge->sourceUniqueId = other->sourceUniqueId;
-                    edge->sourceDifferentiator = other->sourceDifferentiator;
+                    edge->sourceUniqueId = newPt->sourceUniqueId + 3;
                     other->p1 = other->p2;
                     other->p2 = newPt;
-                    other->sourceUniqueId = other->sourceUniqueId;
-                    edge->sourceDifferentiator = other->sourceDifferentiator + 1;
+                    other->sourceUniqueId = newPt->sourceUniqueId + 4;
 
                     anyIntersection = true;
                     break;
@@ -415,16 +412,6 @@ mesh_Mesh skt_sketchTriangulate(int64_t opUniqueId, const sk_Sketch* sketch, snz
         firstPoint = newFirstPt;
     } // end generating adj. lists
 
-    // { // dbg print adj lists in a readable way
-    //     for (_skt_Point* p = firstPoint; p; p = p->next) {
-    //         printf("Pt: %d\n", p->dbgIndex);
-    //         for (int j = 0; j < p->edges.count; j++) {
-    //             printf("\t%d\n", p->edges.elems[j].other->dbgIndex);
-    //         }
-    //     }
-    //     printf("\n");
-    // }
-
     _skt_Island* firstIsland = NULL;
     { // island marking / list gen
         for (_skt_Point* p = firstPoint; p; p = p->next) {
@@ -440,6 +427,8 @@ mesh_Mesh skt_sketchTriangulate(int64_t opUniqueId, const sk_Sketch* sketch, snz
 
     // vert loop gen
     while (true) { // FIXME: emergency cutoff
+        int64_t lineIdHashSum = 0; // makes the vert loop identifiable consistantly
+
         _skt_Point* prevPt = NULL;
         _skt_Point* currentPt = NULL;
         { // find the seed for the next loop
@@ -453,6 +442,7 @@ mesh_Mesh skt_sketchTriangulate(int64_t opUniqueId, const sk_Sketch* sketch, snz
                     edge->traversed = true;
                     prevPt = p;
                     currentPt = edge->other;
+                    lineIdHashSum += _skt_hashUid(edge->sourceUniqueId);
 
                     p = NULL; // break outer
                     break;
@@ -475,7 +465,6 @@ mesh_Mesh skt_sketchTriangulate(int64_t opUniqueId, const sk_Sketch* sketch, snz
 
         SNZ_ARENA_ARR_BEGIN(scratch, HMM_Vec2);
         *SNZ_ARENA_PUSH(scratch, HMM_Vec2) = currentPt->pos;
-        int64_t lineIdHashSum = 0;
 
         while (currentPt != startPt) { // FIXME: emergency cutoff
             _skt_Edge* selected = NULL;
@@ -497,14 +486,15 @@ mesh_Mesh skt_sketchTriangulate(int64_t opUniqueId, const sk_Sketch* sketch, snz
                     maxAngle = angle;
                 }
             }
+            lineIdHashSum += _skt_hashUid(selected->sourceUniqueId);
+
             prevPt = currentPt;
             selected->traversed = true;
             currentPt = selected->other;
             dir = maxAngle;
             *SNZ_ARENA_PUSH(scratch, HMM_Vec2) = currentPt->pos;
-
-            lineIdHashSum += _skt_hashUid(selected->sourceUniqueId);
         } // end finding points for a loop
+
         HMM_Vec2Slice loopPoints = SNZ_ARENA_ARR_END(scratch, HMM_Vec2);
 
         _skt_Island* island = startPt->island;
@@ -597,7 +587,6 @@ mesh_Mesh skt_sketchTriangulate(int64_t opUniqueId, const sk_Sketch* sketch, snz
                 .id = (mesh_GeoID) {
                     .geoKind = MESH_GK_EDGE,
                     .sourceUniqueId = edge->sourceUniqueId,
-                    .differentiationInt = edge->sourceDifferentiator,
                     .opUniqueId = opUniqueId,
                 }
             };

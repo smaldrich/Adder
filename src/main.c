@@ -156,8 +156,7 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
         // sk_sketchAddLine(&sketch, rightRightDown, right);
         // sk_sketchAddLine(&sketch, rightRightUp, rightUpper);
         // sk_sketchAddLine(&sketch, rightRightUp, rightRightDown);
-        tl_Op* sketchOp = tl_timelinePushSketch(&main_timeline, HMM_V2(400, 0), sketch);
-        tl_timelinePushSketchGeometry(&main_timeline, HMM_V2(400, 100), sketchOp);
+        tl_timelinePushSketch(&main_timeline, HMM_V2(400, 0), sketch);
     }
 
     {

@@ -168,6 +168,32 @@ mesh_GeoPtr mesh_geoIdFind(const mesh_Mesh* m, mesh_GeoID ref) {
     return out;
 }
 
+// static void _mesh_geoIdLog(mesh_GeoID id) {
+//     const char* strs[] = {
+//         [MESH_GK_DEREF_FAILED] = "failed",
+//         [MESH_GK_CORNER] = "corner",
+//         [MESH_GK_EDGE] = "edge",
+//         [MESH_GK_FACE] = "face",
+//     };
+//     SNZ_LOGF("id, kind: %s,\top uid: %lld,\tsource uid: %lld",
+//         strs[id.geoKind], id.opUniqueId, id.sourceUniqueId
+//     );
+// }
+
+// void mesh_logAllGeoIds(mesh_Mesh* m) {
+//     for (int i = 0; i < m->corners.count; i++) {
+//         _mesh_geoIdLog(m->corners.elems[i].id);
+//     }
+
+//     for (mesh_Edge* e = m->firstEdge; e; e = e->next) {
+//         _mesh_geoIdLog(e->id);
+//     }
+
+//     for (mesh_Face* f = m->firstFace; f; f = f->next) {
+//         _mesh_geoIdLog(f->id);
+//     }
+// }
+
 typedef enum {
     MESH_PR_COPLANAR,
     MESH_PR_WITHIN,

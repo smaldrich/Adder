@@ -151,15 +151,6 @@ tl_Op* tl_timelinePushBaseGeometry(tl_Timeline* tl, HMM_Vec2 pos, mesh_Mesh mesh
     return out;
 }
 
-tl_Op* tl_timelinePushSketchGeometry(tl_Timeline* tl, HMM_Vec2 pos, tl_Op* sketch) {
-    SNZ_ASSERTF(sketch->kind == TL_OPK_SKETCH, "tried to add sketch geo for op with kind %d.", sketch->kind);
-    tl_Op* out = _tl_timelinePushOp(tl);
-    out->ui.pos = pos;
-    out->kind = TL_OPK_SKETCH_GEOMETRY;
-    out->dependencies[0] = sketch;
-    return out;
-}
-
 void tl_timelineDeselectAll(tl_Timeline* tl) {
     for (tl_Op* op = tl->firstOp; op; op = op->next) {
         op->ui.sel.selected = false;
@@ -254,7 +245,7 @@ void tl_solveForNode(tl_Timeline* t, tl_Op* targetOp, snz_Arena* scratch) {
             sk_sketchSolve(&op->val.sketch.sketch);
 
             mesh_Mesh* m = SNZ_ARENA_PUSH(t->generatedArena, mesh_Mesh);
-            *m = skt_sketchTriangulate(&op->val.sketch.sketch, t->generatedArena, scratch);
+            *m = skt_sketchTriangulate(op->uniqueId, &op->val.sketch.sketch, t->generatedArena, scratch);
             if (m->renderMesh.vaId) { // FIXME: get a decent check for null rendermeshes
                 // FIXME: probably shouldnt store one of these per scene if solves only happen for one op
                 ren3d_meshDeinit(&op->scene.mesh->renderMesh);
