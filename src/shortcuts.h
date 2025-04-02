@@ -637,37 +637,6 @@ void sc_updateAndBuildHintWindow(sk_Sketch* activeSketch, tl_Timeline* timeline,
                 snzu_boxSetSizeMarginFromParent(20);
                 snzu_boxSetSizeMarginFromParentAx(23, SNZU_AX_X);
                 snzu_boxScope() {
-                    if (_sc_activeCommand != NULL) {
-                        snzu_boxNew("active cmd area");
-                        snzu_boxFillParent();
-                        snzu_boxScope() {
-                            snzu_boxNew("active cmd");
-                            snzu_boxFillParent();
-                            snzu_boxSetDisplayStr(&ui_lightLabelFont, ui_colorAccent, snz_arenaFormatStr(scratch, "// %s", _sc_activeCommand->nameLabel));
-                            snzu_boxSetSizeFitText(1);
-
-                            snzu_boxNew("esc");
-                            snzu_boxFillParent();
-                            snzu_boxSetSizeFromStartAx(SNZU_AX_Y, ui_lightLabelFont.renderedSize);
-                            snzu_boxScope() {
-                                snzu_boxNew("desc");
-                                snzu_boxFillParent();
-                                snzu_boxSetDisplayStr(&ui_lightLabelFont, ui_colorText, "cancel");
-                                snzu_boxSetSizeFitText(1);
-                                snzu_boxAlignInParent(SNZU_AX_X, SNZU_ALIGN_RIGHT);
-
-                                snzu_boxNew("key");
-                                snzu_boxFillParent();
-                                snzu_boxSetDisplayStr(&ui_shortcutFont, ui_colorText, "ESC");
-                                snzu_boxSetSizeFitText(1);
-                                snzu_boxAlignInParent(SNZU_AX_X, SNZU_ALIGN_LEFT);
-                            }
-                        }
-                        snzu_boxOrderChildrenInRowRecurse(4, SNZU_AX_Y);
-                        snzu_boxSetSizeFitChildren();
-                        snzu_boxSetSizeFromStartAx(SNZU_AX_Y, snzu_boxGetSize().Y + 10);
-                    }
-
                     for (int i = 0; i < _sc_commandCount; i++) {
                         _sc_Command* c = &_sc_commands[i];
                         if (!_sc_commandShouldBeAvailible(c, *outCurrentView, activeSketch != NULL)) {
@@ -719,6 +688,14 @@ void sc_updateAndBuildHintWindow(sk_Sketch* activeSketch, tl_Timeline* timeline,
         if (width < 10) {
             ui_hiddenPanelIndicator(snzu_boxGetEnd().X, false, "panelIndicator");
         }
+
+        // active command view
+        if (_sc_activeCommand != NULL) {
+            snzu_boxNew("active cmd");
+            snzu_boxSetDisplayStr(&ui_labelFont, ui_colorText, _sc_activeCommand->nameLabel);
+            snzu_boxAlignInParent(SNZU_AX_X, SNZU_ALIGN_CENTER);
+            snzu_boxAlignInParent(SNZU_AX_Y, SNZU_ALIGN_TOP);
+        } // end active commmand viewer
     }  // end entire window parent
 }
 
