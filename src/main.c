@@ -507,7 +507,7 @@ void main_frame(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screen
                         main_currentView = SC_VIEW_TIMELINE;
                     }
                 }
-                snzu_boxOrderChildrenInRowRecurse(5, SNZU_AX_Y);
+                snzu_boxOrderChildrenInRowRecurse(5, SNZU_AX_Y, SNZU_ALIGN_LEFT);
                 snzuc_scrollArea();
 
                 snzu_boxNew("other view list");

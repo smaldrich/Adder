@@ -525,7 +525,7 @@ static void _sc_buildCommandShortcutBox(_sc_Command* cmd, HMM_Vec4 textColor) {
         snzu_boxSetDisplayStr(&ui_shortcutFont, textColor, cmd->keyLabel);
         snzu_boxSetSizeFitText(0);
     }
-    snzu_boxOrderChildrenInRowRecurse(1, SNZU_AX_X);
+    snzu_boxOrderChildrenInRowRecurse(1, SNZU_AX_X, SNZU_ALIGN_TOP);
     snzu_boxSetSizeFitChildren();
 }
 
@@ -650,9 +650,6 @@ void sc_updateAndBuildHintWindow(sk_Sketch* activeSketch, tl_Timeline* timeline,
                             *useAnim = 1;
                         }
 
-                        if (c == _sc_activeCommand) {
-                            continue;
-                        }
                         snzu_boxFillParent();
                         snzu_boxSetSizeFromStartAx(SNZU_AX_Y, ui_lightLabelFont.renderedSize);
                         snzu_boxScope() {
@@ -668,7 +665,7 @@ void sc_updateAndBuildHintWindow(sk_Sketch* activeSketch, tl_Timeline* timeline,
                         }
                     }  // end cmd loop
                 }  // end margin box
-                snzu_boxOrderChildrenInRowRecurse(4, SNZU_AX_Y);
+                snzu_boxOrderChildrenInRowRecurse(4, SNZU_AX_Y, SNZU_ALIGN_LEFT);
                 snzuc_scrollArea();
                 snzu_boxClipChildren(false);
 
@@ -689,13 +686,32 @@ void sc_updateAndBuildHintWindow(sk_Sketch* activeSketch, tl_Timeline* timeline,
             ui_hiddenPanelIndicator(snzu_boxGetEnd().X, false, "panelIndicator");
         }
 
-        // active command view
         if (_sc_activeCommand != NULL) {
-            snzu_boxNew("active cmd");
-            snzu_boxSetDisplayStr(&ui_labelFont, ui_colorText, _sc_activeCommand->nameLabel);
-            snzu_boxAlignInParent(SNZU_AX_X, SNZU_ALIGN_CENTER);
-            snzu_boxAlignInParent(SNZU_AX_Y, SNZU_ALIGN_TOP);
-        } // end active commmand viewer
+            snzu_boxNew("active cmd and op args");
+            snzu_boxFillParent();
+            snzu_boxSetEndAx(snzu_boxGetEnd().X - width - ui_padding, SNZU_AX_X);
+            snzu_boxSetSizeMarginFromParentAx(ui_padding, SNZU_AX_Y);
+            snzu_boxScope() {
+                snzu_boxNew("active cmd name");
+                snzu_boxSetDisplayStr(&ui_shortcutFont, ui_colorText, _sc_activeCommand->nameLabel);
+                snzu_boxSetSizeFitText(ui_padding);
+
+                snzu_boxNew("gap");
+
+                const char* argNames[] = {
+                    "arg1 here",
+                    "arg2 here",
+                    "arg3 here",
+                };
+                for (int i = 0; i < 3; i++) {
+                    const char* name = argNames[i];
+                    snzu_boxNew(name);
+                    snzu_boxSetDisplayStr(&ui_labelFont, ui_colorText, name);
+                    snzu_boxSetSizeFitText(ui_padding);
+                }
+            }
+            snzu_boxOrderChildrenInRowRecurse(ui_padding, SNZU_AX_Y, SNZU_ALIGN_RIGHT);
+        }
     }  // end entire window parent
 }
 
@@ -706,6 +722,6 @@ void sc_buildSettings() {
         snzu_boxSetDisplayStr(&ui_titleFont, ui_colorText, "Shortcuts");
         snzu_boxSetSizeFitText(ui_padding);
     }
-    snzu_boxOrderChildrenInRowRecurse(10, SNZU_AX_Y);
+    snzu_boxOrderChildrenInRowRecurse(10, SNZU_AX_Y, SNZU_ALIGN_LEFT);
     snzuc_scrollArea();
 }

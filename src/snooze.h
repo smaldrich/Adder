@@ -1683,7 +1683,7 @@ void snzu_boxAlignInParent(snzu_Axis ax, snzu_Align align) {
 // stacks this box after it's previous sibling (if none, the parents origin), used to make rows of things easy
 // only inserts a gap after a sibling, not if it is the first element
 // maintains size and relative positioning of all inner boxes
-void snzu_boxSetPosAfterRecurse(float gap, snzu_Axis ax) {
+void snzu_boxSetPosAfterRecurse(float gap, snzu_Axis ax, snzu_Align offAxisAlign) {
     HMM_Vec2 newPos = _snzu_instance->selectedBox->parent->start;
 
     if (_snzu_instance->selectedBox->prevSibling != NULL) {
@@ -1691,7 +1691,9 @@ void snzu_boxSetPosAfterRecurse(float gap, snzu_Axis ax) {
     } else {
         newPos.Elements[ax] = _snzu_instance->selectedBox->parent->start.Elements[ax];
     }
+    // FIXME: two recursive calls, should really only be one
     snzu_boxSetStartKeepSizeRecurse(newPos);
+    snzu_boxAlignInParent(!ax, offAxisAlign);
 }
 
 // recursively moves every box within the currently selected box to be ordered in a row, with the last one aligned to the bottom/end
@@ -1711,20 +1713,20 @@ void snzu_boxOrderChildrenInRowRecurseAlignEnd(float gap, snzu_Axis ax) {
 }
 
 // recursively moves every box within the currently selected box to be ordered in a row
-void snzu_boxOrderChildrenInRowRecurse(float gap, snzu_Axis ax) {
+void snzu_boxOrderChildrenInRowRecurse(float gap, snzu_Axis ax, snzu_Align offAxisAlign) {
     _snzu_Box* initiallySelected = _snzu_instance->selectedBox;
     for (_snzu_Box* child = _snzu_instance->selectedBox->firstChild; child; child = child->nextSibling) {
         snzu_boxSelect(child);
-        snzu_boxSetPosAfterRecurse(gap, ax);
+        snzu_boxSetPosAfterRecurse(gap, ax, offAxisAlign);
     }
     _snzu_instance->selectedBox = initiallySelected;
 }
 
 // recursively moves every box within the currently selected boxes parent to be ordered in a row
-void snzu_boxOrderSiblingsInRowRecurse(float gap, snzu_Axis ax) {
+void snzu_boxOrderSiblingsInRowRecurse(float gap, snzu_Axis ax, snzu_Align offAxisAlign) {
     _snzu_Box* initiallySelected = _snzu_instance->selectedBox;
     snzu_boxSelect(_snzu_instance->selectedBox->parent);
-    snzu_boxOrderChildrenInRowRecurse(gap, ax);
+    snzu_boxOrderChildrenInRowRecurse(gap, ax, offAxisAlign);
     snzu_boxSelect(initiallySelected);
 }
 

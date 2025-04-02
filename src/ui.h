@@ -180,7 +180,7 @@ void ui_dropdown(const char* boxTag, const char** optionStrings, int stringCount
                     snzu_boxSetColor(ui_colorText);
                 }
             }
-            snzu_boxOrderChildrenInRowRecurse(0, SNZU_AX_Y);
+            snzu_boxOrderChildrenInRowRecurse(0, SNZU_AX_Y, SNZU_ALIGN_LEFT);
             snzu_boxClipChildren(true);
             float sizeToFitChildren = snzu_boxGetSizeToFitChildrenAx(SNZU_AX_Y);
             snzu_boxSetSizeFromStartAx(SNZU_AX_X, cellSize.X * d->openAnim);

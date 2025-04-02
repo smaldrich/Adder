@@ -77,7 +77,7 @@ void set_build(set_Settings* settings) {
                     snzu_boxSetSizeFitText(ui_padding);
                 }
             }
-            snzu_boxOrderChildrenInRowRecurse(10, SNZU_AX_Y);
+            snzu_boxOrderChildrenInRowRecurse(10, SNZU_AX_Y, SNZU_ALIGN_LEFT);
             float size = snzu_boxGetSizeToFitChildrenAx(SNZU_AX_Y);
             snzu_boxSetSizeFromStartAx(SNZU_AX_Y, size);
         }
@@ -104,10 +104,10 @@ void set_build(set_Settings* settings) {
                 ui_switch("squishy camera", &settings->squishyCamera);
                 ui_switch("crosshair", &settings->crosshair);
             }
-            snzu_boxOrderChildrenInRowRecurse(10, SNZU_AX_Y);
+            snzu_boxOrderChildrenInRowRecurse(10, SNZU_AX_Y, SNZU_ALIGN_LEFT);
         }
     }
     // FIXME: UI variable for gap here (?)
-    snzu_boxOrderChildrenInRowRecurse(10, SNZU_AX_Y);
+    snzu_boxOrderChildrenInRowRecurse(10, SNZU_AX_Y, SNZU_ALIGN_LEFT);
     snzuc_scrollArea();
 }

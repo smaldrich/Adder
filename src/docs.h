@@ -64,7 +64,7 @@ void docs_buildPage() {
                     }
                 }
             }
-            snzu_boxOrderChildrenInRowRecurse(5, SNZU_AX_Y);
+            snzu_boxOrderChildrenInRowRecurse(5, SNZU_AX_Y, SNZU_ALIGN_LEFT);
             snzu_boxSetSizeFromStartAx(SNZU_AX_Y, snzu_boxGetSizeToFitChildrenAx(SNZU_AX_Y));
         }  // scroll area for files
         snzuc_scrollArea();
@@ -83,7 +83,7 @@ void docs_buildPage() {
             snzu_boxSetDisplayStr(&ui_paragraphFont, ui_colorText, _docs_currentFile->text);
             snzu_boxSetSizeFitText(ui_padding);
         }  // scroll area for files
-        snzu_boxOrderChildrenInRowRecurse(10, SNZU_AX_Y);
+        snzu_boxOrderChildrenInRowRecurse(10, SNZU_AX_Y, SNZU_ALIGN_LEFT);
         snzuc_scrollArea();
         snzu_boxClipChildren(false);
     }  // end box for both scroll areas // margin
