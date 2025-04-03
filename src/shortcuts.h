@@ -30,6 +30,21 @@ typedef struct {
     bool firstFrame;
 } _sc_CommandArgs;
 
+typedef enum {
+    _SC_CAK_INVALID,
+    _SC_CAK_GEO_REF_CORNER,
+    _SC_CAK_GEO_REF_EDGE,
+    _SC_CAK_GEO_REF_FACE,
+    _SC_CAK_NUMBER,
+} _sc_CommandArgKind;
+
+typedef struct _sc_CommandArg _sc_CommandArg;
+struct _sc_CommandArg {
+    _sc_CommandArg* next;
+    const char* name;
+
+};
+
 typedef bool (*sc_CommandFunc)(_sc_CommandArgs args);
 
 typedef struct {
@@ -684,33 +699,6 @@ void sc_updateAndBuildHintWindow(sk_Sketch* activeSketch, tl_Timeline* timeline,
         float width = snzu_boxGetSize().X;
         if (width < 10) {
             ui_hiddenPanelIndicator(snzu_boxGetEnd().X, false, "panelIndicator");
-        }
-
-        if (_sc_activeCommand != NULL) {
-            snzu_boxNew("active cmd and op args");
-            snzu_boxFillParent();
-            snzu_boxSetEndAx(snzu_boxGetEnd().X - width - ui_padding, SNZU_AX_X);
-            snzu_boxSetSizeMarginFromParentAx(ui_padding, SNZU_AX_Y);
-            snzu_boxScope() {
-                snzu_boxNew("active cmd name");
-                snzu_boxSetDisplayStr(&ui_shortcutFont, ui_colorText, _sc_activeCommand->nameLabel);
-                snzu_boxSetSizeFitText(ui_padding);
-
-                snzu_boxNew("gap");
-
-                const char* argNames[] = {
-                    "arg1 here",
-                    "arg2 here",
-                    "arg3 here",
-                };
-                for (int i = 0; i < 3; i++) {
-                    const char* name = argNames[i];
-                    snzu_boxNew(name);
-                    snzu_boxSetDisplayStr(&ui_labelFont, ui_colorText, name);
-                    snzu_boxSetSizeFitText(ui_padding);
-                }
-            }
-            snzu_boxOrderChildrenInRowRecurse(ui_padding, SNZU_AX_Y, SNZU_ALIGN_RIGHT);
         }
     }  // end entire window parent
 }

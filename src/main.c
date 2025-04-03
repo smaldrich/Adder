@@ -581,6 +581,47 @@ void main_frame(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screen
                 snzu_boxSetSizeFromEndAx(SNZU_AX_Y, ui_borderThickness);
             }
         }
+
+        snzu_boxNew("active cmd and op args");
+        snzu_boxFillParent();
+        // make space for left panel, add padding
+        // FIXME: probably should nest inside right panel but whatever
+        snzu_boxSetStart(HMM_V2(leftPanelSize + 20, 20));
+        snzu_boxSetSizeFromStartAx(SNZU_AX_Y, ui_shortcutFont.renderedSize + 2 * ui_padding);
+        snzu_boxClipChildren(true);
+        snzu_boxScope() {
+            float* const timeSinceCommandEntered = SNZU_USE_MEM(float, "timeSinceEntered");
+            if (!_sc_activeCommand) {
+                *timeSinceCommandEntered = 0;
+            } else if (_sc_activeCommand.firstArg) {
+                *timeSinceCommandEntered += snzu_getTimeSinceLastFrame();
+
+                snzu_boxNew("active cmd name");
+                snzu_boxSetDisplayStr(&ui_shortcutFont, ui_colorText, _sc_activeCommand->nameLabel);
+                snzu_boxSetSizeFitText(ui_padding);
+
+                const char* argNames[] = {
+                    "first",
+                    "second",
+                    "third",
+                };
+                for (int i = 0; i < 3; i++) {
+                    const char* name = argNames[i];
+                    snzu_boxNew(name);
+                    snzu_boxSetBorder(ui_borderThickness, ui_colorText);
+                    snzu_boxSetColor(HMM_V4(0, 0, 0, 0));
+                    snzu_boxSetCornerRadius(5);
+                    snzu_boxSetSizeMarginFromParentAx(ui_padding, SNZU_AX_Y);
+                    snzu_boxSetSizeFromStartAx(SNZU_AX_X, snzu_boxGetSize().Y);
+                    // snzu_boxSetDisplayStr(&ui_labelFont, ui_colorText, name);
+                    // snzu_boxSetSizeFitText(ui_padding);
+                }
+                snzu_boxOrderChildrenInRowRecurse(ui_padding, SNZU_AX_X, SNZU_ALIGN_CENTER);
+                snzu_boxSetSizeFitChildren();
+                snzu_boxAlignInParent(SNZU_AX_Y, SNZU_ALIGN_CENTER);
+                snzu_boxAlignInParent(SNZU_AX_X, SNZU_ALIGN_CENTER);
+            }
+        } // end top bar for active cmd
     }
 
     snzr_callGLFnOrError(glBindFramebuffer(GL_FRAMEBUFFER, 0));

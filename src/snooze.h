@@ -1471,6 +1471,10 @@ bool snzu_isNothingFocused() {
     return _snzu_instance->focusedPathHash == 0;
 }
 
+float snzu_getTimeSinceLastFrame() {
+    return _snzu_instance->timeSinceLastFrame;
+}
+
 void snzu_boxClipChildren(bool shouldClip) {
     _snzu_instance->selectedBox->clipChildren = shouldClip;
 }
