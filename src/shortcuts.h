@@ -28,13 +28,13 @@ typedef struct {
     tl_Timeline* timeline;
     sc_View* currentView;  // read/write
     bool firstFrame;
-} _sc_CommandArgs;
+} _sc_CommandFuncArgs;
 
 typedef enum {
     _SC_CAK_INVALID,
-    _SC_CAK_GEO_REF_CORNER,
-    _SC_CAK_GEO_REF_EDGE,
-    _SC_CAK_GEO_REF_FACE,
+    _SC_CAK_GEOID_CORNER,
+    _SC_CAK_GEOID_EDGE,
+    _SC_CAK_GEOID_FACE,
     _SC_CAK_NUMBER,
 } _sc_CommandArgKind;
 
@@ -42,10 +42,14 @@ typedef struct _sc_CommandArg _sc_CommandArg;
 struct _sc_CommandArg {
     _sc_CommandArg* next;
     const char* name;
-
+    _sc_CommandArgKind kind;
+    union {
+        float number;
+        mesh_GeoID geoId;
+    } val;
 };
 
-typedef bool (*sc_CommandFunc)(_sc_CommandArgs args);
+typedef bool (*sc_CommandFunc)(_sc_CommandFuncArgs args);
 
 typedef struct {
     _sc_KeyPress key;
@@ -84,32 +88,32 @@ static _sc_Command* _sc_commandInit(const char* displayName, const char* keyName
     return c;
 }
 
-bool _scc_goToSettings(_sc_CommandArgs args) {
+bool _scc_goToSettings(_sc_CommandFuncArgs args) {
     *args.currentView = SC_VIEW_SETTINGS;
     return true;
 }
 
-bool _scc_goToDocs(_sc_CommandArgs args) {
+bool _scc_goToDocs(_sc_CommandFuncArgs args) {
     *args.currentView = SC_VIEW_DOCS;
     return true;
 }
 
-bool _scc_goToShortcuts(_sc_CommandArgs args) {
+bool _scc_goToShortcuts(_sc_CommandFuncArgs args) {
     *args.currentView = SC_VIEW_SHORTCUTS;
     return true;
 }
 
-bool _scc_goToMainScene(_sc_CommandArgs args) {
+bool _scc_goToMainScene(_sc_CommandFuncArgs args) {
     *args.currentView = SC_VIEW_SCENE;
     return true;
 }
 
-bool _scc_goToTimeline(_sc_CommandArgs args) {
+bool _scc_goToTimeline(_sc_CommandFuncArgs args) {
     *args.currentView = SC_VIEW_TIMELINE;
     return true;
 }
 
-bool _scc_sketchDelete(_sc_CommandArgs args) {
+bool _scc_sketchDelete(_sc_CommandFuncArgs args) {
     for (sk_Point* p = args.activeSketch->firstPoint; p; p = p->next) {
         if (p->sel.selected) {
             p->markedForDelete = true;
@@ -128,7 +132,7 @@ bool _scc_sketchDelete(_sc_CommandArgs args) {
     return true;
 }
 
-bool _scc_sketchAddDistanceConstraint(_sc_CommandArgs args) {
+bool _scc_sketchAddDistanceConstraint(_sc_CommandFuncArgs args) {
     int selectedCount = 0;
     sk_Line* firstLine = NULL;
 
@@ -152,7 +156,7 @@ bool _scc_sketchAddDistanceConstraint(_sc_CommandArgs args) {
 }
 
 // FIXME: this and every sketch cmd triggers and crashes if there isn't an active sketch, fix that
-bool _scc_sketchAddAngleConstraint(_sc_CommandArgs args) {
+bool _scc_sketchAddAngleConstraint(_sc_CommandFuncArgs args) {
     int selectedCount = 0;
     sk_Line* lines[2] = { NULL, NULL };
     for (sk_Line* line = args.activeSketch->firstLine; line; line = line->next) {
@@ -208,7 +212,7 @@ bool _scc_sketchAddAngleConstraint(_sc_CommandArgs args) {
     return true;
 }
 
-bool scc_sketchLineMode(_sc_CommandArgs args) {
+bool scc_sketchLineMode(_sc_CommandFuncArgs args) {
     if (args.firstFrame) {  // creating a line between two selected pts
         int ptCount = 0;
         sk_Point* pts[2] = { 0 };
@@ -253,7 +257,7 @@ bool _sc_anySelectedInSketch(sk_Sketch* sketch) {
     return false;
 }
 
-bool scc_sketchMove(_sc_CommandArgs args) {
+bool scc_sketchMove(_sc_CommandFuncArgs args) {
     if (args.firstFrame) {
         return !_sc_anySelectedInSketch(args.activeSketch);  // cancels if nothing selected
     }
@@ -262,7 +266,7 @@ bool scc_sketchMove(_sc_CommandArgs args) {
     return false;
 }
 
-bool scc_sketchRotate(_sc_CommandArgs args) {
+bool scc_sketchRotate(_sc_CommandFuncArgs args) {
     if (args.firstFrame) {
         return !_sc_anySelectedInSketch(args.activeSketch);  // cancels if nothing selected
     }
@@ -272,7 +276,7 @@ bool scc_sketchRotate(_sc_CommandArgs args) {
 }
 
 // FIXME: do a deeper dive on use after frees when nodes are deleted? are there any retained refs?
-bool scc_timelineDelete(_sc_CommandArgs args) {
+bool scc_timelineDelete(_sc_CommandFuncArgs args) {
     for (tl_Op* op = args.timeline->firstOp; op; op = op->next) {
         if (op->ui.sel.selected) {
             op->markedForDeletion = true;
@@ -281,21 +285,21 @@ bool scc_timelineDelete(_sc_CommandArgs args) {
     return true;
 }
 
-bool scc_timelineMove(_sc_CommandArgs args) {
+bool scc_timelineMove(_sc_CommandFuncArgs args) {
     if (args.firstFrame) {
         return !tl_timelineAnySelected(args.timeline);
     }
     return false;
 }
 
-bool scc_timelineRotate(_sc_CommandArgs args) {
+bool scc_timelineRotate(_sc_CommandFuncArgs args) {
     if (args.firstFrame) {
         return !tl_timelineAnySelected(args.timeline);
     }
     return false;
 }
 
-bool scc_timelineAddGeometry(_sc_CommandArgs args) {
+bool scc_timelineAddGeometry(_sc_CommandFuncArgs args) {
     *args.currentView = SC_VIEW_TIMELINE;
     tl_Op* newOp = tl_timelinePushBaseGeometry(args.timeline, HMM_V2(0, 0), (mesh_Mesh) { 0 });
     // FIXME: should be on the mouse, isn't // enter move mode?
@@ -304,7 +308,7 @@ bool scc_timelineAddGeometry(_sc_CommandArgs args) {
     return true;
 }
 
-bool scc_timelineAddSketch(_sc_CommandArgs args) {
+bool scc_timelineAddSketch(_sc_CommandFuncArgs args) {
     *args.currentView = SC_VIEW_TIMELINE;
     snz_Arena* arena = SNZ_ARENA_PUSH(args.timeline->operationArena, snz_Arena); // FIXME: freelist
     *arena = snz_arenaInit(1000000, "sketch arena");
@@ -315,7 +319,7 @@ bool scc_timelineAddSketch(_sc_CommandArgs args) {
     return true;
 }
 
-bool scc_timelineMarkActive(_sc_CommandArgs args) {
+bool scc_timelineMarkActive(_sc_CommandFuncArgs args) {
     tl_Op* selected = NULL;
     for (tl_Op* op = args.timeline->firstOp; op; op = op->next) {
         if (!op->ui.sel.selected) {
@@ -352,7 +356,7 @@ void _scc_sceneDeselectAll(tl_Scene* scene) {
     }
 }
 
-bool scc_sceneLookAt(_sc_CommandArgs args) {
+bool scc_sceneLookAt(_sc_CommandFuncArgs args) {
     tl_Op* op = args.timeline->activeOp;
     if (!op) {
         return true;
@@ -454,7 +458,7 @@ bool scc_sceneLookAt(_sc_CommandArgs args) {
     return true;
 }
 
-bool scc_sceneRotateCameraLeft(_sc_CommandArgs args) {
+bool scc_sceneRotateCameraLeft(_sc_CommandFuncArgs args) {
     tl_Op* op = args.timeline->activeOp;
     if (!op) {
         return true;
@@ -466,7 +470,7 @@ bool scc_sceneRotateCameraLeft(_sc_CommandArgs args) {
     return true;
 }
 
-bool scc_sceneRotateCameraRight(_sc_CommandArgs args) {
+bool scc_sceneRotateCameraRight(_sc_CommandFuncArgs args) {
     tl_Op* op = args.timeline->activeOp;
     if (!op) {
         return true;
@@ -556,7 +560,7 @@ void sc_updateAndBuildHintWindow(sk_Sketch* activeSketch, tl_Timeline* timeline,
     snzu_boxNew("updatesParent");
     snzu_boxFillParent();
 
-    _sc_CommandArgs args = (_sc_CommandArgs){
+    _sc_CommandFuncArgs args = (_sc_CommandFuncArgs){
         .scratch = scratch,
         .activeSketch = activeSketch,
         .timeline = timeline,
