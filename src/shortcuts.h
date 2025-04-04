@@ -281,22 +281,32 @@ bool scc_timelineRotate(_sc_CommandFuncArgs args) {
 }
 
 bool scc_timelineAddGeometry(_sc_CommandFuncArgs args) {
-    *args.currentView = SC_VIEW_TIMELINE;
+    *args.currentView = SC_VIEW_SCENE;
     tl_Op* newOp = tl_timelinePushBaseGeometry(args.timeline, HMM_V2(0, 0), (mesh_Mesh) { 0 });
     // FIXME: should be on the mouse, isn't // enter move mode?
     newOp->ui.sel.selected = true;
     newOp->ui.sel.selectionAnim = 1;
+    args.timeline->activeOp = newOp;
     return true;
 }
 
 bool scc_timelineAddSketch(_sc_CommandFuncArgs args) {
-    *args.currentView = SC_VIEW_TIMELINE;
+    *args.currentView = SC_VIEW_SCENE;
     snz_Arena* arena = SNZ_ARENA_PUSH(args.timeline->operationArena, snz_Arena); // FIXME: freelist
     *arena = snz_arenaInit(1000000, "sketch arena");
     tl_Op* newOp = tl_timelinePushSketch(args.timeline, HMM_V2(0, 0), sk_sketchInit(arena));
     // FIXME: should be on the mouse, isn't // enter move mode?
     newOp->ui.sel.selected = true;
     newOp->ui.sel.selectionAnim = 1;
+    args.timeline->activeOp = newOp;
+    return true;
+}
+
+bool scc_timelineAddExtrude(_sc_CommandFuncArgs args) {
+    tl_Op* op = tl_timelinePushExtrude(args.timeline, HMM_V2(0, 0)); // FIXME: smart positioning
+    op->ui.sel.selected = true;
+    op->ui.sel.selectionAnim = 1;
+    args.timeline->activeOp = op;
     return true;
 }
 
@@ -484,6 +494,8 @@ void sc_init(PoolAlloc* pool) {
     // FIXME: rename this and add file dialogue and add stl parsing
     _sc_commandInit("new geomety", "I", SDLK_i, KMOD_NONE, SC_VIEW_TIMELINE | SC_VIEW_SCENE, false, scc_timelineAddGeometry);
     _sc_commandInit("new sketch", "S", SDLK_s, KMOD_NONE, SC_VIEW_TIMELINE | SC_VIEW_SCENE, false, scc_timelineAddSketch);
+    _sc_commandInit("extrude", "E", SDLK_e, KMOD_NONE, SC_VIEW_TIMELINE | SC_VIEW_SCENE, false, scc_timelineAddExtrude);
+
     _sc_commandInit("mark active", "W", SDLK_w, KMOD_NONE, SC_VIEW_TIMELINE, false, scc_timelineMarkActive);
 
     _sc_commandInit("goto main scene", "W", SDLK_w, KMOD_LSHIFT, SC_VIEW_ALL, false, _scc_goToMainScene);

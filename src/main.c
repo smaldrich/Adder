@@ -16,7 +16,6 @@
 #include "mesh.h"
 #include "geometry.h"
 #include "ser.h"
-#include "argbar.h"
 
 snz_Arena main_appLifetimeArena;
 snz_Arena main_fontArena;
@@ -133,32 +132,6 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
     }  // end mesh for testing
 
     snz_arenaClear(scratch);
-
-    {
-        sk_Sketch sketch = sk_sketchInit(&main_sketchArena);
-        sk_Point* left = sketch.originLine->p1;
-        sk_Point* right = sketch.originLine->p2;
-        sk_Point* middle = sk_sketchAddPoint(&sketch, HMM_V2(0.5, 0.5));
-        sk_Point* leftUpper = sk_sketchAddPoint(&sketch, HMM_V2(0, 1));
-        sk_Point* rightUpper = sk_sketchAddPoint(&sketch, HMM_V2(1, 1));
-
-        // sk_Point* rightRightUp = sk_sketchAddPoint(&sketch, HMM_V2(2, 1));
-        // sk_Point* rightRightDown = sk_sketchAddPoint(&sketch, HMM_V2(2, 0));
-
-        sk_Point* intruderLeft = sk_sketchAddPoint(&sketch, HMM_V2(-1, 0.75));
-        sk_Point* intruderRight = sk_sketchAddPoint(&sketch, HMM_V2(2, 0.75));
-        sk_sketchAddLine(&sketch, intruderLeft, intruderRight);
-
-        sk_sketchAddLine(&sketch, leftUpper, middle);
-        sk_sketchAddLine(&sketch, rightUpper, middle);
-        sk_sketchAddLine(&sketch, left, right);
-        sk_sketchAddLine(&sketch, left, leftUpper);
-        sk_sketchAddLine(&sketch, right, rightUpper);
-        // sk_sketchAddLine(&sketch, rightRightDown, right);
-        // sk_sketchAddLine(&sketch, rightRightUp, rightUpper);
-        // sk_sketchAddLine(&sketch, rightRightUp, rightRightDown);
-        tl_timelinePushSketch(&main_timeline, HMM_V2(400, 0), sketch);
-    }
 
     {
         mesh_Mesh m = { 0 };
@@ -486,7 +459,7 @@ void main_frame(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screen
                 SNZ_ASSERTF(false, "unreachable view case, view was: %d", main_currentView);
             }
 
-            tl_argbarBuild(NULL);
+            tl_argbarBuild(main_timeline.activeOp);
         } // end right panel
 
         snzu_boxNew("leftPanel");

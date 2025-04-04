@@ -233,11 +233,32 @@ void tl_argbarBuild(tl_Op* op) {
     snzu_boxNewF("argbar %p", (void*)op);
     snzu_boxFillParent();
     snzu_boxSetSizeFromStartAx(SNZU_AX_Y, ui_labelFont.renderedSize + 2 * ui_padding);
-
     snzu_boxSetColor(ui_colorTransparentPanel);
-    snzu_boxSetDisplayStr(&ui_labelFont, ui_colorText, tl_opKindNames[op->kind]);
 
     snzu_boxScope() {
+        snzu_boxNew("gap");
+        snzu_boxSizePctParent(0.3, SNZU_AX_X);
+
+        snzu_boxNew("name");
+        snzu_boxSetDisplayStr(&ui_labelFont, ui_colorText, tl_opKindNames[op->kind]);
+        snzu_boxSetSizeFitText(ui_padding);
+        snzu_boxAlignInParent(SNZU_AX_X, SNZU_ALIGN_CENTER);
+
+        for (int i = 0; i < TL_OP_ARG_MAX_COUNT; i++) {
+            int expectedKinds = tl_opArgKindsExpected[op->kind][i];
+            if (!expectedKinds) {
+                break;
+            }
+
+            bool done = (op->args[i].kind & expectedKinds);
+            snzu_boxNewF("%d", i);
+            snzu_boxSetCornerRadius(5);
+            snzu_boxSetSizeMarginFromParentAx(ui_padding, SNZU_AX_Y);
+            snzu_boxSetSizeFromStartAx(SNZU_AX_X, snzu_boxGetSize().Y);
+            snzu_boxSetColor(done ? ui_colorAccent : ui_colorErr);
+        }
+        snzu_boxOrderSiblingsInRowRecurse(ui_padding, SNZU_AX_X, SNZU_ALIGN_CENTER);
+
         snzu_boxNew("bottom border");
         snzu_boxFillParent();
         snzu_boxSetSizeFromEndAx(SNZU_AX_Y, -ui_borderThickness);

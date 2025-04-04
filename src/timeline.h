@@ -197,6 +197,13 @@ tl_Op* tl_timelinePushBaseGeometry(tl_Timeline* tl, HMM_Vec2 pos, mesh_Mesh mesh
     return out;
 }
 
+tl_Op* tl_timelinePushExtrude(tl_Timeline* tl, HMM_Vec2 pos) {
+    tl_Op* out = _tl_timelinePushOp(tl);
+    out->ui.pos = pos;
+    out->kind = TL_OPK_EXTRUDE;
+    return out;
+}
+
 void tl_timelineDeselectAll(tl_Timeline* tl) {
     for (tl_Op* op = tl->firstOp; op; op = op->next) {
         op->ui.sel.selected = false;
