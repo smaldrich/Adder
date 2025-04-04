@@ -6,22 +6,6 @@
 #include "snooze.h"
 #include "ui.h"
 
-typedef enum {
-    TL_OPK_NONE,
-    TL_OPK_SKETCH,
-    TL_OPK_BASE_GEOMETRY,
-} tl_OpKind;
-
-typedef struct tl_Op tl_Op;
-
-typedef struct {
-    sk_Sketch sketch;
-} tl_OpSketch;
-
-typedef struct {
-    mesh_Mesh mesh;
-} tl_OpBaseGeometry;
-
 typedef struct {
     geo_Align orbitOrigin;
     HMM_Vec2 orbitAngle;
@@ -40,11 +24,44 @@ tl_Scene tl_sceneInit() {
     return out;
 }
 
-bool _tl_OpExpectedDeps[][1] = {
-    [TL_OPK_SKETCH] = { false },
-    [TL_OPK_BASE_GEOMETRY] = { false },
+typedef enum {
+    TL_OPK_NONE,
+    TL_OPK_SKETCH,
+    TL_OPK_BASE_GEOMETRY,
+    TL_OPK_EXTRUDE,
+
+    TL_OPK_COUNT,
+} tl_OpKind;
+
+const char* tl_opKindNames[] = {
+    [TL_OPK_SKETCH] = "sketch",
+    [TL_OPK_BASE_GEOMETRY] = "geometry",
+    [TL_OPK_EXTRUDE] = "extrude",
 };
 
+typedef enum {
+    TL_OPAK_NONE = 0,
+    TL_OPAK_NUMBER = (1 << 0),
+    TL_OPAK_GEOID_CORNER = (1 << 1),
+    TL_OPAK_GEOID_EDGE = (1 << 2),
+    TL_OPAK_GEOID_FACE = (1 << 3),
+} tl_OpArgKind;
+
+typedef struct {
+    tl_OpArgKind kind;
+    float number;
+    mesh_GeoID geoId;
+} tl_OpArg;
+
+#define TL_OP_ARG_MAX_COUNT 5
+// lookup from opKind -> opArgKinds
+int tl_opArgKindsExpected[][TL_OP_ARG_MAX_COUNT] = {
+    [TL_OPK_SKETCH] = { 0 },
+    [TL_OPK_BASE_GEOMETRY] = { 0 },
+    [TL_OPK_EXTRUDE] = {TL_OPAK_GEOID_FACE, TL_OPAK_NUMBER},
+};
+
+typedef struct tl_Op tl_Op;
 struct tl_Op {
     tl_Op* next;
     int64_t uniqueId; // incrementing number to safely identify tl nodes in geo refs (and break them when tl_ops are deleted)
@@ -58,11 +75,10 @@ struct tl_Op {
 
     tl_OpKind kind;
     union {
-        tl_OpSketch sketch;
-        tl_OpBaseGeometry baseGeometry;
+        sk_Sketch sketch;
+        mesh_Mesh baseGeometry;
     } val;
-    tl_Op* dependencies[1];
-
+    tl_OpArg args[TL_OP_ARG_MAX_COUNT];
     tl_Scene scene; // updated per solve - camera data persists tho
 };
 
@@ -109,7 +125,7 @@ tl_Op* tl_timelinePushSketch(tl_Timeline* tl, HMM_Vec2 pos, sk_Sketch sketch) {
     tl_Op* out = _tl_timelinePushOp(tl);
     out->ui.pos = pos;
     out->kind = TL_OPK_SKETCH;
-    out->val.sketch.sketch = sketch;
+    out->val.sketch = sketch;
     return out;
 }
 
@@ -118,8 +134,8 @@ tl_Op* tl_timelinePushBaseGeometry(tl_Timeline* tl, HMM_Vec2 pos, mesh_Mesh mesh
     tl_Op* out = _tl_timelinePushOp(tl);
     out->ui.pos = pos;
     out->kind = TL_OPK_BASE_GEOMETRY;
-    out->val.baseGeometry.mesh = mesh;
-    out->scene.mesh = &out->val.baseGeometry.mesh;
+    out->val.baseGeometry = mesh;
+    out->scene.mesh = &out->val.baseGeometry;
 
     int64_t nextId = 0;
     for (int64_t i = 0; i < mesh.corners.count; i++) {
@@ -173,10 +189,12 @@ void tl_timelineCullOpsMarkedForDelete(tl_Timeline* t) {
             t->activeOp = NULL;
         }
 
-        if (!op->dependencies[0]) {
-            continue;
-        } else if (op->dependencies[0]->markedForDeletion) {
-            op->dependencies[0] = NULL;
+        for (int i = 0; i < TL_OP_ARG_MAX_COUNT; i++) {
+            if (op->args[i].kind == TL_OPAK_NONE) {
+                continue;
+            } else if (op->args[i].ptr.markedForDelete) {
+                op->args[i] = (tl_OpArg){ 0 };
+            }
         }
     }
 
@@ -210,22 +228,23 @@ void tl_solveForNode(tl_Timeline* t, tl_Op* targetOp, snz_Arena* scratch) {
         };
 
         for (int i = 0; i < added.count; i++) {
-            tl_Op* new = added.elems[i];
-            if (!new->dependencies[0]) {
-                continue;
-            }
-            bool inAdded = false;
-            for (int j = 0; j < added.count; j++) {
-                if (added.elems[j] == new) {
-                    inAdded = true;
+            for (int j = 0; j < TL_OP_ARG_MAX_COUNT; j++) {
+                tl_Op* new = added.elems[i]->args[j].ptr;
+                if (!new) {
+                    continue;
                 }
+                bool inAdded = false;
+                for (int j = 0; j < added.count; j++) {
+                    if (added.elems[j] == new) {
+                        inAdded = true;
+                    }
+                }
+                if (inAdded) {
+                    continue;
+                }
+                *SNZ_ARENA_PUSH(scratch, tl_Op*) = new;
+                anyAdded = true;
             }
-            if (inAdded) {
-                continue;
-            }
-
-            *SNZ_ARENA_PUSH(scratch, tl_Op*) = new;
-            anyAdded = true;
         }
 
         if (!anyAdded) {
@@ -242,10 +261,10 @@ void tl_solveForNode(tl_Timeline* t, tl_Op* targetOp, snz_Arena* scratch) {
         SNZ_ASSERT(!op->markedForDeletion, "tl op marked for delete made it to the solving stage");
 
         if (op->kind == TL_OPK_SKETCH) {
-            sk_sketchSolve(&op->val.sketch.sketch);
+            sk_sketchSolve(&op->val.sketch);
 
             mesh_Mesh* m = SNZ_ARENA_PUSH(t->generatedArena, mesh_Mesh);
-            *m = skt_sketchTriangulate(op->uniqueId, &op->val.sketch.sketch, t->generatedArena, scratch);
+            *m = skt_sketchTriangulate(op->uniqueId, &op->val.sketch, t->generatedArena, scratch);
             if (m->renderMesh.vaId) { // FIXME: get a decent check for null rendermeshes
                 // FIXME: probably shouldnt store one of these per scene if solves only happen for one op
                 ren3d_meshDeinit(&op->scene.mesh->renderMesh);

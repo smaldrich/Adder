@@ -929,11 +929,11 @@ void ser_tests() {
     ser_addStruct(geo_TriSlice, false);
     ser_addStructFieldSlice(geo_TriSlice, geo_Tri, elems, count);
 
-    ser_addStruct(tl_Op, true);
-    ser_addStructField(tl_Op, ser_tPtr(tl_Op), next);
-    ser_addStructField(tl_Op, ser_tBase(SER_TK_INT32), kind);
-    ser_addStructField(tl_Op, ser_tPtr(tl_Op), dependencies[0]);
-    ser_addStructField(tl_Op, ser_tStruct(HMM_Vec2), ui.pos);
+    // ser_addStruct(tl_Op, true);
+    // ser_addStructField(tl_Op, ser_tPtr(tl_Op), next);
+    // ser_addStructField(tl_Op, ser_tBase(SER_TK_INT32), kind);
+    // ser_addStructField(tl_Op, ser_tPtr(tl_Op), dependencies[0]);
+    // ser_addStructField(tl_Op, ser_tStruct(HMM_Vec2), ui.pos);
 
     ser_end();
 

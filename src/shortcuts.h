@@ -30,25 +30,6 @@ typedef struct {
     bool firstFrame;
 } _sc_CommandFuncArgs;
 
-typedef enum {
-    _SC_CAK_INVALID,
-    _SC_CAK_GEOID_CORNER,
-    _SC_CAK_GEOID_EDGE,
-    _SC_CAK_GEOID_FACE,
-    _SC_CAK_NUMBER,
-} _sc_CommandArgKind;
-
-typedef struct _sc_CommandArg _sc_CommandArg;
-struct _sc_CommandArg {
-    _sc_CommandArg* next;
-    const char* name;
-    _sc_CommandArgKind kind;
-    union {
-        float number;
-        mesh_GeoID geoId;
-    } val;
-};
-
 typedef bool (*sc_CommandFunc)(_sc_CommandFuncArgs args);
 
 typedef struct {

@@ -167,24 +167,16 @@ void tl_build(tl_Timeline* timeline, snz_Arena* scratch, HMM_Vec2 panelSize, HMM
             }
             snzu_boxSetInteractionOutput(&op->ui.inter, flags);
 
-            const char* labelStr = NULL;
-            if (op->kind == TL_OPK_SKETCH) {
-                // FIXME: put a render here
-                labelStr = "sketch";
-            } else if (op->kind == TL_OPK_BASE_GEOMETRY) {
-                // FIXME: put a render here
-                labelStr = "geometry";
-            } else {
-                SNZ_ASSERTF(false, "unreachable. kind: %d", op->kind);
-            }
             HMM_Vec4 textColor = HMM_Lerp(ui_colorText, op->ui.sel.selectionAnim, ui_colorAccent);
-            snzu_boxSetDisplayStr(&ui_labelFont, textColor, labelStr);
+            SNZ_ASSERTF(op->kind > TL_OPK_NONE && op->kind < TL_OPK_COUNT, "op kind out of bounds. was: %d", op->kind);
+            snzu_boxSetDisplayStr(&ui_labelFont, textColor, tl_opKindNames[op->kind]);
+
             float radius = _tl_radiusOfNode(op, sound);
             snzu_boxSetCornerRadius(radius);
             snzu_boxSetStart(HMM_Sub(op->ui.pos, HMM_V2(radius, radius)));
             snzu_boxSetEnd(HMM_Add(op->ui.pos, HMM_V2(radius, radius)));
-            snzu_boxSetColor(ui_colorTransparentPanel);
 
+            snzu_boxSetColor(ui_colorTransparentPanel);
             snzu_boxSetBorder(ui_borderThickness, textColor);
 
             // dep lines
@@ -223,4 +215,24 @@ void tl_build(tl_Timeline* timeline, snz_Arena* scratch, HMM_Vec2 panelSize, HMM
             snzu_boxSetColor(ui_colorTransparentAccent);
         }
     }  // end main parent box scope
+}
+
+void tl_argbarBuild(tl_Op* op) {
+    if (!op) {
+        return;
+    }
+    // clears any usemems if the op changes
+    snzu_boxNewF("argbar %p", (void*)op);
+    snzu_boxFillParent();
+    snzu_boxSetSizeFromStartAx(SNZU_AX_Y, ui_labelFont.renderedSize + 2 * ui_padding);
+
+    snzu_boxSetColor(ui_colorTransparentPanel);
+    snzu_boxSetDisplayStr(&ui_labelFont, ui_colorText, tl_opKindNames[op->kind]);
+
+    snzu_boxScope() {
+        snzu_boxNew("bottom border");
+        snzu_boxFillParent();
+        snzu_boxSetSizeFromEndAx(SNZU_AX_Y, -ui_borderThickness);
+        snzu_boxSetColor(ui_colorText);
+    }
 }
