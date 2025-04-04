@@ -28,7 +28,7 @@ typedef struct mesh_GeoID mesh_GeoID;
 struct mesh_GeoID {
     mesh_GeoKind geoKind;
     int64_t opUniqueId; // uid of the operation that created/last changed this piece of geo
-    int64_t sourceUniqueId; // if from a sketch or base geo node, a uid matching what part
+    int64_t baseNodeId; // if from a sketch or base geo node, a uid matching what part
     // used to label different parts of an operation
     // (i.e. extrude labels corners and edges from one source corner with the same source geo, but a different diffInt)
     int64_t differentiationInt;
@@ -115,7 +115,7 @@ static bool _mesh_geoIdEqual(mesh_GeoID a, mesh_GeoID b) {
     bool equal = false;
     equal &= a.geoKind == b.geoKind;
     equal &= a.opUniqueId == b.opUniqueId;
-    equal &= a.sourceUniqueId == b.sourceUniqueId;
+    equal &= a.baseNodeId == b.baseNodeId;
     equal &= a.differentiationInt == b.differentiationInt;
     equal &= (a.diffGeo1 == NULL) == (b.diffGeo1 == NULL);
     equal &= (a.diffGeo2 == NULL) == (b.diffGeo2 == NULL);

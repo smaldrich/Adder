@@ -47,6 +47,23 @@ typedef enum {
     TL_OPAK_GEOID_FACE = (1 << 3),
 } tl_OpArgKind;
 
+bool tl_opArgKindExpectsDependency(tl_OpArgKind argKind) {
+    if (argKind == TL_OPAK_NONE) {
+        return false;
+    } else if (argKind == TL_OPAK_NUMBER) {
+        return false;
+    } else if (argKind == TL_OPAK_GEOID_CORNER) {
+        return true;
+    } else if (argKind == TL_OPAK_GEOID_EDGE) {
+        return true;
+    } else if (argKind == TL_OPAK_GEOID_FACE) {
+        return true;
+    }
+    SNZ_ASSERTF(false, "unreachable. kind: %d", argKind);
+    return false;
+}
+
+typedef struct tl_Op tl_Op;
 typedef struct {
     tl_OpArgKind kind;
     float number;
@@ -61,7 +78,6 @@ int tl_opArgKindsExpected[][TL_OP_ARG_MAX_COUNT] = {
     [TL_OPK_EXTRUDE] = {TL_OPAK_GEOID_FACE, TL_OPAK_NUMBER},
 };
 
-typedef struct tl_Op tl_Op;
 struct tl_Op {
     tl_Op* next;
     int64_t uniqueId; // incrementing number to safely identify tl nodes in geo refs (and break them when tl_ops are deleted)
@@ -121,6 +137,20 @@ static tl_Op* _tl_timelinePushOp(tl_Timeline* tl) {
     return out;
 }
 
+// FIXME: make it a hash lookup
+tl_Op* tl_timelineGetOpByUID(tl_Timeline* tl, int64_t uid) {
+    if (uid == 0) { // temporary, for perf
+        return NULL;
+    }
+
+    for (tl_Op* op = tl->firstOp; op; op = op->next) {
+        if (op->uniqueId == uid) {
+            return op;
+        }
+    }
+    return NULL;
+}
+
 tl_Op* tl_timelinePushSketch(tl_Timeline* tl, HMM_Vec2 pos, sk_Sketch sketch) {
     tl_Op* out = _tl_timelinePushOp(tl);
     out->ui.pos = pos;
@@ -141,7 +171,7 @@ tl_Op* tl_timelinePushBaseGeometry(tl_Timeline* tl, HMM_Vec2 pos, mesh_Mesh mesh
     for (int64_t i = 0; i < mesh.corners.count; i++) {
         mesh.corners.elems[i].id = (mesh_GeoID){
             .geoKind = MESH_GK_CORNER,
-            .sourceUniqueId = nextId,
+            .baseNodeId = nextId,
             .opUniqueId = out->uniqueId,
         };
         nextId++;
@@ -150,7 +180,7 @@ tl_Op* tl_timelinePushBaseGeometry(tl_Timeline* tl, HMM_Vec2 pos, mesh_Mesh mesh
     for (mesh_Edge* e = mesh.firstEdge; e; e = e->next) {
         e->id = (mesh_GeoID){
             .geoKind = MESH_GK_EDGE,
-            .sourceUniqueId = nextId,
+            .baseNodeId = nextId,
             .opUniqueId = out->uniqueId,
         };
         nextId++;
@@ -159,7 +189,7 @@ tl_Op* tl_timelinePushBaseGeometry(tl_Timeline* tl, HMM_Vec2 pos, mesh_Mesh mesh
     for (mesh_Face* f = mesh.firstFace; f; f = f->next) {
         f->id = (mesh_GeoID){
             .geoKind = MESH_GK_FACE,
-            .sourceUniqueId = nextId,
+            .baseNodeId = nextId,
             .opUniqueId = out->uniqueId,
         };
         nextId++;
@@ -192,7 +222,9 @@ void tl_timelineCullOpsMarkedForDelete(tl_Timeline* t) {
         for (int i = 0; i < TL_OP_ARG_MAX_COUNT; i++) {
             if (op->args[i].kind == TL_OPAK_NONE) {
                 continue;
-            } else if (op->args[i].ptr.markedForDelete) {
+            }
+            // if the op has no source (i.e. is a number, source id will be zero, which will never match)
+            if (tl_timelineGetOpByUID(t, op->args[i].geoId.opUniqueId)) {
                 op->args[i] = (tl_OpArg){ 0 };
             }
         }
@@ -227,15 +259,20 @@ void tl_solveForNode(tl_Timeline* t, tl_Op* targetOp, snz_Arena* scratch) {
             .elems = (tl_Op**)(scratch->end) - scratch->arrModeElemCount,
         };
 
-        for (int i = 0; i < added.count; i++) {
-            for (int j = 0; j < TL_OP_ARG_MAX_COUNT; j++) {
-                tl_Op* new = added.elems[i]->args[j].ptr;
+        for (int opIdx = 0; opIdx < added.count; opIdx++) {
+            tl_Op* op = added.elems[opIdx];
+            for (int argIdx = 0; argIdx < TL_OP_ARG_MAX_COUNT; argIdx++) {
+                tl_Op* new = tl_timelineGetOpByUID(t, op->args[argIdx].geoId.opUniqueId);
                 if (!new) {
+                    tl_OpArgKind kind = tl_opArgKindsExpected[op->kind][argIdx];
+                    if (tl_opArgKindExpectsDependency(kind)) {
+                        SNZ_ASSERT(false, "tried to solve with a missing dep.");
+                    }
                     continue;
                 }
                 bool inAdded = false;
-                for (int j = 0; j < added.count; j++) {
-                    if (added.elems[j] == new) {
+                for (int k = 0; k < added.count; k++) {
+                    if (added.elems[k] == new) {
                         inAdded = true;
                     }
                 }

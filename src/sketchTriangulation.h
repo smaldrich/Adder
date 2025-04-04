@@ -142,7 +142,7 @@ static mesh_Face* _skt_vertLoopToMeshFace(int64_t opUniqueId, _skt_VertLoop* l, 
     f->id = (mesh_GeoID){
         .geoKind = MESH_GK_FACE,
         .opUniqueId = opUniqueId,
-        .sourceUniqueId = l->sumOfLineUidHashes,
+        .baseNodeId = l->sumOfLineUidHashes,
     };
 
     // FIXME: move this data to be inline with the vert loop points ? // actually also profile if that is worth doing
@@ -586,7 +586,7 @@ mesh_Mesh skt_sketchTriangulate(int64_t opUniqueId, const sk_Sketch* sketch, snz
                 },
                 .id = (mesh_GeoID) {
                     .geoKind = MESH_GK_EDGE,
-                    .sourceUniqueId = edge->sourceUniqueId,
+                    .baseNodeId = edge->sourceUniqueId,
                     .opUniqueId = opUniqueId,
                 }
             };
@@ -599,7 +599,7 @@ mesh_Mesh skt_sketchTriangulate(int64_t opUniqueId, const sk_Sketch* sketch, snz
                 .pos.XY = p->pos,
                 .id = (mesh_GeoID) {
                     .geoKind = MESH_GK_CORNER,
-                    .sourceUniqueId = p->sourceUniqueId,
+                    .baseNodeId = p->sourceUniqueId,
                     .opUniqueId = opUniqueId,
                 },
             };

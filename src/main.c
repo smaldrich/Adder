@@ -486,7 +486,7 @@ void main_frame(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screen
                 SNZ_ASSERTF(false, "unreachable view case, view was: %d", main_currentView);
             }
 
-            tl_argbarBuild();
+            tl_argbarBuild(NULL);
         } // end right panel
 
         snzu_boxNew("leftPanel");
@@ -561,7 +561,7 @@ void main_frame(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screen
         sk_Sketch* activeSketch = NULL;
         if (main_timeline.activeOp) {
             if (main_timeline.activeOp->kind == TL_OPK_SKETCH) {
-                activeSketch = &main_timeline.activeOp->val.sketch.sketch;
+                activeSketch = &main_timeline.activeOp->val.sketch;
             }
         }
         sc_updateAndBuildHintWindow(activeSketch, &main_timeline, &main_currentView, scratch, openHintWindow);

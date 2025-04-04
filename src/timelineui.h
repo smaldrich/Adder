@@ -180,27 +180,35 @@ void tl_build(tl_Timeline* timeline, snz_Arena* scratch, HMM_Vec2 panelSize, HMM
             snzu_boxSetBorder(ui_borderThickness, textColor);
 
             // dep lines
-            // FIXME: make large than one elt
-            bool expectsFirstDep = _tl_OpExpectedDeps[op->kind][0];
-            if (expectsFirstDep) {
-                if (!op->dependencies[0]) {
+            for (int i = 0; i < TL_OP_ARG_MAX_COUNT; i++) {
+                int expectedKinds = tl_opArgKindsExpected[op->kind][i];
+                tl_OpArgKind argKind = op->args[i].kind;
+                if (!expectedKinds) {
+                    continue;
+                } else if (!argKind) {
                     snzu_boxSetBorder(ui_borderThickness, ui_colorErr);
-                } else {
-                    HMM_Vec4 pts[2] = { 0 };
-                    pts[0].XY = op->ui.pos;
-                    pts[1].XY = op->dependencies[0]->ui.pos;
-
-                    { // instead of clipping the line like this, use alpha magic to clip it GPU side
-                        HMM_Vec4 diff = HMM_Norm(HMM_Sub(pts[1], pts[0]));
-                        diff = HMM_MulV4F(diff, radius);
-                        pts[0] = HMM_Add(pts[0], diff);
-
-                        diff = HMM_Norm(HMM_Sub(pts[0], pts[1]));
-                        diff = HMM_MulV4F(diff, _tl_radiusOfNode(op->dependencies[0], sound));
-                        pts[1] = HMM_Add(pts[1], diff);
-                    }
-                    snzr_drawLine(pts, 2, ui_colorText, ui_borderThickness, vp);
+                    continue;
                 }
+
+                SNZ_ASSERT(argKind & expectedKinds, "Invalid kind in a tl op.");
+                if (!tl_opArgKindExpectsDependency(argKind)) {
+                    continue;
+                }
+
+                tl_Op* dependency = tl_timelineGetOpByUID(timeline, op->args[i].geoId.opUniqueId);
+                HMM_Vec4 pts[2] = { 0 };
+                pts[0].XY = op->ui.pos;
+                pts[1].XY = dependency->ui.pos;
+                { // FIXME: instead of clipping the line like this, use alpha magic to clip it GPU side
+                    HMM_Vec4 diff = HMM_Norm(HMM_Sub(pts[1], pts[0]));
+                    diff = HMM_MulV4F(diff, radius);
+                    pts[0] = HMM_Add(pts[0], diff);
+
+                    diff = HMM_Norm(HMM_Sub(pts[0], pts[1]));
+                    diff = HMM_MulV4F(diff, _tl_radiusOfNode(dependency, sound));
+                    pts[1] = HMM_Add(pts[1], diff);
+                }
+                snzr_drawLine(pts, 2, ui_colorText, ui_borderThickness, vp);
             }
 
             if (op == timeline->activeOp) {
