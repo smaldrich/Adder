@@ -235,6 +235,8 @@ void tl_argbarBuild(tl_Op* op) {
     snzu_boxSetSizeFromStartAx(SNZU_AX_Y, ui_labelFont.renderedSize + 2 * ui_padding);
     snzu_boxSetColor(ui_colorTransparentPanel);
 
+    int* const selectedArgIdx = SNZU_USE_MEM(int, "arg idx");
+
     snzu_boxScope() {
         snzu_boxNew("gap");
         snzu_boxSizePctParent(0.3, SNZU_AX_X);
@@ -244,18 +246,49 @@ void tl_argbarBuild(tl_Op* op) {
         snzu_boxSetSizeFitText(ui_padding);
         snzu_boxAlignInParent(SNZU_AX_X, SNZU_ALIGN_CENTER);
 
+        snzu_Interaction* inter = SNZU_USE_MEM(snzu_Interaction, "inter");
+        snzu_boxSetInteractionOutput(inter, SNZU_IF_NONE);
+        if (snzu_isNothingFocused()) {
+            if (inter->keyAction == SNZU_ACT_DOWN && inter->keyCode == SDLK_TAB) {
+                if (inter->keyMods & KMOD_SHIFT) {
+                    (*selectedArgIdx)--;
+                } else {
+                    (*selectedArgIdx)++;
+                }
+                (*selectedArgIdx) %= TL_OP_ARG_MAX_COUNT;
+            } // key check
+        } // focus check
+
         for (int i = 0; i < TL_OP_ARG_MAX_COUNT; i++) {
             int expectedKinds = tl_opArgKindsExpected[op->kind][i];
             if (!expectedKinds) {
                 break;
             }
 
-            bool done = (op->args[i].kind & expectedKinds);
             snzu_boxNewF("%d", i);
-            snzu_boxSetCornerRadius(5);
-            snzu_boxSetSizeMarginFromParentAx(ui_padding, SNZU_AX_Y);
-            snzu_boxSetSizeFromStartAx(SNZU_AX_X, snzu_boxGetSize().Y);
-            snzu_boxSetColor(done ? ui_colorAccent : ui_colorErr);
+            snzu_boxFillParent();
+            float* const selectedAnim = SNZU_USE_MEM(float, "selected");
+            snzu_easeExp(selectedAnim, *selectedArgIdx == i, 20);
+
+            float squareSize = 0;
+            snzu_boxScope() {
+                snzu_boxNew("square");
+                bool done = (op->args[i].kind & expectedKinds);
+                snzu_boxSetCornerRadius(5);
+                snzu_boxSetColor(done ? ui_colorAccent : ui_colorErr);
+                snzu_boxSetBorder(ui_borderThickness * *selectedAnim, ui_colorText);
+                snzu_boxSetSizeMarginFromParent(ui_padding);
+                snzu_boxSetSizeFromStartAx(SNZU_AX_X, snzu_boxGetSize().Y);
+                squareSize = snzu_boxGetSize().X;
+
+                snzu_boxNew("arg name");
+                snzu_boxSetDisplayStr(&ui_labelFont, ui_colorText, tl_opArgNames[op->kind][i]);
+                snzu_boxSetSizeFitText(ui_padding);
+                snzu_boxSetPosAfterRecurse(ui_padding, SNZU_AX_X, SNZU_ALIGN_CENTER);
+            }
+            float size = snzu_boxGetSizeToFitChildrenAx(SNZU_AX_X);
+            snzu_boxSetSizeFromStartAx(SNZU_AX_X, HMM_Lerp(squareSize, *selectedAnim, size) + 2 * ui_padding);
+            snzu_boxClipChildren(true);
         }
         snzu_boxOrderSiblingsInRowRecurse(ui_padding, SNZU_AX_X, SNZU_ALIGN_CENTER);
 

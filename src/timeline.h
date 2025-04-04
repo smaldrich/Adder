@@ -78,6 +78,13 @@ int tl_opArgKindsExpected[][TL_OP_ARG_MAX_COUNT] = {
     [TL_OPK_EXTRUDE] = {TL_OPAK_GEOID_FACE, TL_OPAK_NUMBER},
 };
 
+// lookup from opKind -> arg names
+const char* tl_opArgNames[][TL_OP_ARG_MAX_COUNT] = {
+    [TL_OPK_SKETCH] = { 0 },
+    [TL_OPK_BASE_GEOMETRY] = { 0 },
+    [TL_OPK_EXTRUDE] = { "face", "distance" },
+};
+
 struct tl_Op {
     tl_Op* next;
     int64_t uniqueId; // incrementing number to safely identify tl nodes in geo refs (and break them when tl_ops are deleted)
