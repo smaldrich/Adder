@@ -229,6 +229,20 @@ void tl_argbarBuild(tl_Op* op) {
     if (!op) {
         return;
     }
+
+    int argCount = 0;
+    {
+        int* expectedArgKinds = tl_opArgKindsExpected[op->kind];
+        for (int i = 0; i < TL_OP_ARG_MAX_COUNT; i++) {
+            if (!expectedArgKinds[i]) {
+                break;
+            }
+            argCount++;
+        }
+        if (argCount == 0) {
+            return;
+        }
+    }
     // clears any usemems if the op changes
     snzu_boxNewF("argbar %p", (void*)op);
     snzu_boxFillParent();
@@ -255,20 +269,22 @@ void tl_argbarBuild(tl_Op* op) {
                 } else {
                     (*selectedArgIdx)++;
                 }
-                (*selectedArgIdx) %= TL_OP_ARG_MAX_COUNT;
+
+                if (*selectedArgIdx < 0) {
+                    *selectedArgIdx = argCount - 1;
+                } else if (*selectedArgIdx >= argCount) {
+                    *selectedArgIdx = 0;
+                }
             } // key check
         } // focus check
 
-        for (int i = 0; i < TL_OP_ARG_MAX_COUNT; i++) {
+        for (int i = 0; i < argCount; i++) {
             int expectedKinds = tl_opArgKindsExpected[op->kind][i];
-            if (!expectedKinds) {
-                break;
-            }
 
             snzu_boxNewF("%d", i);
             snzu_boxFillParent();
             float* const selectedAnim = SNZU_USE_MEM(float, "selected");
-            snzu_easeExp(selectedAnim, *selectedArgIdx == i, 20);
+            snzu_easeExp(selectedAnim, *selectedArgIdx == i, 25);
 
             float squareSize = 0;
             snzu_boxScope() {
