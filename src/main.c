@@ -32,6 +32,7 @@ snzu_Instance main_sceneUIInstance;
 snzr_FrameBuffer main_sceneFB;
 
 sc_View main_currentView = SC_VIEW_TIMELINE;
+tl_Op* main_argBarFocusOverride = NULL;
 set_Settings main_settings;
 tl_Timeline main_timeline;
 
@@ -330,6 +331,9 @@ void main_frame(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screen
         }
     }
 
+    if (main_argBarFocusOverride && main_argBarFocusOverride->markedForDeletion) {
+        main_argBarFocusOverride = NULL;
+    }
     tl_timelineCullOpsMarkedForDelete(&main_timeline);
 
     if (main_settings.darkMode) {
@@ -459,7 +463,11 @@ void main_frame(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screen
                 SNZ_ASSERTF(false, "unreachable view case, view was: %d", main_currentView);
             }
 
-            tl_argbarBuild(main_timeline.activeOp);
+            tl_Op* selected = main_timeline.activeOp;
+            if (main_argBarFocusOverride) {
+                selected = main_argBarFocusOverride;
+            }
+            tl_argbarBuild(&main_timeline, selected, &main_argBarFocusOverride);
         } // end right panel
 
         snzu_boxNew("leftPanel");
@@ -537,7 +545,7 @@ void main_frame(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screen
                 activeSketch = &main_timeline.activeOp->val.sketch;
             }
         }
-        sc_updateAndBuildHintWindow(activeSketch, &main_timeline, &main_currentView, scratch, openHintWindow);
+        sc_updateAndBuildHintWindow(activeSketch, &main_timeline, &main_currentView, &main_argBarFocusOverride, scratch, openHintWindow);
 
         snzu_boxNew("capsIndicator");
         snzu_boxFillParent();

@@ -117,6 +117,8 @@ typedef struct {
 
     snz_Arena* generatedArena;
     PoolAlloc* generatedPool;
+
+    tl_OpArg takenArgSignal; // set by scs to take geo, unset by handling code in argbar
 } tl_Timeline;
 
 tl_Timeline tl_timelineInit(snz_Arena* opArena, snz_Arena* generatedArena, PoolAlloc* generatedPool) {
@@ -238,7 +240,8 @@ void tl_timelineCullOpsMarkedForDelete(tl_Timeline* t) {
                 continue;
             }
             // if the op has no source (i.e. is a number, source id will be zero, which will never match)
-            if (tl_timelineGetOpByUID(t, op->args[i].geoId.opUniqueId)) {
+            tl_Op* other = tl_timelineGetOpByUID(t, op->args[i].geoId.opUniqueId);
+            if (other && other->markedForDeletion) {
                 op->args[i] = (tl_OpArg){ 0 };
             }
         }
@@ -325,6 +328,18 @@ void tl_solveForNode(tl_Timeline* t, tl_Op* targetOp, snz_Arena* scratch) {
             op->scene.mesh = m;
         } else if (op->kind == TL_OPK_BASE_GEOMETRY) {
             continue;
+        } else if (op->kind == TL_OPK_EXTRUDE) {
+            SNZ_ASSERTF(op->args[0].kind == TL_OPAK_GEOID_FACE, "Extrude requires first arg to be a face. Actual kind: %d", op->args[0].kind);
+            mesh_GeoPtr geoPtr = mesh_geoIdFind(op->scene.mesh, op->args[0].geoId);
+            SNZ_ASSERT(geoPtr.kind == MESH_GK_FACE, "Extrude geoid find failed.");
+            SNZ_ASSERTF(op->args[1].kind == TL_OPAK_NUMBER, "Extrude requires second arg to be a number. Actual kind: %d", op->args[1].kind);
+
+            // float dist = op->args[1].number;
+            // mesh_Face* f = geoPtr.face;
+
+            // duplicate face
+            // stitch according to vert loops
+            // union with the scene
         } else {
             SNZ_ASSERTF(false, "unreachable. kind: %lld", op->kind);
         }

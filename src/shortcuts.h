@@ -28,6 +28,8 @@ typedef struct {
     tl_Timeline* timeline;
     sc_View* currentView;  // read/write
     bool firstFrame;
+
+    tl_Op** argBarFocusOverride; // read/write
 } _sc_CommandFuncArgs;
 
 typedef bool (*sc_CommandFunc)(_sc_CommandFuncArgs args);
@@ -306,7 +308,10 @@ bool scc_timelineAddExtrude(_sc_CommandFuncArgs args) {
     tl_Op* op = tl_timelinePushExtrude(args.timeline, HMM_V2(0, 0)); // FIXME: smart positioning
     op->ui.sel.selected = true;
     op->ui.sel.selectionAnim = 1;
-    args.timeline->activeOp = op;
+    *args.argBarFocusOverride = op;
+
+    op->args[1].kind = TL_OPAK_NUMBER;
+    op->args[1].number = 1.0f;
     return true;
 }
 
@@ -473,6 +478,47 @@ bool scc_sceneRotateCameraRight(_sc_CommandFuncArgs args) {
     return true;
 }
 
+bool scc_sceneTake(_sc_CommandFuncArgs args) {
+    if (*args.currentView != SC_VIEW_SCENE) {
+        return true;
+    } else if (!args.timeline->activeOp) {
+        return true;
+    }
+
+    mesh_Mesh* mesh = args.timeline->activeOp->scene.mesh;
+
+    int foundCount = 0;
+    tl_OpArg outArg = { 0 };
+    for (int64_t i = 0; i < mesh->corners.count; i++) {
+        mesh_Corner* c = &mesh->corners.elems[i];
+        if (c->sel.selected) {
+            outArg.kind = TL_OPAK_GEOID_CORNER;
+            outArg.geoId = c->id;
+            foundCount++;
+        }
+    }
+    for (mesh_Edge* e = mesh->firstEdge; e; e = e->next) {
+        if (e->sel.selected) {
+            outArg.kind = TL_OPAK_GEOID_FACE;
+            outArg.geoId = e->id;
+            foundCount++;
+        }
+    }
+
+    // FIXME: accelerator for finding a single selected obj?
+    for (mesh_Face* f = mesh->firstFace; f; f = f->next) {
+        if (f->sel.selected) {
+            outArg.kind = TL_OPAK_GEOID_FACE;
+            outArg.geoId = f->id;
+            foundCount++;
+        }
+    }
+
+    if (foundCount == 1) {
+        args.timeline->takenArgSignal = outArg;
+    }
+    return true;
+}
 
 void sc_init(PoolAlloc* pool) {
     _sc_commandPool = pool;
@@ -496,6 +542,8 @@ void sc_init(PoolAlloc* pool) {
     _sc_commandInit("new sketch", "S", SDLK_s, KMOD_NONE, SC_VIEW_TIMELINE | SC_VIEW_SCENE, false, scc_timelineAddSketch);
     _sc_commandInit("extrude", "E", SDLK_e, KMOD_NONE, SC_VIEW_TIMELINE | SC_VIEW_SCENE, false, scc_timelineAddExtrude);
 
+    // FIXME: forbid sketch flag
+    _sc_commandInit("take", "T", SDLK_t, KMOD_NONE, SC_VIEW_SCENE, false, scc_sceneTake);
     _sc_commandInit("mark active", "W", SDLK_w, KMOD_NONE, SC_VIEW_TIMELINE, false, scc_timelineMarkActive);
 
     _sc_commandInit("goto main scene", "W", SDLK_w, KMOD_LSHIFT, SC_VIEW_ALL, false, _scc_goToMainScene);
@@ -549,7 +597,7 @@ bool _sc_commandShouldBeAvailible(_sc_Command* cmd, sc_View view, bool activeSke
     return out;
 }
 
-void sc_updateAndBuildHintWindow(sk_Sketch* activeSketch, tl_Timeline* timeline, sc_View* outCurrentView, snz_Arena* scratch, bool targetOpen) {
+void sc_updateAndBuildHintWindow(sk_Sketch* activeSketch, tl_Timeline* timeline, sc_View* outCurrentView, tl_Op** argBarFocusOverride, snz_Arena* scratch, bool targetOpen) {
     snzu_boxNew("updatesParent");
     snzu_boxFillParent();
 
@@ -559,6 +607,7 @@ void sc_updateAndBuildHintWindow(sk_Sketch* activeSketch, tl_Timeline* timeline,
         .timeline = timeline,
         .currentView = outCurrentView,
         .firstFrame = false,
+        .argBarFocusOverride = argBarFocusOverride,
     };
 
     {
@@ -593,6 +642,10 @@ void sc_updateAndBuildHintWindow(sk_Sketch* activeSketch, tl_Timeline* timeline,
                     sk_sketchDeselectAll(args.activeSketch);
                 }
                 tl_timelineDeselectAll(args.timeline);
+            }
+
+            if (kp.key == SDLK_ESCAPE && snzu_isNothingFocused()) {
+                *args.argBarFocusOverride = NULL;
             }
         }
     }  // command handling

@@ -225,8 +225,10 @@ void tl_build(tl_Timeline* timeline, snz_Arena* scratch, HMM_Vec2 panelSize, HMM
     }  // end main parent box scope
 }
 
-void tl_argbarBuild(tl_Op* op) {
+// focus override may be written to
+void tl_argbarBuild(tl_Timeline* t, tl_Op* op, tl_Op** focusOverride) {
     if (!op) {
+        t->takenArgSignal = (tl_OpArg){ 0 };
         return;
     }
 
@@ -243,6 +245,7 @@ void tl_argbarBuild(tl_Op* op) {
             return;
         }
     }
+
     // clears any usemems if the op changes
     snzu_boxNewF("argbar %p", (void*)op);
     snzu_boxFillParent();
@@ -260,8 +263,30 @@ void tl_argbarBuild(tl_Op* op) {
         snzu_boxSetSizeFitText(ui_padding);
         snzu_boxAlignInParent(SNZU_AX_X, SNZU_ALIGN_CENTER);
 
+        snzu_boxNew("gap2");
+        snzu_boxSetSizeFromStartAx(SNZU_AX_X, 10);
+
         snzu_Interaction* inter = SNZU_USE_MEM(snzu_Interaction, "inter");
         snzu_boxSetInteractionOutput(inter, SNZU_IF_NONE);
+
+        if (t->takenArgSignal.kind) {
+            int expectedKinds = tl_opArgKindsExpected[op->kind][*selectedArgIdx];
+            if (expectedKinds & t->takenArgSignal.kind) {
+                // FIXME: error indicator
+                op->args[*selectedArgIdx] = t->takenArgSignal;
+                (*selectedArgIdx)++;
+                // FIXME: assert geokind of geoid matches that of arg kind
+                // FIXME: NO CIRCULAR DEPS!!
+            }
+            t->takenArgSignal = (tl_OpArg){ 0 };
+
+            // took one and finished the op, exit
+            if (*selectedArgIdx == argCount) {
+                *focusOverride = NULL;
+            }
+        }
+
+        // FIXME: what if smth is focused and a signal gets given? shouldn't be possible but who knows
         if (snzu_isNothingFocused()) {
             if (inter->keyAction == SNZU_ACT_DOWN && inter->keyCode == SDLK_TAB) {
                 if (inter->keyMods & KMOD_SHIFT) {
@@ -289,7 +314,8 @@ void tl_argbarBuild(tl_Op* op) {
             float squareSize = 0;
             snzu_boxScope() {
                 snzu_boxNew("square");
-                bool done = (op->args[i].kind & expectedKinds);
+                // FIXME: error indicator if georef has broken
+                bool done = !!(op->args[i].kind & expectedKinds);
                 snzu_boxSetCornerRadius(5);
                 snzu_boxSetColor(done ? ui_colorAccent : ui_colorErr);
                 snzu_boxSetBorder(ui_borderThickness * *selectedAnim, ui_colorText);
