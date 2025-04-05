@@ -172,6 +172,12 @@ mesh_GeoPtr mesh_geoIdFind(const mesh_Mesh* m, mesh_GeoID ref) {
     return out;
 }
 
+mesh_GeoID* mesh_geoIdDuplicate(const mesh_GeoID* src, snz_Arena* arena) {
+    mesh_GeoID* new = SNZ_ARENA_PUSH(arena, mesh_GeoID);
+    *new = *src;
+    return new;
+}
+
 // static void _mesh_geoIdLog(mesh_GeoID id) {
 //     const char* strs[] = {
 //         [MESH_GK_DEREF_FAILED] = "failed",

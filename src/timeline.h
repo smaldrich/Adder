@@ -345,22 +345,29 @@ void tl_solveForNode(tl_Timeline* t, tl_Op* targetOp, snz_Arena* scratch) {
                     .geoKind = MESH_GK_FACE,
                     .opUniqueId = op->uniqueId,
                     .differentiationInt = 1,
+                    .diffGeo1 = mesh_geoIdDuplicate(&op->args[0].geoId, t->generatedArena),
                 },
             };
             m->firstFace = newFace;
 
             mesh_BSPTriList newTris = mesh_BSPTriListInit();
-            // FIXME: this is reallllly slow, if facetris are already generated, should use those instead
-            // FIXME: or make a more compact representation of the tris in the mesh for iteration like this
-            for (mesh_BSPTri* tri = m->bspTris.first; tri; tri = tri->next) {
-                if (tri->sourceFace == ogFace) {
-                    mesh_BSPTriListPushNew(t->generatedArena, &newTris, tri->tri.a, tri->tri.b, tri->tri.c, newFace);
-                }
-            }
-            HMM_Vec3 normal = geo_triNormal(newTris.first->tri); // FIXME: round faces tho??? -> requires refactor to use facetris
-            HMM_Mat4 transform = HMM_Translate(HMM_Mul(normal, op->args[1].number));
-            mesh_BSPTriListTransform(&newTris, transform);
 
+            { // duplicate face
+                // FIXME: this is reallllly slow, if facetris are already generated, should use those instead
+                // FIXME: or make a more compact representation of the tris in the mesh for iteration like this
+                for (mesh_BSPTri* tri = m->bspTris.first; tri; tri = tri->next) {
+                    if (tri->sourceFace == ogFace) {
+                        mesh_BSPTriListPushNew(t->generatedArena, &newTris, tri->tri.a, tri->tri.b, tri->tri.c, newFace);
+                    }
+                }
+                HMM_Vec3 normal = geo_triNormal(newTris.first->tri); // FIXME: round faces tho??? -> requires refactor to use facetris
+                HMM_Mat4 transform = HMM_Translate(HMM_Mul(normal, op->args[1].number));
+                mesh_BSPTriListTransform(&newTris, transform); // FIXME: can do this faster with just a translate list fn
+            }
+
+            { // stitch siding
+                mesh_VertLoop* loops = mesh_faceToVertLoops()
+            }
             mesh_BSPTriListJoin(&m->bspTris, &newTris);
         } else {
             SNZ_ASSERTF(false, "unreachable. kind: %lld", op->kind);
