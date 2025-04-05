@@ -44,7 +44,10 @@ struct mesh_Face {
     mesh_GeoID id;
     geo_TriSlice tris;
     ui_SelectionState sel;
+    int64_t indexIntoMesh;
 };
+
+SNZ_SLICE_NAMED(mesh_Face*, mesh_FacePtrSlice)
 
 typedef struct mesh_Edge mesh_Edge;
 struct mesh_Edge {
@@ -1381,6 +1384,38 @@ void mesh_meshGenerateCorners(mesh_Mesh* mesh, snz_Arena* out, snz_Arena* scratc
         }
     }
     mesh->corners = SNZ_ARENA_ARR_END(out, mesh_Corner);
+}
+
+// clones bspTris, and faces only - other components can be evaled after
+mesh_Mesh mesh_meshDuplicateTrisAndFaces(const mesh_Mesh* m, snz_Arena* scratch, snz_Arena* arena) {
+    mesh_Mesh out = (mesh_Mesh){ 0 };
+
+    SNZ_ARENA_ARR_BEGIN(scratch, mesh_Face*);
+    int64_t faceCount = 0;
+    for (mesh_Face* f = m->firstFace; f; f = f->next) {
+        f->indexIntoMesh = faceCount;
+        faceCount++;
+
+        mesh_Face* newFace = SNZ_ARENA_PUSH(arena, mesh_Face);
+        *newFace = (mesh_Face){
+            .next = out.firstFace,
+            .id = f->id,
+        };
+        out.firstFace = newFace;
+
+        *SNZ_ARENA_PUSH(scratch, mesh_Face*) = newFace;
+    }
+    mesh_FacePtrSlice faceTranslations = SNZ_ARENA_ARR_END_NAMED(scratch, mesh_Face*, mesh_FacePtrSlice);
+
+    for (mesh_BSPTri* t = m->bspTris.first; t; t = t->next) {
+        mesh_BSPTri* new = SNZ_ARENA_PUSH(arena, mesh_BSPTri);
+        *new = (mesh_BSPTri){
+            .sourceFace = faceTranslations.elems[t->sourceFace->indexIntoMesh],
+            .tri = t->tri,
+        };
+        mesh_BSPTriListPush(&out.bspTris, new);
+    }
+    return out;
 }
 
 // FIXME: OCTREES YEAHH!!!
