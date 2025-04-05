@@ -313,35 +313,73 @@ void tl_solveForNode(tl_Timeline* t, tl_Op* targetOp, snz_Arena* scratch) {
     for (int i = dependencies.count - 1; i >= 0; i--) {
         tl_Op* op = dependencies.elems[i];
         SNZ_ASSERT(!op->markedForDeletion, "tl op marked for delete made it to the solving stage");
+        if (op->kind != TL_OPK_SKETCH && op->kind != TL_OPK_BASE_GEOMETRY) {
+            op->scene.mesh = NULL;
+        }
 
         if (op->kind == TL_OPK_SKETCH) {
             sk_sketchSolve(&op->val.sketch);
-
             mesh_Mesh* m = SNZ_ARENA_PUSH(t->generatedArena, mesh_Mesh);
             *m = skt_sketchTriangulate(op->uniqueId, &op->val.sketch, t->generatedArena, scratch);
-            if (m->renderMesh.vaId) { // FIXME: get a decent check for null rendermeshes
-                // FIXME: probably shouldnt store one of these per scene if solves only happen for one op
-                ren3d_meshDeinit(&op->scene.mesh->renderMesh);
-            }
-            m->renderMesh = mesh_BSPTriListToRenderMesh(m->bspTris, scratch);
-            mesh_BSPTriListToFaceTris(t->generatedPool, m);
             op->scene.mesh = m;
         } else if (op->kind == TL_OPK_BASE_GEOMETRY) {
             continue;
         } else if (op->kind == TL_OPK_EXTRUDE) {
             SNZ_ASSERTF(op->args[0].kind == TL_OPAK_GEOID_FACE, "Extrude requires first arg to be a face. Actual kind: %d", op->args[0].kind);
-            mesh_GeoPtr geoPtr = mesh_geoIdFind(op->scene.mesh, op->args[0].geoId);
-            SNZ_ASSERT(geoPtr.kind == MESH_GK_FACE, "Extrude geoid find failed.");
+            tl_Op* dep = tl_timelineGetOpByUID(t, op->args[0].geoId.opUniqueId);
             SNZ_ASSERTF(op->args[1].kind == TL_OPAK_NUMBER, "Extrude requires second arg to be a number. Actual kind: %d", op->args[1].kind);
 
-            // float dist = op->args[1].number;
-            // mesh_Face* f = geoPtr.face;
+            // duplicate previous mesh
+            mesh_Mesh* m = SNZ_ARENA_PUSH(t->generatedArena, mesh_Mesh);
+            *m = mesh_meshDuplicateTrisAndFaces(dep->scene.mesh, scratch, t->generatedArena);
+            op->scene.mesh = m;
 
-            // duplicate face
-            // stitch according to vert loops
-            // union with the scene
+            mesh_GeoPtr geoPtr = mesh_geoIdFind(op->scene.mesh, op->args[0].geoId);
+            SNZ_ASSERT(geoPtr.kind == MESH_GK_FACE, "Extrude geoid find failed.");
+            mesh_Face* ogFace = geoPtr.face;
+
+            mesh_Face* newFace = SNZ_ARENA_PUSH(t->generatedArena, mesh_Face);
+            *newFace = (mesh_Face){
+                .next = m->firstFace,
+                .id = (mesh_GeoID) {
+                    .geoKind = MESH_GK_FACE,
+                    .opUniqueId = op->uniqueId,
+                    .differentiationInt = 1,
+                },
+            };
+            m->firstFace = newFace;
+
+            mesh_BSPTriList newTris = mesh_BSPTriListInit();
+            // FIXME: this is reallllly slow, if facetris are already generated, should use those instead
+            // FIXME: or make a more compact representation of the tris in the mesh for iteration like this
+            for (mesh_BSPTri* tri = m->bspTris.first; tri; tri = tri->next) {
+                if (tri->sourceFace == ogFace) {
+                    mesh_BSPTriListPushNew(t->generatedArena, &newTris, tri->tri.a, tri->tri.b, tri->tri.c, newFace);
+                }
+            }
+            HMM_Vec3 normal = geo_triNormal(newTris.first->tri); // FIXME: round faces tho??? -> requires refactor to use facetris
+            HMM_Mat4 transform = HMM_Translate(HMM_Mul(normal, op->args[1].number));
+            mesh_BSPTriListTransform(&newTris, transform);
+
+            mesh_BSPTriListJoin(&m->bspTris, &newTris);
         } else {
             SNZ_ASSERTF(false, "unreachable. kind: %lld", op->kind);
         }
     } // end loop solving
+
+    mesh_Mesh* m = targetOp->scene.mesh;
+    if (!m->firstEdge) {
+        mesh_meshGenerateEdges(m, t->generatedArena, scratch);
+    }
+    if (!m->corners.count) {
+        mesh_meshGenerateCorners(m, t->generatedArena, scratch);
+    }
+    if (!m->firstFace->tris.count) {
+        mesh_BSPTriListToFaceTris(t->generatedPool, m);
+    }
+    if (m->renderMesh.vaId) { // FIXME: get a decent check for null rendermeshes
+        // FIXME: probably shouldnt store one of these per scene if solves only happen for one op
+        ren3d_meshDeinit(&m->renderMesh);
+    }
+    m->renderMesh = mesh_BSPTriListToRenderMesh(m->bspTris, scratch);
 }

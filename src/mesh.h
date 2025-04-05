@@ -38,6 +38,7 @@ struct mesh_GeoID {
     mesh_GeoID* diffGeo2;
 };
 
+// FIXME: since a lot of these get created over the course of a solve, would be smart to store sel state somewhere else
 typedef struct mesh_Face mesh_Face;
 struct mesh_Face {
     mesh_Face* next;
@@ -47,7 +48,7 @@ struct mesh_Face {
     int64_t indexIntoMesh;
 };
 
-SNZ_SLICE_NAMED(mesh_Face*, mesh_FacePtrSlice)
+SNZ_SLICE_NAMED(mesh_Face*, mesh_FacePtrSlice);
 
 typedef struct mesh_Edge mesh_Edge;
 struct mesh_Edge {
@@ -115,7 +116,7 @@ typedef struct {
 } mesh_Mesh;
 
 static bool _mesh_geoIdEqual(mesh_GeoID a, mesh_GeoID b) {
-    bool equal = false;
+    bool equal = true;
     equal &= a.geoKind == b.geoKind;
     equal &= a.opUniqueId == b.opUniqueId;
     equal &= a.baseNodeId == b.baseNodeId;
