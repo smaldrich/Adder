@@ -123,6 +123,9 @@ static bool _mesh_geoIdEqual(mesh_GeoID a, mesh_GeoID b) {
     equal &= a.differentiationInt == b.differentiationInt;
     equal &= (a.diffGeo1 == NULL) == (b.diffGeo1 == NULL);
     equal &= (a.diffGeo2 == NULL) == (b.diffGeo2 == NULL);
+    if (!equal) {
+        return false;
+    }
 
     if (a.diffGeo1) {
         equal &= _mesh_geoIdEqual(*a.diffGeo1, *b.diffGeo1);
