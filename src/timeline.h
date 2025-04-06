@@ -333,6 +333,10 @@ void tl_solveForNode(tl_Timeline* t, tl_Op* targetOp, snz_Arena* scratch) {
             mesh_Mesh* m = SNZ_ARENA_PUSH(t->generatedArena, mesh_Mesh);
             *m = mesh_meshDuplicateTrisAndFaces(dep->scene.mesh, scratch, t->generatedArena);
             op->scene.mesh = m;
+            // FIXME: could copy old ones if they exist instead of regenerating
+            mesh_BSPTriListToFaceTris(t->generatedPool, m);
+            mesh_meshGenerateEdges(m, t->generatedArena, scratch);
+            mesh_meshGenerateCorners(m, t->generatedArena, scratch);
 
             mesh_GeoPtr geoPtr = mesh_geoIdFind(op->scene.mesh, op->args[0].geoId);
             SNZ_ASSERT(geoPtr.kind == MESH_GK_FACE, "Extrude geoid find failed.");
@@ -352,6 +356,7 @@ void tl_solveForNode(tl_Timeline* t, tl_Op* targetOp, snz_Arena* scratch) {
 
             mesh_BSPTriList newTris = mesh_BSPTriListInit();
 
+            HMM_Vec3 translation = HMM_V3(0, 0, 0);
             { // duplicate face
                 // FIXME: this is reallllly slow, if facetris are already generated, should use those instead
                 // FIXME: or make a more compact representation of the tris in the mesh for iteration like this
@@ -360,13 +365,26 @@ void tl_solveForNode(tl_Timeline* t, tl_Op* targetOp, snz_Arena* scratch) {
                         mesh_BSPTriListPushNew(t->generatedArena, &newTris, tri->tri.a, tri->tri.b, tri->tri.c, newFace);
                     }
                 }
-                HMM_Vec3 normal = geo_triNormal(newTris.first->tri); // FIXME: round faces tho??? -> requires refactor to use facetris
-                HMM_Mat4 transform = HMM_Translate(HMM_Mul(normal, op->args[1].number));
-                mesh_BSPTriListTransform(&newTris, transform); // FIXME: can do this faster with just a translate list fn
+                // FIXME: round faces tho??? -> requires refactor to use facetris
+                translation = HMM_Mul(geo_triNormal(newTris.first->tri), op->args[1].number);
+                mesh_BSPTriListTransform(&newTris, HMM_Translate(translation)); // FIXME: can do this faster with just a translate list fn
             }
 
             { // stitch siding
-                mesh_VertLoop* loops = mesh_faceToVertLoops()
+                mesh_VertLoop* loops = mesh_faceToVertLoops(m, ogFace, scratch, scratch);
+                for (mesh_VertLoop* loop = loops; loop; loop = loop->next) {
+                    int64_t count = loop->points.count;
+                    for (int64_t i = 0; i < count; i++) {
+                        HMM_Vec3 pt = loop->points.elems[i];
+                        HMM_Vec3 nextPt = loop->points.elems[(i + 1) % count];
+
+                        HMM_Vec3 upperPt = HMM_Add(pt, translation);
+                        HMM_Vec3 upperNextPt = HMM_Add(nextPt, translation);
+
+                        mesh_BSPTriListPushNew(t->generatedArena, &newTris, pt, upperPt, upperNextPt, newFace);
+                        mesh_BSPTriListPushNew(t->generatedArena, &newTris, upperNextPt, nextPt, pt, newFace);
+                    }
+                }
             }
             mesh_BSPTriListJoin(&m->bspTris, &newTris);
         } else {
