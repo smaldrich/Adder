@@ -1283,6 +1283,7 @@ mesh_VertLoop* mesh_faceToVertLoops(mesh_Mesh* m, mesh_Face* f, snz_Arena* scrat
                 continue;
             }
             position = edge->points.elems[0];
+            break;
         }
         if (isnan(position.X)) {
             break; // no more non null edges
@@ -1324,6 +1325,8 @@ mesh_VertLoop* mesh_faceToVertLoops(mesh_Mesh* m, mesh_Face* f, snz_Arena* scrat
                     pts[ptsCount - 1 - i] = edge->points.elems[i]; // not adding one so that we skip the 'last' point
                 }
             }
+
+            position = pts[ptsCount - 1];
         }
 
         HMM_Vec3Slice pts = SNZ_ARENA_ARR_END(out, HMM_Vec3);
