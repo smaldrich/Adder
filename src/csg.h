@@ -4,10 +4,10 @@
 #include "PoolAlloc.h"
 #include "mesh.h"
 
-typedef struct mesh_BSPTri mesh_BSPTri;
-struct mesh_BSPTri {
-    mesh_BSPTri* next;
-    mesh_BSPTri* ancestor;
+typedef struct csg_Tri csg_Tri;
+struct csg_Tri {
+    csg_Tri* next;
+    csg_Tri* ancestor;
     mesh_Face* sourceFace;
     geo_Tri tri;
     bool anyChildDeleted;
@@ -15,18 +15,15 @@ struct mesh_BSPTri {
 };
 
 typedef struct {
-    mesh_BSPTri* first;
-    mesh_BSPTri* last;
-} mesh_BSPTriList;
+    csg_Tri* first;
+    csg_Tri* last;
+} csg_TriList;
 
-typedef struct mesh_BSPNode mesh_BSPNode;
-struct mesh_BSPNode {
-    mesh_BSPNode* outerTree;
-    mesh_BSPNode* innerTree;
-
-    mesh_BSPNode* nextAvailible;  // used for construction only, probs should remove for perf but who cares
-
-    // FIXME: redundant? // Space inefficent??
+typedef struct csg_Node csg_Node;
+struct csg_Node {
+    csg_Node* outerTree;
+    csg_Node* innerTree;
+    csg_Node* nextAvailible;  // used for construction only, probs should remove for perf but who cares
     geo_Tri tri;
 };
 
@@ -35,17 +32,17 @@ typedef enum {
     MESH_PR_WITHIN,
     MESH_PR_OUTSIDE,
     MESH_PR_SPANNING,
-} mesh_PlaneRelation;
+} _csg_PlaneRelation;
 
-mesh_BSPTriList mesh_BSPTriListInit() {
-    return (mesh_BSPTriList) { .first = NULL, .last = NULL };
+csg_TriList csg_triListInit() {
+    return (csg_TriList) { .first = NULL, .last = NULL };
 }
 
 // destructive to node->next
 // FIXME: this is extremely unintuitive and has knack for causing circular lists
 // huge problem, please find a better solution for the list situation
 // same issue with other list functions also
-void mesh_BSPTriListPush(mesh_BSPTriList* list, mesh_BSPTri* node) {
+void csg_triListPush(csg_TriList* list, csg_Tri* node) {
     assert(node != NULL);
     node->next = list->first;
     if (list->first == NULL) {
@@ -55,7 +52,7 @@ void mesh_BSPTriListPush(mesh_BSPTriList* list, mesh_BSPTri* node) {
 }
 
 // destructive to node->next in listA, both ptrs can be null
-mesh_BSPTriList* mesh_BSPTriListJoin(mesh_BSPTriList* listA, mesh_BSPTriList* listB) {
+csg_TriList* csg_triListJoin(csg_TriList* listA, csg_TriList* listB) {
     if (listA->last != NULL) {
         listA->last->next = listB->first;
         if (listB->last != NULL) {
@@ -68,9 +65,9 @@ mesh_BSPTriList* mesh_BSPTriListJoin(mesh_BSPTriList* listA, mesh_BSPTriList* li
 }
 
 // destructive to node->next in list
-void mesh_BSPTriListPushNew(snz_Arena* arena, mesh_BSPTriList* list, HMM_Vec3 a, HMM_Vec3 b, HMM_Vec3 c, mesh_Face* source) {
-    mesh_BSPTri* new = SNZ_ARENA_PUSH(arena, mesh_BSPTri);
-    *new = (mesh_BSPTri){
+void csg_triListPushNew(snz_Arena* arena, csg_TriList* list, HMM_Vec3 a, HMM_Vec3 b, HMM_Vec3 c, mesh_Face* source) {
+    csg_Tri* new = SNZ_ARENA_PUSH(arena, csg_Tri);
+    *new = (csg_Tri){
         .tri = (geo_Tri){
             .a = a,
             .b = b,
@@ -78,32 +75,23 @@ void mesh_BSPTriListPushNew(snz_Arena* arena, mesh_BSPTriList* list, HMM_Vec3 a,
         },
         .sourceFace = source,
     };
-    mesh_BSPTriListPush(list, new);
-}
-
-void mesh_BSPTriListTransform(mesh_BSPTriList* list, HMM_Mat4 transform) {
-    for (mesh_BSPTri* node = list->first; node; node = node->next) {
-        for (int i = 0; i < 3; i++) {
-            HMM_Vec4 v4 = (HMM_Vec4){ .XYZ = node->tri.elems[i], .W = 1 };
-            node->tri.elems[i] = HMM_MulM4V4(transform, v4).XYZ;
-        }
-    }
+    csg_triListPush(list, new);
 }
 
 // flips the normals for every tri within list
-void mesh_BSPTriListInvert(mesh_BSPTriList* list) {
-    for (mesh_BSPTri* node = list->first; node; node = node->next) {
+void csg_triListInvert(csg_TriList* list) {
+    for (csg_Tri* node = list->first; node; node = node->next) {
         HMM_Vec3 temp = node->tri.a;
         node->tri.a = node->tri.c;
         node->tri.c = temp;
     }
 }
 
-void mesh_BSPTriListToSTLFile(const mesh_BSPTriList* list, const char* path) {
+void csg_triListToSTLFile(const csg_TriList* list, const char* path) {
     FILE* f = fopen(path, "w");
     fprintf(f, "solid object\n");
 
-    for (const mesh_BSPTri* tri = list->first; tri; tri = tri->next) {
+    for (const csg_Tri* tri = list->first; tri; tri = tri->next) {
         HMM_Vec3 normal = geo_triNormal(tri->tri);
         fprintf(f, "facet normal %f %f %f\n", normal.X, normal.Y, normal.Z);
         fprintf(f, "outer loop\n");
@@ -118,8 +106,8 @@ void mesh_BSPTriListToSTLFile(const mesh_BSPTriList* list, const char* path) {
     fclose(f);
 }
 
-static mesh_PlaneRelation _mesh_triClassify(geo_Tri tri, HMM_Vec3 planeNormal, HMM_Vec3 planeStart) {
-    mesh_PlaneRelation finalRel = 0;
+static _csg_PlaneRelation _csg_triClassify(geo_Tri tri, HMM_Vec3 planeNormal, HMM_Vec3 planeStart) {
+    _csg_PlaneRelation finalRel = 0;
     for (int i = 0; i < 3; i++) {
         float dot = HMM_Dot(HMM_SubV3(tri.elems[i], planeStart), planeNormal);
         if (geo_floatZero(dot)) {
@@ -134,18 +122,18 @@ static mesh_PlaneRelation _mesh_triClassify(geo_Tri tri, HMM_Vec3 planeNormal, H
 // parent assumed non-null, new nodes allocated into arena
 // takes a list of nodes with normals and origins filled out, organizes it + its children into the tree shape based on splits
 // will allocate more nodes over the course of fixing, these are put into arena
-static void _mesh_BSPTreeFixNode(snz_Arena* arena, mesh_BSPNode* parent, mesh_BSPNode* listOfPossibleNodes) {
+static void _csg_nodeFix(snz_Arena* arena, csg_Node* parent, csg_Node* listOfPossibleNodes) {
     HMM_Vec3 splitNormal = geo_triNormal(parent->tri);
 
-    mesh_BSPNode* innerList = NULL;
-    mesh_BSPNode* outerList = NULL;
+    csg_Node* innerList = NULL;
+    csg_Node* outerList = NULL;
     {
-        mesh_BSPNode* next = NULL;
-        for (mesh_BSPNode* node = listOfPossibleNodes; node; node = next) {
+        csg_Node* next = NULL;
+        for (csg_Node* node = listOfPossibleNodes; node; node = next) {
             // memo this beforehand ev loop because appending to the inner/outer list overwrites the nextptr
             next = node->nextAvailible;
 
-            mesh_PlaneRelation rel = _mesh_triClassify(node->tri, splitNormal, parent->tri.a);
+            _csg_PlaneRelation rel = _csg_triClassify(node->tri, splitNormal, parent->tri.a);
             if (rel == MESH_PR_OUTSIDE) {
                 node->nextAvailible = outerList;
                 outerList = node;
@@ -154,7 +142,7 @@ static void _mesh_BSPTreeFixNode(snz_Arena* arena, mesh_BSPNode* parent, mesh_BS
                 innerList = node;
             } else {
                 // it spans both sides, we need one node for each side // FIXME: does this need to be split too?
-                mesh_BSPNode* duplicate = SNZ_ARENA_PUSH(arena, mesh_BSPNode);
+                csg_Node* duplicate = SNZ_ARENA_PUSH(arena, csg_Node);
                 duplicate->tri = node->tri;
 
                 node->nextAvailible = innerList;
@@ -169,32 +157,32 @@ static void _mesh_BSPTreeFixNode(snz_Arena* arena, mesh_BSPNode* parent, mesh_BS
     parent->outerTree = outerList;
 
     if (parent->innerTree != NULL) {
-        _mesh_BSPTreeFixNode(arena, parent->innerTree, innerList->nextAvailible);
+        _csg_nodeFix(arena, parent->innerTree, innerList->nextAvailible);
     }
 
     if (parent->outerTree != NULL) {
-        _mesh_BSPTreeFixNode(arena, parent->outerTree, outerList->nextAvailible);
+        _csg_nodeFix(arena, parent->outerTree, outerList->nextAvailible);
     }
 }
 
 // returns the top of a bsp tree for the list of tris, allocated entirely inside arena
 // Normals calculated with out being CW, where all normals should be pointing out
-mesh_BSPNode* mesh_BSPTriListToBSP(const mesh_BSPTriList* tris, snz_Arena* arena) {
-    mesh_BSPNode* tree = NULL;
+csg_Node* csg_triListToNodes(const csg_TriList* tris, snz_Arena* arena) {
+    csg_Node* tree = NULL;
 
-    for (const mesh_BSPTri* tri = tris->first; tri; tri = tri->next) {
-        mesh_BSPNode* node = SNZ_ARENA_PUSH(arena, mesh_BSPNode);
+    for (const csg_Tri* tri = tris->first; tri; tri = tri->next) {
+        csg_Node* node = SNZ_ARENA_PUSH(arena, csg_Node);
         node->nextAvailible = tree;
         tree = node;
         node->tri = tri->tri;
     }
 
-    _mesh_BSPTreeFixNode(arena, tree, tree->nextAvailible);
+    _csg_nodeFix(arena, tree, tree->nextAvailible);
     return tree;
 }
 
-bool mesh_BSPContainsPoint(mesh_BSPNode* tree, HMM_Vec3 point) {
-    mesh_BSPNode* node = tree;
+bool csg_bspContainsPoint(csg_Node* tree, HMM_Vec3 point) {
+    csg_Node* node = tree;
     while (true) {  // FIXME: failsafe here :)
         HMM_Vec3 diff = HMM_SubV3(point, node->tri.a);
         float dot = HMM_DotV3(diff, geo_triNormal(node->tri));
@@ -215,19 +203,19 @@ bool mesh_BSPContainsPoint(mesh_BSPNode* tree, HMM_Vec3 point) {
 
 // FIXME: point deduplication of some kind?
 // destructive to tri->next, and both outlists next
-static void _mesh_BSPTriSplit(mesh_BSPTri* tri, snz_Arena* arena, mesh_BSPTriList* outOutsideList, mesh_BSPTriList* outInsideList, mesh_BSPNode* cutter) {
+static void _csg_triSplit(csg_Tri* tri, snz_Arena* arena, csg_TriList* outOutsideList, csg_TriList* outInsideList, csg_Node* cutter) {
     HMM_Vec3 cutNormal = geo_triNormal(cutter->tri);
 
-    mesh_PlaneRelation rel = _mesh_triClassify(tri->tri, cutNormal, cutter->tri.a);
+    _csg_PlaneRelation rel = _csg_triClassify(tri->tri, cutNormal, cutter->tri.a);
 
     if (rel == MESH_PR_COPLANAR) {
         assert(false);  // FIXME: this
         // FIXME: how do coplanar things factor into this?
         // FIXME: full coplanar testing
     } else if (rel == MESH_PR_OUTSIDE) {
-        mesh_BSPTriListPush(outOutsideList, tri);
+        csg_triListPush(outOutsideList, tri);
     } else if (rel == MESH_PR_WITHIN) {
-        mesh_BSPTriListPush(outInsideList, tri);
+        csg_triListPush(outInsideList, tri);
     } else {
         HMM_Vec3 verts[5] = { 0 };
         int vertCount = 0;
@@ -290,9 +278,9 @@ static void _mesh_BSPTriSplit(mesh_BSPTri* tri, snz_Arena* arena, mesh_BSPTriLis
 
         if (vertCount == 5) {
             bool t1Outside = HMM_DotV3(HMM_SubV3(rotatedVerts[1], cutter->tri.a), cutNormal) > 0;
-            mesh_BSPTri* t1 = SNZ_ARENA_PUSH(arena, mesh_BSPTri);
+            csg_Tri* t1 = SNZ_ARENA_PUSH(arena, csg_Tri);
 
-            *t1 = (mesh_BSPTri){
+            *t1 = (csg_Tri){
                 .tri = (geo_Tri){
                     .a = rotatedVerts[0],
                     .b = rotatedVerts[1],
@@ -302,8 +290,8 @@ static void _mesh_BSPTriSplit(mesh_BSPTri* tri, snz_Arena* arena, mesh_BSPTriLis
                 .sourceFace = tri->sourceFace,  // FIXME: sometimes, if a face gets split to become non-contiguous, this is just wrong and we need another face
             };
 
-            mesh_BSPTri* t2 = SNZ_ARENA_PUSH(arena, mesh_BSPTri);
-            *t2 = (mesh_BSPTri){
+            csg_Tri* t2 = SNZ_ARENA_PUSH(arena, csg_Tri);
+            *t2 = (csg_Tri){
                 .tri = (geo_Tri){
                     .a = rotatedVerts[2],
                     .b = rotatedVerts[3],
@@ -313,8 +301,8 @@ static void _mesh_BSPTriSplit(mesh_BSPTri* tri, snz_Arena* arena, mesh_BSPTriLis
                 .sourceFace = tri->sourceFace,
             };
 
-            mesh_BSPTri* t3 = SNZ_ARENA_PUSH(arena, mesh_BSPTri);
-            *t3 = (mesh_BSPTri){
+            csg_Tri* t3 = SNZ_ARENA_PUSH(arena, csg_Tri);
+            *t3 = (csg_Tri){
                 .tri = (geo_Tri){
                     .a = rotatedVerts[4],
                     .b = rotatedVerts[0],
@@ -324,16 +312,16 @@ static void _mesh_BSPTriSplit(mesh_BSPTri* tri, snz_Arena* arena, mesh_BSPTriLis
                 .sourceFace = tri->sourceFace,
             };
 
-            mesh_BSPTriList* t1List = t1Outside ? outOutsideList : outInsideList;
-            mesh_BSPTriList* t2and3List = t1Outside ? outInsideList : outOutsideList;
+            csg_TriList* t1List = t1Outside ? outOutsideList : outInsideList;
+            csg_TriList* t2and3List = t1Outside ? outInsideList : outOutsideList;
 
-            mesh_BSPTriListPush(t1List, t1);
-            mesh_BSPTriListPush(t2and3List, t2);
-            mesh_BSPTriListPush(t2and3List, t3);
+            csg_triListPush(t1List, t1);
+            csg_triListPush(t2and3List, t2);
+            csg_triListPush(t2and3List, t3);
         }  // end 5 vert-check
         else if (vertCount == 4) {
-            mesh_BSPTri* t1 = SNZ_ARENA_PUSH(arena, mesh_BSPTri);
-            *t1 = (mesh_BSPTri){
+            csg_Tri* t1 = SNZ_ARENA_PUSH(arena, csg_Tri);
+            *t1 = (csg_Tri){
                 .tri = (geo_Tri){
                     .a = rotatedVerts[0],
                     .b = rotatedVerts[1],
@@ -343,8 +331,8 @@ static void _mesh_BSPTriSplit(mesh_BSPTri* tri, snz_Arena* arena, mesh_BSPTriLis
                 .sourceFace = tri->sourceFace,
             };
 
-            mesh_BSPTri* t2 = SNZ_ARENA_PUSH(arena, mesh_BSPTri);
-            *t2 = (mesh_BSPTri){
+            csg_Tri* t2 = SNZ_ARENA_PUSH(arena, csg_Tri);
+            *t2 = (csg_Tri){
                 .tri = (geo_Tri){
                     .a = rotatedVerts[2],
                     .b = rotatedVerts[3],
@@ -356,8 +344,8 @@ static void _mesh_BSPTriSplit(mesh_BSPTri* tri, snz_Arena* arena, mesh_BSPTriLis
 
             // t1B should never be colinear with the cut plane so long as rotation has been done correctly
             bool t1Outside = HMM_DotV3(HMM_SubV3(t1->tri.b, cutter->tri.a), cutNormal) > 0;
-            mesh_BSPTriListPush(t1Outside ? outOutsideList : outInsideList, t1);
-            mesh_BSPTriListPush(t1Outside ? outInsideList : outOutsideList, t2);
+            csg_triListPush(t1Outside ? outOutsideList : outInsideList, t1);
+            csg_triListPush(t1Outside ? outInsideList : outOutsideList, t2);
         } else {
             // anything greater than 5 should be impossible, anything less than 4 should have been put on
             // one side, not marked spanning
@@ -369,19 +357,19 @@ static void _mesh_BSPTriSplit(mesh_BSPTri* tri, snz_Arena* arena, mesh_BSPTriLis
 // clips all tris in meshTris from tree, returns a LL of the new tris, destructive to the original
 // if within is set, tris within are clipped, otherwise tris outside
 // everything allocated to arena
-mesh_BSPTriList* mesh_BSPTriListClip(bool within, mesh_BSPTriList* meshTris, mesh_BSPNode* tree, snz_Arena* arena) {
-    mesh_BSPTriList inside = mesh_BSPTriListInit();
-    mesh_BSPTriList outside = mesh_BSPTriListInit();
+csg_TriList* csg_triListClip(bool within, csg_TriList* meshTris, csg_Node* tree, snz_Arena* arena) {
+    csg_TriList inside = csg_triListInit();
+    csg_TriList outside = csg_triListInit();
 
-    mesh_BSPTri* next = NULL;  // memod because placing in the other list would overwrite
-    for (mesh_BSPTri* tri = meshTris->first; tri; tri = next) {
+    csg_Tri* next = NULL;  // memod because placing in the other list would overwrite
+    for (csg_Tri* tri = meshTris->first; tri; tri = next) {
         next = tri->next;
-        _mesh_BSPTriSplit(tri, arena, &outside, &inside, tree);
+        _csg_triSplit(tri, arena, &outside, &inside, tree);
     }
 
-    mesh_BSPTriList* listToClear = NULL;
+    csg_TriList* listToClear = NULL;
     if (tree->innerTree != NULL) {
-        inside = *mesh_BSPTriListClip(within, &inside, tree->innerTree, arena);
+        inside = *csg_triListClip(within, &inside, tree->innerTree, arena);
     } else {
         if (within) {
             listToClear = &inside;
@@ -389,7 +377,7 @@ mesh_BSPTriList* mesh_BSPTriListClip(bool within, mesh_BSPTriList* meshTris, mes
     }
 
     if (tree->outerTree != NULL) {
-        outside = *mesh_BSPTriListClip(within, &outside, tree->outerTree, arena);
+        outside = *csg_triListClip(within, &outside, tree->outerTree, arena);
     } else {
         if (!within) {
             listToClear = &outside;
@@ -401,8 +389,8 @@ mesh_BSPTriList* mesh_BSPTriListClip(bool within, mesh_BSPTriList* meshTris, mes
         // later, because these splits are actually important to the end geometry.
         // other splits are just there to make inner splits possible, but can be reverted to save tris after
         // the entire operation.
-        for (mesh_BSPTri* node = listToClear->first; node; node = node->next) {
-            for (mesh_BSPTri* n = node; n; n = n->ancestor) {
+        for (csg_Tri* node = listToClear->first; node; node = node->next) {
+            for (csg_Tri* n = node; n; n = n->ancestor) {
                 n->anyChildDeleted = true;
             }
         }
@@ -410,21 +398,21 @@ mesh_BSPTriList* mesh_BSPTriListClip(bool within, mesh_BSPTriList* meshTris, mes
         listToClear->last = NULL;
     }
 
-    mesh_BSPTriList* out = SNZ_ARENA_PUSH(arena, mesh_BSPTriList);
-    *out = *mesh_BSPTriListJoin(&inside, &outside);
+    csg_TriList* out = SNZ_ARENA_PUSH(arena, csg_TriList);
+    *out = *csg_triListJoin(&inside, &outside);
     return out;
 }
 
 // destructive to the original tri list
-void mesh_BSPTriListRecoverNonBroken(mesh_BSPTriList** tris, snz_Arena* arena) {
-    mesh_BSPTriList* recovered = SNZ_ARENA_PUSH(arena, mesh_BSPTriList);
-    mesh_BSPTriList* trisRemaining = SNZ_ARENA_PUSH(arena, mesh_BSPTriList);
+void csg_triListRecoverNonBroken(csg_TriList** tris, snz_Arena* arena) {
+    csg_TriList* recovered = SNZ_ARENA_PUSH(arena, csg_TriList);
+    csg_TriList* trisRemaining = SNZ_ARENA_PUSH(arena, csg_TriList);
 
-    mesh_BSPTri* next = NULL;
-    for (mesh_BSPTri* node = (*tris)->first; node; node = next) {
+    csg_Tri* next = NULL;
+    for (csg_Tri* node = (*tris)->first; node; node = next) {
         next = node->next;
 
-        mesh_BSPTri* oldest = node->ancestor;
+        csg_Tri* oldest = node->ancestor;
         while (true) {
             if (oldest == NULL) {
                 break;
@@ -441,15 +429,15 @@ void mesh_BSPTriListRecoverNonBroken(mesh_BSPTriList** tris, snz_Arena* arena) {
         }
         if (oldest) {
             if (!oldest->recovered) {
-                mesh_BSPTriListPush(recovered, oldest);
+                csg_triListPush(recovered, oldest);
                 oldest->recovered = true;
             }
         } else {
-            mesh_BSPTriListPush(trisRemaining, node);
+            csg_triListPush(trisRemaining, node);
         }
     }
 
-    *tris = mesh_BSPTriListJoin(trisRemaining, recovered);
+    *tris = csg_triListJoin(trisRemaining, recovered);
 }
 
 void csg_tests() {
@@ -466,20 +454,20 @@ void csg_tests() {
             HMM_V3(1, 0, -1),
         };
 
-        mesh_BSPTriList list = mesh_BSPTriListInit();
-        mesh_BSPTriListPushNew(&arena, &list, verts[0], verts[1], verts[2], NULL);
-        mesh_BSPTriListPushNew(&arena, &list, verts[0], verts[2], verts[3], NULL);
-        mesh_BSPTriListPushNew(&arena, &list, verts[0], verts[3], verts[1], NULL);
-        mesh_BSPTriListPushNew(&arena, &list, verts[3], verts[2], verts[1], NULL);
+        csg_TriList list = csg_triListInit();
+        csg_triListPushNew(&arena, &list, verts[0], verts[1], verts[2], NULL);
+        csg_triListPushNew(&arena, &list, verts[0], verts[2], verts[3], NULL);
+        csg_triListPushNew(&arena, &list, verts[0], verts[3], verts[1], NULL);
+        csg_triListPushNew(&arena, &list, verts[3], verts[2], verts[1], NULL);
 
-        mesh_BSPNode* tree = mesh_BSPTriListToBSP(&list, &arena);
-        snz_testPrint(mesh_BSPContainsPoint(tree, HMM_V3(0.5, 0.5, 0.0)) == true, "Tetra contains pt");
-        snz_testPrint(mesh_BSPContainsPoint(tree, HMM_V3(0.5, 1.0, 0.5)) == false, "Tetra doesn't contain pt");
-        snz_testPrint(mesh_BSPContainsPoint(tree, HMM_V3(0, 0, 0)) == true, "Tetra contains edge pt");
-        snz_testPrint(mesh_BSPContainsPoint(tree, HMM_V3(1, 0, -1)) == true, "Tetra contains edge pt 2");
-        snz_testPrint(mesh_BSPContainsPoint(tree, HMM_V3(-1, 0, -1)) == false, "Tetra doesn't contain point 2");
-        snz_testPrint(mesh_BSPContainsPoint(tree, HMM_V3(3, 3, 3)) == false, "Tetra doesn't contain point 3");
-        snz_testPrint(mesh_BSPContainsPoint(tree, HMM_V3(INFINITY, NAN, NAN)) == false, "Tetra doesn't contain invalid floats");
+        csg_Node* tree = csg_triListToNodes(&list, &arena);
+        snz_testPrint(csg_bspContainsPoint(tree, HMM_V3(0.5, 0.5, 0.0)) == true, "Tetra contains pt");
+        snz_testPrint(csg_bspContainsPoint(tree, HMM_V3(0.5, 1.0, 0.5)) == false, "Tetra doesn't contain pt");
+        snz_testPrint(csg_bspContainsPoint(tree, HMM_V3(0, 0, 0)) == true, "Tetra contains edge pt");
+        snz_testPrint(csg_bspContainsPoint(tree, HMM_V3(1, 0, -1)) == true, "Tetra contains edge pt 2");
+        snz_testPrint(csg_bspContainsPoint(tree, HMM_V3(-1, 0, -1)) == false, "Tetra doesn't contain point 2");
+        snz_testPrint(csg_bspContainsPoint(tree, HMM_V3(3, 3, 3)) == false, "Tetra doesn't contain point 3");
+        snz_testPrint(csg_bspContainsPoint(tree, HMM_V3(INFINITY, NAN, NAN)) == false, "Tetra doesn't contain invalid floats");
     }
 
     snz_arenaClear(&arena);
@@ -494,27 +482,27 @@ void csg_tests() {
             HMM_V3(0, -1, 1),
         };
 
-        mesh_BSPTriList list = mesh_BSPTriListInit();
+        csg_TriList list = csg_triListInit();
         // top faces
-        mesh_BSPTriListPushNew(&arena, &list, verts[1], verts[2], verts[3], NULL);
-        mesh_BSPTriListPushNew(&arena, &list, verts[1], verts[4], verts[2], NULL);
-        mesh_BSPTriListPushNew(&arena, &list, verts[1], verts[3], verts[0], NULL);
-        mesh_BSPTriListPushNew(&arena, &list, verts[1], verts[0], verts[4], NULL);
+        csg_triListPushNew(&arena, &list, verts[1], verts[2], verts[3], NULL);
+        csg_triListPushNew(&arena, &list, verts[1], verts[4], verts[2], NULL);
+        csg_triListPushNew(&arena, &list, verts[1], verts[3], verts[0], NULL);
+        csg_triListPushNew(&arena, &list, verts[1], verts[0], verts[4], NULL);
 
         // bottom faces
-        mesh_BSPTriListPushNew(&arena, &list, verts[0], verts[3], verts[2], NULL);
-        mesh_BSPTriListPushNew(&arena, &list, verts[0], verts[2], verts[4], NULL);
-        mesh_BSPTriListToSTLFile(&list, "testing/object.stl");
+        csg_triListPushNew(&arena, &list, verts[0], verts[3], verts[2], NULL);
+        csg_triListPushNew(&arena, &list, verts[0], verts[2], verts[4], NULL);
+        csg_triListToSTLFile(&list, "testing/object.stl");
 
-        mesh_BSPNode* tree = mesh_BSPTriListToBSP(&list, &arena);
+        csg_Node* tree = csg_triListToNodes(&list, &arena);
 
-        snz_testPrint(mesh_BSPContainsPoint(tree, HMM_V3(0, 0, 0)) == true, "horn contain test 1");
-        snz_testPrint(mesh_BSPContainsPoint(tree, HMM_V3(0, 10, 0)) == false, "horn contain test 2");
-        snz_testPrint(mesh_BSPContainsPoint(tree, HMM_V3(0, 0, -0.1)) == true, "horn contain test 3");
-        snz_testPrint(mesh_BSPContainsPoint(tree, HMM_V3(-0.5, 0, 0)) == true, "horn contain test 4");
-        snz_testPrint(mesh_BSPContainsPoint(tree, HMM_V3(0, -1, -1)) == true, "horn contain test 5");
-        snz_testPrint(mesh_BSPContainsPoint(tree, HMM_V3(-1, -1, -1)) == false, "horn contain test 6");
-        snz_testPrint(mesh_BSPContainsPoint(tree, HMM_V3(0, -0.5, 0)) == false, "horn contain test 7");
+        snz_testPrint(csg_bspContainsPoint(tree, HMM_V3(0, 0, 0)) == true, "horn contain test 1");
+        snz_testPrint(csg_bspContainsPoint(tree, HMM_V3(0, 10, 0)) == false, "horn contain test 2");
+        snz_testPrint(csg_bspContainsPoint(tree, HMM_V3(0, 0, -0.1)) == true, "horn contain test 3");
+        snz_testPrint(csg_bspContainsPoint(tree, HMM_V3(-0.5, 0, 0)) == true, "horn contain test 4");
+        snz_testPrint(csg_bspContainsPoint(tree, HMM_V3(0, -1, -1)) == true, "horn contain test 5");
+        snz_testPrint(csg_bspContainsPoint(tree, HMM_V3(-1, -1, -1)) == false, "horn contain test 6");
+        snz_testPrint(csg_bspContainsPoint(tree, HMM_V3(0, -0.5, 0)) == false, "horn contain test 7");
     }
 
     snz_arenaClear(&arena);
@@ -526,14 +514,14 @@ void csg_tests() {
         mesh_facesTransform(cubeB, HMM_Rotate_RH(HMM_AngleDeg(30), HMM_V3(1, 1, 1)));
         mesh_facesTranslate(cubeB, HMM_V3(1, 1, 1));
 
-        mesh_BSPNode* treeA = mesh_BSPTriListToBSP(&cubeA.bspTris, &arena);
-        mesh_BSPNode* treeB = mesh_BSPTriListToBSP(&cubeB.bspTris, &arena);
+        csg_Node* treeA = csg_triListToNodes(&cubeA.bspTris, &arena);
+        csg_Node* treeB = csg_triListToNodes(&cubeB.bspTris, &arena);
 
-        mesh_BSPTriList* aClipped = mesh_BSPTriListClip(true, &cubeA.bspTris, treeB, &arena);
-        mesh_BSPTriList* bClipped = mesh_BSPTriListClip(true, &cubeB.bspTris, treeA, &arena);
-        mesh_BSPTriList* final = mesh_BSPTriListJoin(aClipped, bClipped);
-        mesh_BSPTriListRecoverNonBroken(&final, &arena);
-        mesh_BSPTriListToSTLFile(final, "testing/union.stl");
+        csg_TriList* aClipped = csg_triListClip(true, &cubeA.bspTris, treeB, &arena);
+        csg_TriList* bClipped = csg_triListClip(true, &cubeB.bspTris, treeA, &arena);
+        csg_TriList* final = csg_triListJoin(aClipped, bClipped);
+        csg_triListRecoverNonBroken(&final, &arena);
+        csg_triListToSTLFile(final, "testing/union.stl");
     }
 
     {
@@ -542,15 +530,15 @@ void csg_tests() {
         mesh_facesTransform(cubeB, HMM_Rotate_RH(HMM_AngleDeg(30), HMM_V3(1, 1, 1)));
         mesh_facesTranslate(cubeB, HMM_V3(1, 1, 1));
 
-        mesh_BSPNode* treeA = mesh_BSPTriListToBSP(&cubeA.bspTris, &arena);
-        mesh_BSPNode* treeB = mesh_BSPTriListToBSP(&cubeB.bspTris, &arena);
+        csg_Node* treeA = csg_triListToNodes(&cubeA.bspTris, &arena);
+        csg_Node* treeB = csg_triListToNodes(&cubeB.bspTris, &arena);
 
-        mesh_BSPTriList* aClipped = mesh_BSPTriListClip(true, &cubeA.bspTris, treeB, &arena);
-        mesh_BSPTriList* bClipped = mesh_BSPTriListClip(false, &cubeB.bspTris, treeA, &arena);
-        mesh_BSPTriListInvert(bClipped);
-        mesh_BSPTriList* final = mesh_BSPTriListJoin(aClipped, bClipped);
-        mesh_BSPTriListRecoverNonBroken(&final, &arena);
-        mesh_BSPTriListToSTLFile(final, "testing/intersection.stl");
+        csg_TriList* aClipped = csg_triListClip(true, &cubeA.bspTris, treeB, &arena);
+        csg_TriList* bClipped = csg_triListClip(false, &cubeB.bspTris, treeA, &arena);
+        csg_triListInvert(bClipped);
+        csg_TriList* final = csg_triListJoin(aClipped, bClipped);
+        csg_triListRecoverNonBroken(&final, &arena);
+        csg_triListToSTLFile(final, "testing/intersection.stl");
     }
 
     snz_arenaDeinit(&arena);

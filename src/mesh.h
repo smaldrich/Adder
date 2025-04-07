@@ -12,7 +12,7 @@
 #include "timeline.h"
 
 typedef enum {
-    MESH_GK_DEREF_FAILED,
+    MESH_GK_DOES_NOT_EXIST,
     MESH_GK_CORNER,
     MESH_GK_EDGE,
     MESH_GK_FACE,
@@ -22,6 +22,8 @@ typedef enum {
 Geo ids are the backend idea to make the parametric part of this thing work.
 there is one embedded in every piece of geometry, describing it in terms of the operations that created it.
 Other operations use ids to find the geometry they are supposed to be operating on at solve time
+
+these things are intended to be stored and passed by value, and diffGeoptrs should not be shared.
 */
 
 typedef struct mesh_GeoID mesh_GeoID;
@@ -652,7 +654,7 @@ mesh_GeoIDResult mesh_geoIdFind(mesh_FaceSlice faces, mesh_GeoID ref) {
     } else {
         SNZ_ASSERTF(false, "unreachable. kind: %d", ref.geoKind);
     }
-    out.kind = MESH_GK_DEREF_FAILED;
+    out.kind = MESH_GK_DOES_NOT_EXIST;
     return out;
 }
 
