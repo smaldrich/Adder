@@ -8,7 +8,7 @@ typedef struct csg_Tri csg_Tri;
 struct csg_Tri {
     csg_Tri* next;
     csg_Tri* ancestor;
-    mesh_Face* sourceFace;
+    mesh_Face* face;
     geo_Tri tri;
     bool anyChildDeleted;
     bool recovered;
@@ -28,10 +28,10 @@ struct csg_Node {
 };
 
 typedef enum {
-    MESH_PR_COPLANAR,
-    MESH_PR_WITHIN,
-    MESH_PR_OUTSIDE,
-    MESH_PR_SPANNING,
+    CSG_PR_COPLANAR,
+    CSG_PR_WITHIN,
+    CSG_PR_OUTSIDE,
+    CSG_PR_SPANNING,
 } _csg_PlaneRelation;
 
 csg_TriList csg_triListInit() {
@@ -111,9 +111,9 @@ static _csg_PlaneRelation _csg_triClassify(geo_Tri tri, HMM_Vec3 planeNormal, HM
     for (int i = 0; i < 3; i++) {
         float dot = HMM_Dot(HMM_SubV3(tri.elems[i], planeStart), planeNormal);
         if (geo_floatZero(dot)) {
-            finalRel |= MESH_PR_COPLANAR;
+            finalRel |= CSG_PR_COPLANAR;
         } else {
-            finalRel |= dot > 0 ? MESH_PR_OUTSIDE : MESH_PR_WITHIN;
+            finalRel |= dot > 0 ? CSG_PR_OUTSIDE : CSG_PR_WITHIN;
         }
     }
     return finalRel;
@@ -134,10 +134,10 @@ static void _csg_nodeFix(snz_Arena* arena, csg_Node* parent, csg_Node* listOfPos
             next = node->nextAvailible;
 
             _csg_PlaneRelation rel = _csg_triClassify(node->tri, splitNormal, parent->tri.a);
-            if (rel == MESH_PR_OUTSIDE) {
+            if (rel == CSG_PR_OUTSIDE) {
                 node->nextAvailible = outerList;
                 outerList = node;
-            } else if (rel == MESH_PR_WITHIN) {
+            } else if (rel == CSG_PR_WITHIN) {
                 node->nextAvailible = innerList;
                 innerList = node;
             } else {
@@ -208,13 +208,13 @@ static void _csg_triSplit(csg_Tri* tri, snz_Arena* arena, csg_TriList* outOutsid
 
     _csg_PlaneRelation rel = _csg_triClassify(tri->tri, cutNormal, cutter->tri.a);
 
-    if (rel == MESH_PR_COPLANAR) {
+    if (rel == CSG_PR_COPLANAR) {
         assert(false);  // FIXME: this
         // FIXME: how do coplanar things factor into this?
         // FIXME: full coplanar testing
-    } else if (rel == MESH_PR_OUTSIDE) {
+    } else if (rel == CSG_PR_OUTSIDE) {
         csg_triListPush(outOutsideList, tri);
-    } else if (rel == MESH_PR_WITHIN) {
+    } else if (rel == CSG_PR_WITHIN) {
         csg_triListPush(outInsideList, tri);
     } else {
         HMM_Vec3 verts[5] = { 0 };
