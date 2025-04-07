@@ -11,6 +11,15 @@ typedef struct {
     };
 } geo_Tri;
 
+geo_Tri geo_triInit(HMM_Vec3 a, HMM_Vec3 b, HMM_Vec3 c) {
+    geo_Tri out = (geo_Tri){
+        .a = a,
+        .b = b,
+        .c = c,
+    };
+    return out;
+}
+
 SNZ_SLICE(geo_Tri);
 
 typedef struct {
