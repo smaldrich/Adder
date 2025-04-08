@@ -132,23 +132,165 @@ struct _csg_TempFace {
     mesh_Face face;
 };
 
-static void _csg_splitTri(geo_Tri tri, const csg_Node* cutter, geo_Tri** resultTris, ) {
+// returns number of subtris that tri got split into (also length of resultTris and inOrOut)
+// outInOrOut true values mean in
+static int _csg_splitTri(geo_Tri* tri, const csg_Node* cutter, geo_Tri** outResultTris, bool** outInOrOut, snz_Arena* arena) {
+    _csg_PlaneRelation rel = _csg_triClassify(*tri, cutter->normal, cutter->origin);
+    if (rel == CSG_PR_COPLANAR) {
+        assert(false);  // FIXME: this
+        // FIXME: how do coplanar things factor into this?
+        // FIXME: full coplanar testing
+    } else if (rel == CSG_PR_OUTSIDE || rel == CSG_PR_WITHIN) {
+        *outResultTris = SNZ_ARENA_PUSH(arena, geo_Tri);
+        (*outResultTris)[0] = *tri;
+        *outInOrOut = SNZ_ARENA_PUSH(arena, bool);
+        (*outInOrOut)[0] = (rel == CSG_PR_WITHIN);
+        return 1;
+    }
+    // tri is spanning, we can do an actual split here
 
+    HMM_Vec3 verts[5] = { 0 };
+    int vertCount = 0;
+    int firstIntersectionIdx = -1;
+
+    // collect all of the verts that need to exist by intersecting each line in the tri
+    for (int i = 0; i < 3; i++) {
+        HMM_Vec3 pt = tri->elems[i];
+        verts[vertCount] = pt;
+        assert(vertCount < 5);
+        vertCount++;
+
+        HMM_Vec3 nextPt = tri->elems[(i + 1) % 3];
+        HMM_Vec3 diff = HMM_SubV3(nextPt, pt);
+        HMM_Vec3 direction = HMM_NormV3(diff);
+        float t = 0;
+        bool intersectExists = geo_rayPlaneIntersection(cutter->origin, cutter->normal, pt, direction, &t);
+        if (!intersectExists) {
+            continue;
+        } else if (geo_floatEqual(t * t, HMM_LenSqr(diff))) {
+            continue;
+        } else if (t < 0 || geo_floatZero(t)) {
+            continue;
+        } else if ((t * t) > HMM_LenSqr(diff)) {
+            continue;
+        }
+
+        assert(vertCount < 5);
+        HMM_Vec3 intersection = HMM_AddV3(HMM_MulV3F(direction, t), pt);
+        if (firstIntersectionIdx == -1 ||
+            (firstIntersectionIdx == 1 && vertCount == 4)) {
+            // perhaps the worst hack I have performed to date.
+            // In order to triangulate a vert loop properly, we are picking an 'origin'
+            // for the verts, so that when they get triangulated below, it can happen using a consistant
+            // method. The point is to rotate one vert to be idx 0, then triangulate normally from there.
+            // because we are splitting one triangle, and it isn't split down the middle, it has to fit one
+            // of three cases below. Where nums are vert nums (in the tri) (pre rotate) and pipes are the cuts.
+            //     2         2         1
+            //    |         | |         |
+            //   0 | 3     0   4     0 | 3
+            // based on the triangulation below, in every case except one the origin will be the smallest
+            // cut to work properly. That one case is tri no. 1 in the diagram, for which we need to
+            // select the second cut as the origin. sorry not sorry. couldn't think of a better way to do
+            // this while maintaining triangulation throughout the clip. VertCount is being checked for 4
+            // because it is incremented after this. sorry again.
+            firstIntersectionIdx = vertCount;
+        }
+        verts[vertCount] = intersection;
+        vertCount++;
+    }
+    // just add a switch and a second prebaked triangulation routine
+
+    // rotate points so that the verts can be triangulated consistantly
+    // problem if you don't do this is that the triangulation doesn't end
+    // up going across the cut line or will create zero-width tris
+    HMM_Vec3 rotatedVerts[5] = { 0 };
+    for (int i = 0; i < vertCount; i++) {
+        rotatedVerts[i] = verts[(i + firstIntersectionIdx) % vertCount];
+    }
+
+    if (vertCount == 5) {
+        bool t1Outside = HMM_DotV3(HMM_SubV3(rotatedVerts[1], cutter->origin), cutter->normal) > 0;
+        geo_Tri* t1 = SNZ_ARENA_PUSH(arena, geo_Tri);
+        *t1 = (geo_Tri){
+            .a = rotatedVerts[0],
+            .b = rotatedVerts[1],
+            .c = rotatedVerts[2],
+        },
+
+        csg_Tri* t2 = SNZ_ARENA_PUSH(arena, csg_Tri);
+        *t2 = (csg_Tri){
+            .tri = (geo_Tri){
+                .a = rotatedVerts[2],
+                .b = rotatedVerts[3],
+                .c = rotatedVerts[4],
+            },
+            .ancestor = tri,
+            .sourceFace = tri->sourceFace,
+        };
+
+        csg_Tri* t3 = SNZ_ARENA_PUSH(arena, csg_Tri);
+        *t3 = (csg_Tri){
+            .tri = (geo_Tri){
+                .a = rotatedVerts[4],
+                .b = rotatedVerts[0],
+                .c = rotatedVerts[2],
+            },
+            .ancestor = tri,
+            .sourceFace = tri->sourceFace,
+        };
+
+        csg_TriList* t1List = t1Outside ? outOutsideList : outInsideList;
+        csg_TriList* t2and3List = t1Outside ? outInsideList : outOutsideList;
+
+        csg_triListPush(t1List, t1);
+        csg_triListPush(t2and3List, t2);
+        csg_triListPush(t2and3List, t3);
+    }  // end 5 vert-check
+    else if (vertCount == 4) {
+        csg_Tri* t1 = SNZ_ARENA_PUSH(arena, csg_Tri);
+        *t1 = (csg_Tri){
+            .tri = (geo_Tri){
+                .a = rotatedVerts[0],
+                .b = rotatedVerts[1],
+                .c = rotatedVerts[2],
+            },
+            .ancestor = tri,
+            .sourceFace = tri->sourceFace,
+        };
+
+        csg_Tri* t2 = SNZ_ARENA_PUSH(arena, csg_Tri);
+        *t2 = (csg_Tri){
+            .tri = (geo_Tri){
+                .a = rotatedVerts[2],
+                .b = rotatedVerts[3],
+                .c = rotatedVerts[0],
+            },
+            .ancestor = tri,
+            .sourceFace = tri->sourceFace,
+        };
+
+        // t1B should never be colinear with the cut plane so long as rotation has been done correctly
+        bool t1Outside = HMM_DotV3(HMM_SubV3(t1->tri.b, cutter->tri.a), cutNormal) > 0;
+        csg_triListPush(t1Outside ? outOutsideList : outInsideList, t1);
+        csg_triListPush(t1Outside ? outInsideList : outOutsideList, t2);
+    }
+    // anything greater than 5 should be impossible, anything less than 4 should have been put on
+    // one side, not marked spanning
+    SNZ_ASSERT(false, "unreachable.");
 }
 
 // return indicates if any child got clipped
 // pushes all sub-tris to arena if any were clipped, if nothing is clipped, defers push to caller
-static bool _csg_clipTri(geo_Tri tri, bool clipWithin, const csg_Node* cutter, snz_Arena* arena) {
-    geo_Tri splitties[3]; // all possible outputs fit here
-    int splitCount = __;
-    int countWithin = __;
-
-    // splitties
+static bool _csg_clipTri(geo_Tri* tri, bool clipWithin, const csg_Node* cutter, snz_Arena* arena, snz_Arena* scratch) {
+    bool* splitTrisInOrOut = NULL;
+    geo_Tri* splitTris = NULL;
+    int splitCount = _csg_splitTri(tri, cutter, &splitTris, &splitTrisInOrOut, scratch);
 
     bool anyClipped = false;
     bool clipped[3] = { 0 };
-    for (int i = 0; i < 3; i++) {
-        bool within = i < countWithin;
+    SNZ_ASSERTF(splitCount <= 3, "Somehow a triangle got split into %d sub-tris.", splitCount);
+    for (int i = 0; i < splitCount; i++) {
+        bool within = splitTrisInOrOut[i];
         csg_Node* nextCutter = within ? cutter->innerTree : cutter->outerTree;
         if (!nextCutter) {
             if (within == clipWithin) {
@@ -156,7 +298,7 @@ static bool _csg_clipTri(geo_Tri tri, bool clipWithin, const csg_Node* cutter, s
                 clipped[i] = true;
             }
         } else {
-            anyClipped |= _csg_clipTri(splitties[i], clipWithin, nextCutter, arena);
+            anyClipped |= _csg_clipTri(&splitTris[i], clipWithin, nextCutter, arena, scratch);
         }
     }
 
@@ -168,7 +310,7 @@ static bool _csg_clipTri(geo_Tri tri, bool clipWithin, const csg_Node* cutter, s
         if (clipped[i]) {
             continue;
         }
-        *SNZ_ARENA_PUSH(arena, geo_Tri) = splitties[i];
+        *SNZ_ARENA_PUSH(arena, geo_Tri) = splitTris[i];
     }
     return true;
 }
@@ -211,17 +353,3 @@ mesh_FaceSlice csg_facesClip(mesh_FaceSlice faces, const csg_Node* tree, bool re
     }
     return SNZ_ARENA_ARR_END(arena, mesh_Face);
 }
-
-/*
-push new face arr
-per face:
-    per tri:
-        split into temp space against the whole tree,
-        take things that are good
-        reformat, push to output face
-    collect output face
-ret that shit
-
-a tri -> split on the whole tree until dead
-anything left ? push to the output within the current face
-*/
