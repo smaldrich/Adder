@@ -130,6 +130,18 @@ void mesh_facesTransform(mesh_FaceSlice faces, HMM_Mat4 transform) {
     } // faces
 }
 
+void mesh_facesInvert(mesh_FaceSlice faces) {
+    for (int64_t i = 0; i < faces.count; i++) {
+        mesh_Face* f = &faces.elems[i];
+        for (int64_t j = 0; j < f->tris.count; j++) {
+            geo_Tri* tri = &f->tris.elems[j];
+            HMM_Vec3 temp = tri->c;
+            tri->c = tri->b;
+            tri->b = temp;
+        }
+    }
+}
+
 // 2 width cube, centered on the origin, face geoids not filled out
 mesh_FaceSlice mesh_cube(snz_Arena* arena) {
     HMM_Vec3 v[] = {
@@ -598,6 +610,29 @@ mesh_FaceSlice mesh_stlFileToFaces(const char* path, snz_Arena* arena, snz_Arena
         }
     }
     return _mesh_groupTrisToFaces(tris, pool, arena, scratch);
+}
+
+void mesh_facesToSTLFile(mesh_FaceSlice faces, const char* path) {
+    FILE* f = fopen(path, "w");
+    fprintf(f, "solid object\n");
+
+    for (int64_t i = 0; i < faces.count; i++) {
+        mesh_Face* f = &faces.elems[i];
+        for (int64_t j = 0; j < f->tris.count; j++) {
+            geo_Tri tri = f->tris.elems[j];
+            HMM_Vec3 normal = geo_triNormal(tri);
+            fprintf(f, "facet normal %f %f %f\n", normal.X, normal.Y, normal.Z);
+            fprintf(f, "outer loop\n");
+            fprintf(f, "vertex %f %f %f\n", tri.a.X, tri.a.Y, tri.a.Z);
+            fprintf(f, "vertex %f %f %f\n", tri.b.X, tri.b.Y, tri.b.Z);
+            fprintf(f, "vertex %f %f %f\n", tri.c.X, tri.c.Y, tri.c.Z);
+            fprintf(f, "endloop\n");
+            fprintf(f, "endfacet\n");
+        }
+    }
+
+    fprintf(f, "endsolid object\n");
+    fclose(f);
 }
 
 static bool _mesh_geoIdEqual(mesh_GeoID a, mesh_GeoID b) {
