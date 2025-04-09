@@ -20,9 +20,6 @@ struct csg_Node {
             geo_Tri* sourceTri;
         };
     };
-
-    // variables used during a clip:
-    bool anyChildrenRemoved;
 };
 
 typedef enum {
@@ -125,12 +122,6 @@ bool csg_nodesContainPoint(csg_Node* tree, HMM_Vec3 point) {
     }
     SNZ_ASSERT(false, "unreachable.");
 }
-
-typedef struct _csg_TempFace _csg_TempFace;
-struct _csg_TempFace {
-    _csg_TempFace* next;
-    mesh_Face face;
-};
 
 // returns number of subtris that tri got split into (also length of resultTris and inOrOut)
 // outInOrOut true values mean in
@@ -299,18 +290,45 @@ static bool _csg_clipTri(geo_Tri* tri, bool clipWithin, const csg_Node* cutter, 
     return true;
 }
 
-mesh_FaceSlice csg_facesClip(mesh_FaceSlice faces, const csg_Node* tree, bool removeWithin, snz_Arena* arena, snz_Arena* scratch) {
+typedef struct _csg_TempFace _csg_TempFace;
+struct _csg_TempFace {
+    _csg_TempFace* next;
+    mesh_Face face;
+};
+
+static _csg_TempFace* _csg_tempFacesFindLast(_csg_TempFace* first) {
+    for (_csg_TempFace* f = first; f; f = f->next) {
+        if (f->next == NULL) {
+            return f;
+        }
+    }
+    SNZ_ASSERT(false, "this function probably shouldn't be used for whatever you are doing.");
+}
+
+static _csg_TempFace* _csg_facesToTempFaces(mesh_FaceSlice faces, snz_Arena* arena) {
     _csg_TempFace* firstInFace = NULL;
     for (int64_t i = 0; i < faces.count; i++) {
         const mesh_Face* ogFace = &faces.elems[i];
-        _csg_TempFace* newFace = SNZ_ARENA_PUSH(scratch, _csg_TempFace);
+        _csg_TempFace* newFace = SNZ_ARENA_PUSH(arena, _csg_TempFace);
         newFace->face = *ogFace;
         newFace->next = firstInFace;
         firstInFace = newFace;
     }
+    return firstInFace;
+}
 
+static mesh_FaceSlice _csg_tempFacesToFaces(_csg_TempFace* firstFace, snz_Arena* arena) {
+    SNZ_ARENA_ARR_BEGIN(arena, mesh_Face);
+    for (_csg_TempFace* f = firstFace; f; f = f->next) {
+        *SNZ_ARENA_PUSH(arena, mesh_Face) = f->face;
+    }
+    return SNZ_ARENA_ARR_END(arena, mesh_Face);
+}
+
+// destructive to OG face list - reuses nodes in output
+static _csg_TempFace* _csg_tempFacesClip(_csg_TempFace* faces, const csg_Node* tree, bool removeWithin, snz_Arena* arena, snz_Arena* scratch) {
     _csg_TempFace* firstOutFace = NULL;
-    for (_csg_TempFace* f = firstInFace; f;) {
+    for (_csg_TempFace* f = faces; f;) {
         SNZ_ARENA_ARR_BEGIN(arena, geo_Tri);
         for (int64_t i = 0; i < f->face.tris.count; i++) {
             void* scratchStart = scratch->end;
@@ -333,13 +351,49 @@ mesh_FaceSlice csg_facesClip(mesh_FaceSlice faces, const csg_Node* tree, bool re
         }
         f = next;
     }
+    return firstOutFace;
+}
 
-    // recollect from a LL to slice
-    SNZ_ARENA_ARR_BEGIN(arena, mesh_Face);
-    for (_csg_TempFace* f = firstOutFace; f; f = f->next) {
-        *SNZ_ARENA_PUSH(arena, mesh_Face) = f->face;
-    }
-    return SNZ_ARENA_ARR_END(arena, mesh_Face);
+mesh_FaceSlice csg_facesUnion(mesh_FaceSlice a, mesh_FaceSlice b, snz_Arena* arena, snz_Arena* scratch) {
+    _csg_TempFace* aFaces = _csg_facesToTempFaces(a, scratch);
+    _csg_TempFace* bFaces = _csg_facesToTempFaces(b, scratch);
+    csg_Node* aNodes = csg_facesToNodes(a, scratch);
+    csg_Node* bNodes = csg_facesToNodes(b, scratch);
+
+    aFaces = _csg_tempFacesClip(aFaces, bNodes, true, arena, scratch);
+    bFaces = _csg_tempFacesClip(bFaces, aNodes, true, arena, scratch);
+
+    _csg_TempFace* last = _csg_tempFacesFindLast(aFaces);
+    last->next = bFaces;
+    return _csg_tempFacesToFaces(aFaces, arena);
+}
+
+mesh_FaceSlice csg_facesDifference(mesh_FaceSlice a, mesh_FaceSlice b, snz_Arena* arena, snz_Arena* scratch) {
+    _csg_TempFace* aFaces = _csg_facesToTempFaces(a, scratch);
+    _csg_TempFace* bFaces = _csg_facesToTempFaces(b, scratch);
+    csg_Node* aNodes = csg_facesToNodes(a, scratch);
+    csg_Node* bNodes = csg_facesToNodes(b, scratch);
+
+    aFaces = _csg_tempFacesClip(aFaces, bNodes, true, arena, scratch);
+    bFaces = _csg_tempFacesClip(bFaces, aNodes, false, arena, scratch);
+
+    _csg_TempFace* last = _csg_tempFacesFindLast(aFaces);
+    last->next = bFaces;
+    return _csg_tempFacesToFaces(aFaces, arena);
+}
+
+mesh_FaceSlice csg_facesIntersection(mesh_FaceSlice a, mesh_FaceSlice b, snz_Arena* arena, snz_Arena* scratch) {
+    _csg_TempFace* aFaces = _csg_facesToTempFaces(a, scratch);
+    _csg_TempFace* bFaces = _csg_facesToTempFaces(b, scratch);
+    csg_Node* aNodes = csg_facesToNodes(a, scratch);
+    csg_Node* bNodes = csg_facesToNodes(b, scratch);
+
+    aFaces = _csg_tempFacesClip(aFaces, bNodes, false, arena, scratch);
+    bFaces = _csg_tempFacesClip(bFaces, aNodes, false, arena, scratch);
+
+    _csg_TempFace* last = _csg_tempFacesFindLast(aFaces);
+    last->next = bFaces;
+    return _csg_tempFacesToFaces(aFaces, arena);
 }
 
 void csg_tests() {
@@ -426,36 +480,21 @@ void csg_tests() {
 
     {
         mesh_FaceSlice cubeA = mesh_cube(&arena);
-        csg_Node* treeA = csg_facesToNodes(cubeA, &arena);
-
         mesh_FaceSlice cubeB = mesh_cube(&arena);
         mesh_facesTransform(cubeB, HMM_Rotate_RH(HMM_AngleDeg(30), HMM_V3(1, 1, 1)));
         mesh_facesTranslate(cubeB, HMM_V3(1, 1, 1));
-        csg_Node* treeB = csg_facesToNodes(cubeB, &arena);
-
-        mesh_FaceSlice aClipped = csg_facesClip(cubeA, treeB, true, &arena, &scratch);
-        mesh_FaceSlice bClipped = csg_facesClip(cubeB, treeA, true, &arena, &scratch);
-        csg_TriList* final = csg_triListJoin(aClipped, bClipped);
-        mesh_facesToSTLFile(final, "testing/union.stl");
+        mesh_facesToSTLFile(csg_facesUnion(cubeA, cubeB, &arena, &scratch), "testing/union.stl");
     }
 
     {
         mesh_FaceSlice cubeA = mesh_cube(&arena);
-        csg_Node* treeA = csg_facesToNodes(cubeA, &arena);
-
         mesh_FaceSlice cubeB = mesh_cube(&arena);
         mesh_facesTransform(cubeB, HMM_Rotate_RH(HMM_AngleDeg(30), HMM_V3(1, 1, 1)));
         mesh_facesTranslate(cubeB, HMM_V3(1, 1, 1));
-        csg_Node* treeB = csg_facesToNodes(cubeB, &arena);
-
-        mesh_FaceSlice aClipped = csg_facesClip(cubeA, treeB, true, &arena, &scratch);
-        mesh_FaceSlice bClipped = csg_facesClip(cubeB, treeA, false, &arena, &scratch);
-        mesh_facesInvert(bClipped);
-
-        csg_TriList* final = csg_triListJoin(aClipped, bClipped);
-        csg_triListToSTLFile(final, "testing/intersection.stl");
+        mesh_facesToSTLFile(csg_facesDifference(cubeA, cubeB, &arena, &scratch), "testing/difference.stl");
     }
 
     snz_arenaDeinit(&arena);
+    snz_arenaDeinit(&scratch);
     poolAllocDeinit(&pool);
 }

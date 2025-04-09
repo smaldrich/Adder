@@ -16,6 +16,7 @@
 #include "mesh.h"
 #include "geometry.h"
 #include "ser.h"
+#include "csg2.h"
 
 snz_Arena main_appLifetimeArena;
 snz_Arena main_fontArena;
@@ -94,35 +95,14 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
 
     main_timeline = tl_timelineInit(&main_tlArena, &main_tlGeneratedArena, &main_tlGeneratedPool);
     {
-        mesh_BSPTriList* bspTris = NULL;
-        mesh_Face* faces = NULL;
-        mesh_Mesh cubeA = mesh_cube(&main_baseMeshArena);
-        // bspTris = &cubeA.bspTris;
-        // faces = cubeA.firstFace;
-        {
-            mesh_Mesh cubeB = mesh_cube(&main_baseMeshArena);
-            mesh_BSPTriListTransform(&cubeB.bspTris, HMM_Rotate_RH(HMM_AngleDeg(30), HMM_V3(1, 1, 1)));
-            mesh_BSPTriListTransform(&cubeB.bspTris, HMM_Translate(HMM_V3(1, 1, 1)));
+        mesh_FaceSlice cubeA = mesh_cube(&main_baseMeshArena);
+        mesh_FaceSlice cubeB = mesh_cube(&main_baseMeshArena);
+        mesh_facesTransform(cubeB, HMM_Rotate_RH(HMM_AngleDeg(30), HMM_V3(1, 1, 1)));
+        mesh_facesTranslate(cubeB, HMM_V3(1, 1, 1));
 
-            mesh_BSPNode* treeA = mesh_BSPTriListToBSP(&cubeA.bspTris, &main_baseMeshArena);
-            mesh_BSPNode* treeB = mesh_BSPTriListToBSP(&cubeB.bspTris, &main_baseMeshArena);
-
-            mesh_BSPTriList* aClipped = mesh_BSPTriListClip(true, &cubeA.bspTris, treeB, &main_baseMeshArena);
-            mesh_BSPTriList* bClipped = mesh_BSPTriListClip(true, &cubeB.bspTris, treeA, &main_baseMeshArena);
-            bspTris = mesh_BSPTriListJoin(aClipped, bClipped);
-            mesh_BSPTriListRecoverNonBroken(&bspTris, &main_baseMeshArena);
-
-            mesh_Face* bCubeLastFace = cubeB.firstFace;
-            for (; bCubeLastFace->next; bCubeLastFace = bCubeLastFace->next) {
-            }  // FIXME: gross
-            bCubeLastFace->next = cubeA.firstFace;
-            // this join destroys the OG cubes bc.the face list has been changed up
-            faces = cubeB.firstFace;
-        }
+        mesh_FaceSlice faces = csg_facesUnion(cubeA, cubeB, &main_baseMeshArena, &scratch);
 
         mesh_Mesh mesh = (mesh_Mesh){
-            .bspTris = *bspTris,
-            .firstFace = faces,
             .renderMesh = mesh_BSPTriListToRenderMesh(*bspTris, scratch),
         };
         mesh_BSPTriListToFaceTris(&main_baseMeshPool, &mesh);
@@ -130,22 +110,22 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
         mesh_meshGenerateCorners(&mesh, &main_baseMeshArena, scratch);
 
         tl_timelinePushBaseGeometry(&main_timeline, HMM_V2(-200, 0), mesh);
-    }  // end mesh for testing
+    }
 
     snz_arenaClear(scratch);
 
     {
         mesh_Mesh m = { 0 };
-        snz_arenaClear(scratch);
         mesh_stlFileToMesh("res/demos/bracket.stl", &main_baseMeshArena, scratch, &main_baseMeshPool, &m);
-        // mesh_stlFileToMesh("testing/intersection.stl", &main_meshArena, scratch, &p, &m);
+        mesh_stlFileToMesh("testing/intersection.stl", &main_meshArena, scratch, &p, &m);
         tl_timelinePushBaseGeometry(&main_timeline, HMM_V2(0, -200), m);
     }
 
+    snz_arenaClear(scratch);
+
     {
         mesh_Mesh m = { 0 };
-        snz_arenaClear(scratch);
-        mesh_stlFileToMesh("testing/intersection.stl", &main_baseMeshArena, scratch, &main_baseMeshPool, &m);
+        mesh_stlFileToMesh("testing/difference.stl", &main_baseMeshArena, scratch, &main_baseMeshPool, &m);
         tl_timelinePushBaseGeometry(&main_timeline, HMM_V2(-200, -200), m);
     }
 }
