@@ -9,7 +9,6 @@
 #include "snooze.h"
 #include "ui.h"
 #include "geometry.h"
-#include "timeline.h"
 
 typedef enum {
     MESH_GK_DOES_NOT_EXIST,
@@ -37,13 +36,31 @@ struct mesh_GeoID {
     mesh_GeoID* diffGeo2;
 };
 
-typedef struct mesh_Face mesh_Face;
-struct mesh_Face {
+typedef struct {
     mesh_GeoID id;
     geo_TriSlice tris;
-};
+} mesh_Face;
 
 SNZ_SLICE(mesh_Face);
+
+typedef struct mesh_Edge mesh_Edge;
+struct mesh_Edge {
+    mesh_Edge* next;
+    mesh_GeoID id;
+    HMM_Vec3Slice points;
+};
+
+typedef struct mesh_Corner mesh_Corner;
+struct mesh_Corner {
+    mesh_Edge* next;
+    mesh_GeoID id;
+    HMM_Vec3 position;
+};
+
+typedef struct {
+    mesh_Edge* firstEdge;
+    mesh_Corner* firstCorner;
+} mesh_TempGeo;
 
 ren3d_Mesh mesh_FacesToRenderMesh(mesh_FaceSlice faces, snz_Arena* scratch) {
     SNZ_ARENA_ARR_BEGIN(scratch, ren3d_Vert);
@@ -300,8 +317,9 @@ static HMM_Vec3Slice _mesh_orderedPointsFromLineSet(geo_LineSlice lines, snz_Are
 
 // expects valid face tris on the mesh
 // no issue if out and scratch are the same arena
+// opUid to make a correct geoId on the outputted edge
 // FIXME: time complexity is horrifying
-HMM_Vec3Slice mesh_facesToEdge(const mesh_Face* faceA, const mesh_Face* faceB, snz_Arena* out, snz_Arena* scratch) {
+mesh_Edge mesh_facesToEdge(const mesh_Face* faceA, const mesh_Face* faceB, int64_t opUid, snz_Arena* arena, snz_Arena* scratch) {
     SNZ_ARENA_ARR_BEGIN(scratch, _mesh_LinePair);
     for (int aIdx = 0; aIdx < faceA->tris.count; aIdx++) {
         for (int bIdx = 0; bIdx < faceB->tris.count; bIdx++) {
@@ -327,22 +345,31 @@ HMM_Vec3Slice mesh_facesToEdge(const mesh_Face* faceA, const mesh_Face* faceB, s
     }
     _mesh_LinePairSlice pairs = SNZ_ARENA_ARR_END(scratch, _mesh_LinePair);
 
-    SNZ_ARENA_ARR_BEGIN(out, geo_Line);
+    SNZ_ARENA_ARR_BEGIN(arena, geo_Line);
     for (int i = 0; i < pairs.count; i++) {
         _mesh_LinePair pair = pairs.elems[i];
         geo_Line s = { 0 };
         bool adj = _mesh_linePairAdjacent(pair.a, pair.b, &s);
         if (adj) {
-            *SNZ_ARENA_PUSH(out, geo_Line) = s;
+            *SNZ_ARENA_PUSH(arena, geo_Line) = s;
             SNZ_ASSERTF(!geo_v3Equal(s.a, s.b), "Edge gen with 0 len. %f,%f,%f", s.a.X, s.a.Y, s.a.Z);
         }
     }
-    geo_LineSlice clipped = SNZ_ARENA_ARR_END(out, geo_Line);
+    geo_LineSlice clipped = SNZ_ARENA_ARR_END(arena, geo_Line);
     if (clipped.count <= 0) {
-        return (HMM_Vec3Slice) { .count = 0, .elems = 0 };
+        return (mesh_Edge) { 0 };
     }
 
-    return _mesh_orderedPointsFromLineSet(clipped, scratch, out);
+    mesh_Edge out = (mesh_Edge){
+        .id = (mesh_GeoID) {
+            .geoKind = MESH_GK_EDGE,
+            .opUniqueId = opUid,
+            .diffGeo1 = mesh_geoIdDuplicate(&faceA->id, arena),
+            .diffGeo2 = mesh_geoIdDuplicate(&faceB->id, arena),
+        },
+        .points = _mesh_orderedPointsFromLineSet(clipped, scratch, arena),
+    };
+    return out;
 }
 
 HMM_Vec3SliceSlice mesh_faceToAllAdjacentEdges(const mesh_FaceSlice* faces, const mesh_Face* face, snz_Arena* scratch, snz_Arena* out) {
@@ -643,39 +670,47 @@ static bool _mesh_geoIdEqual(mesh_GeoID a, mesh_GeoID b) {
     return equal;
 }
 
-// searches the given mesh for a piece of geometry with a matching geo id to the one given
-// return will have a null ptr and kind of OPS_GK_DEREF_FAILED if nothing is found
-// FIXME: for a perf boost, use a hashtable for id -> geo in each mesh instead of looping
-// FIXME: assert no more than one match
 typedef struct {
     mesh_GeoKind kind;
     union {
-        HMM_Vec3 corner;
-        HMM_Vec3Slice edgePoints;
-        mesh_Face* face;
+        const mesh_Corner* corner;
+        const mesh_Edge* edge;
+        const mesh_Face* face;
     };
 } mesh_GeoIDResult;
 
-mesh_GeoIDResult mesh_geoIdFind(mesh_FaceSlice faces, mesh_GeoID ref) {
+// searches faces and tempGeo for a piece of geometry with a matching geo id to the one given
+// return will have a null ptr and kind of MESH_GK_DOES_NOT_EXIST if nothing is found
+// FIXME: for a perf boost, use a hashtable for id -> geo in each mesh instead of looping
+// FIXME: assert no more than one match
+mesh_GeoIDResult mesh_geoIdFind(const mesh_FaceSlice* faces, const mesh_TempGeo* tempGeo, mesh_GeoID target) {
     mesh_GeoIDResult out = (mesh_GeoIDResult){
-        .kind = ref.geoKind,
+        .kind = target.geoKind,
     };
 
     if (out.kind == MESH_GK_FACE) {
-        for (int64_t i = 0; i < faces.count; i++) {
-            if (_mesh_geoIdEqual(ref, faces.elems[i].id)) {
-                out.face = &faces.elems[i];
+        for (int64_t i = 0; i < faces->count; i++) {
+            if (_mesh_geoIdEqual(target, faces->elems[i].id)) {
+                out.face = &faces->elems[i];
                 return out;
             }
         }
     } else if (out.kind == MESH_GK_EDGE) {
-        // FIXME: eval here
-        SNZ_ASSERT(false, "AHH");
+        for (mesh_Edge* e = tempGeo->firstEdge; e; e = e->next) {
+            if (_mesh_geoIdEqual(target, e->id)) {
+                out.edge = e;
+                return out;
+            }
+        }
     } else if (out.kind == MESH_GK_CORNER) {
-        // FIXME: eval here
-        SNZ_ASSERT(false, "AHH");
+        for (mesh_Corner* c = tempGeo->firstCorner; c; c = c->next) {
+            if (_mesh_geoIdEqual(target, c->id)) {
+                out.corner = c;
+                return out;
+            }
+        }
     } else {
-        SNZ_ASSERTF(false, "unreachable. kind: %d", ref.geoKind);
+        SNZ_ASSERTF(false, "unreachable. kind: %d", target.geoKind);
     }
     out.kind = MESH_GK_DOES_NOT_EXIST;
     return out;
@@ -684,5 +719,12 @@ mesh_GeoIDResult mesh_geoIdFind(mesh_FaceSlice faces, mesh_GeoID ref) {
 mesh_GeoID* mesh_geoIdDuplicate(const mesh_GeoID* src, snz_Arena* arena) {
     mesh_GeoID* new = SNZ_ARENA_PUSH(arena, mesh_GeoID);
     *new = *src;
+    if (new->diffGeo1) {
+        new->diffGeo1 = mesh_geoIdDuplicate(new->diffGeo1, arena);
+    }
+
+    if (new->diffGeo2) {
+        new->diffGeo2 = mesh_geoIdDuplicate(new->diffGeo2, arena);
+    }
     return new;
 }

@@ -100,7 +100,7 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
         mesh_facesTransform(cubeB, HMM_Rotate_RH(HMM_AngleDeg(30), HMM_V3(1, 1, 1)));
         mesh_facesTranslate(cubeB, HMM_V3(1, 1, 1));
 
-        mesh_FaceSlice faces = csg_facesUnion(cubeA, cubeB, &main_baseMeshArena, &scratch);
+        mesh_FaceSlice faces = csg_facesUnion(&cubeA, &cubeB, &main_baseMeshArena, &scratch);
 
         mesh_Mesh mesh = (mesh_Mesh){
             .renderMesh = mesh_BSPTriListToRenderMesh(*bspTris, scratch),

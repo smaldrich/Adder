@@ -5,6 +5,7 @@
 #include "sketchTriangulation.h"
 #include "snooze.h"
 #include "ui.h"
+#include "mesh.h"
 
 typedef struct {
     geo_Align orbitOrigin;
@@ -100,9 +101,10 @@ struct tl_Op {
     } val;
     tl_OpArg args[TL_OP_ARG_MAX_COUNT];
 
-    tl_Scene scene;
-
-    mesh_FaceSlice solvedFaces;
+    struct {
+        const mesh_TempGeo* tempGeo;
+        const mesh_FaceSlice* faces;
+    } solve;
 };
 
 SNZ_SLICE_NAMED(tl_Op*, tl_OpPtrSlice);
@@ -290,38 +292,54 @@ void tl_solveForNode(tl_Timeline* t, tl_Op* targetOp, snz_Arena* scratch) {
     }
     tl_OpPtrSlice dependencies = SNZ_ARENA_ARR_END_NAMED(scratch, tl_Op*, tl_OpPtrSlice);
 
-    snz_arenaClear(t->generatedArena);
-    poolAllocClear(t->generatedPool);
+    { // reset per solve state
+        snz_arenaClear(t->generatedArena);
+        poolAllocClear(t->generatedPool);
 
-    for (int i = dependencies.count - 1; i >= 0; i--) {
+        for (int64_t i = 0; i < dependencies.count; i++) {
+            tl_Op* op = dependencies.elems[i];
+            memset(&op->solve, 0, sizeof(op->solve));
+        }
+    }
+
+    for (int64_t i = dependencies.count - 1; i >= 0; i--) {
         tl_Op* op = dependencies.elems[i];
         SNZ_ASSERT(!op->markedForDeletion, "tl op marked for delete made it to the solving stage");
-        op->solvedFaces = (mesh_FaceSlice){ 0 };
 
         if (op->kind == TL_OPK_SKETCH) {
-            sk_sketchSolve(&op->val.sketch);
-            mesh_Mesh* m = SNZ_ARENA_PUSH(t->generatedArena, mesh_Mesh);
-            *m = skt_sketchTriangulate(op->uniqueId, &op->val.sketch, t->generatedArena, scratch);
-            op->scene.mesh = m;
+            sk_Sketch* sketch = &op->val.sketch;
+            sk_sketchSolve(sketch);
+            mesh_FaceSlice* faces = SNZ_ARENA_PUSH(t->generatedArena, mesh_FaceSlice);
+            mesh_TempGeo* tempGeo = SNZ_ARENA_PUSH(t->generatedArena, mesh_TempGeo);
+            skt_sketchTriangulate(sketch, faces, tempGeo, op->uniqueId, t->generatedArena, scratch);
+            op->solve.faces = faces;
+            op->solve.tempGeo = tempGeo;
         } else if (op->kind == TL_OPK_BASE_GEOMETRY) {
-            op->solvedFaces = op->val.baseGeometry;
+            op->solve.faces = &op->val.baseGeometry;
+            op->solve.tempGeo = ahh;
         } else if (op->kind == TL_OPK_EXTRUDE) {
-            SNZ_ASSERTF(op->args[0].kind == TL_OPAK_GEOID_FACE, "Extrude requires first arg to be a face. Actual kind: %d", op->args[0].kind);
-            tl_Op* dep = tl_timelineGetOpByUID(t, op->args[0].geoId.opUniqueId);
-            SNZ_ASSERTF(op->args[1].kind == TL_OPAK_NUMBER, "Extrude requires second arg to be a number. Actual kind: %d", op->args[1].kind);
+            tl_Op* targetDep = NULL;
+            const mesh_Face* ogFace = NULL;
+            float targetSize = 0;
+            { // unpack and validate args/dependent geo/etc.
+                SNZ_ASSERTF(op->args[0].kind == TL_OPAK_GEOID_FACE, "Extrude requires first arg to be a face. Actual kind: %d", op->args[0].kind);
+                mesh_GeoID targetFaceId = op->args[0].geoId;
+                targetDep = tl_timelineGetOpByUID(t, op->args[0].geoId.opUniqueId);
 
-            // duplicate previous mesh
-            mesh_Mesh* m = SNZ_ARENA_PUSH(t->generatedArena, mesh_Mesh);
-            *m = mesh_meshDuplicateTrisAndFaces(dep->scene.mesh, scratch, t->generatedArena);
-            op->scene.mesh = m;
-            // FIXME: could copy old ones if they exist instead of regenerating
-            mesh_BSPTriListToFaceTris(t->generatedPool, m);
-            mesh_meshGenerateEdges(m, t->generatedArena, scratch);
-            mesh_meshGenerateCorners(m, t->generatedArena, scratch);
+                SNZ_ASSERTF(op->args[1].kind == TL_OPAK_NUMBER, "Extrude requires second arg to be a number. Actual kind: %d", op->args[1].kind);
+                targetSize = op->args[1].number;
 
-            mesh_GeoPtr geoPtr = mesh_geoIdFind(op->scene.mesh, op->args[0].geoId);
-            SNZ_ASSERT(geoPtr.kind == MESH_GK_FACE, "Extrude geoid find failed.");
-            mesh_Face* ogFace = geoPtr.face;
+                mesh_GeoIDResult geo = mesh_geoIdFind(targetDep->solve.faces, targetDep->solve.tempGeo, targetFaceId);
+                SNZ_ASSERT(geo.kind == MESH_GK_FACE, "Extrude geoid find failed.");
+                SNZ_ASSERT(mesh_faceFlat(geo.face), "Face to extrude wasn't flat.");
+                ogFace = geo.face;
+            }
+
+            int64_t newFaceCount = 0;
+            mesh_FaceSlice newFaces = (mesh_FaceSlice){
+                .count = ,
+                .elems = SNZ_ARENA_PUSH_ARR(t->generatedArena, newFaceCount, mesh_Face),
+            };
 
             mesh_Face* newFace = SNZ_ARENA_PUSH(t->generatedArena, mesh_Face);
             *newFace = (mesh_Face){
@@ -338,18 +356,8 @@ void tl_solveForNode(tl_Timeline* t, tl_Op* targetOp, snz_Arena* scratch) {
             mesh_BSPTriList newTris = mesh_BSPTriListInit();
 
             HMM_Vec3 translation = HMM_V3(0, 0, 0);
-            { // duplicate face
-                // FIXME: this is reallllly slow, if facetris are already generated, should use those instead
-                // FIXME: or make a more compact representation of the tris in the mesh for iteration like this
-                for (mesh_BSPTri* tri = m->bspTris.first; tri; tri = tri->next) {
-                    if (tri->sourceFace == ogFace) {
-                        mesh_BSPTriListPushNew(t->generatedArena, &newTris, tri->tri.a, tri->tri.b, tri->tri.c, newFace);
-                    }
-                }
-                // FIXME: round faces tho??? -> requires refactor to use facetris
-                translation = HMM_Mul(geo_triNormal(newTris.first->tri), op->args[1].number);
-                mesh_BSPTriListTransform(&newTris, HMM_Translate(translation)); // FIXME: can do this faster with just a translate list fn
-            }
+            translation = HMM_Mul(geo_triNormal(newTris.first->tri), op->args[1].number);
+            mesh_BSPTriListTransform(&newTris, HMM_Translate(translation)); // FIXME: can do this faster with just a translate list fn
 
             { // stitch siding
                 mesh_VertLoop* loops = mesh_faceToVertLoops(m, ogFace, scratch, scratch);
@@ -367,7 +375,11 @@ void tl_solveForNode(tl_Timeline* t, tl_Op* targetOp, snz_Arena* scratch) {
                     }
                 }
             }
-            mesh_BSPTriListJoin(&m->bspTris, &newTris);
+
+            mesh_FaceSlice* faces = SNZ_ARENA_PUSH(t->generatedArena, mesh_FaceSlice);
+            *faces = csg_facesUnion(targetDep->solve.faces, &newFaces, t->generatedArena, scratch);
+            op->solve.faces = faces;
+            op->solve.tempGeo = ahh;
         } else {
             SNZ_ASSERTF(false, "unreachable. kind: %lld", op->kind);
         }

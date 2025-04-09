@@ -85,10 +85,10 @@ static void _csg_facesToNodesInner(snz_Arena* arena, csg_Node* parent, csg_Node*
     }
 }
 
-csg_Node* csg_facesToNodes(mesh_FaceSlice faces, snz_Arena* arena) {
+csg_Node* csg_facesToNodes(const mesh_FaceSlice* faces, snz_Arena* arena) {
     csg_Node* firstNode;
-    for (int64_t i = 0; i < faces.count; i++) {
-        mesh_Face* f = &faces.elems[i];
+    for (int64_t i = 0; i < faces->count; i++) {
+        mesh_Face* f = &faces->elems[i];
         for (int64_t j = 0; j < f->tris.count; j++) {
             geo_Tri* t = &f->tris.elems[j];
             csg_Node* node = SNZ_ARENA_PUSH(arena, csg_Node);
@@ -305,10 +305,10 @@ static _csg_TempFace* _csg_tempFacesFindLast(_csg_TempFace* first) {
     SNZ_ASSERT(false, "this function probably shouldn't be used for whatever you are doing.");
 }
 
-static _csg_TempFace* _csg_facesToTempFaces(mesh_FaceSlice faces, snz_Arena* arena) {
+static _csg_TempFace* _csg_facesToTempFaces(const mesh_FaceSlice* faces, snz_Arena* arena) {
     _csg_TempFace* firstInFace = NULL;
-    for (int64_t i = 0; i < faces.count; i++) {
-        const mesh_Face* ogFace = &faces.elems[i];
+    for (int64_t i = 0; i < faces->count; i++) {
+        const mesh_Face* ogFace = &faces->elems[i];
         _csg_TempFace* newFace = SNZ_ARENA_PUSH(arena, _csg_TempFace);
         newFace->face = *ogFace;
         newFace->next = firstInFace;
@@ -367,7 +367,7 @@ static void _csg_tempFacesInvert(_csg_TempFace* first) {
     }
 }
 
-mesh_FaceSlice csg_facesUnion(mesh_FaceSlice a, mesh_FaceSlice b, snz_Arena* arena, snz_Arena* scratch) {
+mesh_FaceSlice csg_facesUnion(const mesh_FaceSlice* a, const mesh_FaceSlice* b, snz_Arena* arena, snz_Arena* scratch) {
     _csg_TempFace* aFaces = _csg_facesToTempFaces(a, scratch);
     _csg_TempFace* bFaces = _csg_facesToTempFaces(b, scratch);
     csg_Node* aNodes = csg_facesToNodes(a, scratch);
@@ -381,7 +381,7 @@ mesh_FaceSlice csg_facesUnion(mesh_FaceSlice a, mesh_FaceSlice b, snz_Arena* are
     return _csg_tempFacesToFaces(aFaces, arena);
 }
 
-mesh_FaceSlice csg_facesDifference(mesh_FaceSlice a, mesh_FaceSlice b, snz_Arena* arena, snz_Arena* scratch) {
+mesh_FaceSlice csg_facesDifference(const mesh_FaceSlice* a, const mesh_FaceSlice* b, snz_Arena* arena, snz_Arena* scratch) {
     _csg_TempFace* aFaces = _csg_facesToTempFaces(a, scratch);
     _csg_TempFace* bFaces = _csg_facesToTempFaces(b, scratch);
     csg_Node* aNodes = csg_facesToNodes(a, scratch);
@@ -396,7 +396,7 @@ mesh_FaceSlice csg_facesDifference(mesh_FaceSlice a, mesh_FaceSlice b, snz_Arena
     return _csg_tempFacesToFaces(aFaces, arena);
 }
 
-mesh_FaceSlice csg_facesIntersection(mesh_FaceSlice a, mesh_FaceSlice b, snz_Arena* arena, snz_Arena* scratch) {
+mesh_FaceSlice csg_facesIntersection(const mesh_FaceSlice* a, const mesh_FaceSlice* b, snz_Arena* arena, snz_Arena* scratch) {
     _csg_TempFace* aFaces = _csg_facesToTempFaces(a, scratch);
     _csg_TempFace* bFaces = _csg_facesToTempFaces(b, scratch);
     csg_Node* aNodes = csg_facesToNodes(a, scratch);
@@ -438,7 +438,7 @@ void csg_tests() {
         *SNZ_ARENA_PUSH(&arena, geo_Tri) = geo_triInit(verts[3], verts[2], verts[1]);
         faces.elems[0].tris = SNZ_ARENA_ARR_END(&arena, geo_Tri);
 
-        csg_Node* tree = csg_facesToNodes(faces, &arena);
+        csg_Node* tree = csg_facesToNodes(&faces, &arena);
         snz_testPrint(csg_nodesContainPoint(tree, HMM_V3(0.5, 0.5, 0.0)) == true, "Tetra contains pt");
         snz_testPrint(csg_nodesContainPoint(tree, HMM_V3(0.5, 1.0, 0.5)) == false, "Tetra doesn't contain pt");
         snz_testPrint(csg_nodesContainPoint(tree, HMM_V3(0, 0, 0)) == true, "Tetra contains edge pt");
@@ -479,7 +479,7 @@ void csg_tests() {
 
         mesh_facesToSTLFile(faces, "testing/object.stl");
 
-        csg_Node* tree = csg_facesToNodes(faces, &arena);
+        csg_Node* tree = csg_facesToNodes(&faces, &arena);
 
         snz_testPrint(csg_nodesContainPoint(tree, HMM_V3(0, 0, 0)) == true, "horn contain test 1");
         snz_testPrint(csg_nodesContainPoint(tree, HMM_V3(0, 10, 0)) == false, "horn contain test 2");
@@ -499,7 +499,7 @@ void csg_tests() {
         mesh_FaceSlice cubeB = mesh_cube(&arena);
         mesh_facesTransform(cubeB, HMM_Rotate_RH(HMM_AngleDeg(30), HMM_V3(1, 1, 1)));
         mesh_facesTranslate(cubeB, HMM_V3(1, 1, 1));
-        mesh_facesToSTLFile(csg_facesUnion(cubeA, cubeB, &arena, &scratch), "testing/union.stl");
+        mesh_facesToSTLFile(csg_facesUnion(&cubeA, &cubeB, &arena, &scratch), "testing/union.stl");
     }
 
     {
@@ -507,7 +507,7 @@ void csg_tests() {
         mesh_FaceSlice cubeB = mesh_cube(&arena);
         mesh_facesTransform(cubeB, HMM_Rotate_RH(HMM_AngleDeg(30), HMM_V3(1, 1, 1)));
         mesh_facesTranslate(cubeB, HMM_V3(1, 1, 1));
-        mesh_facesToSTLFile(csg_facesDifference(cubeA, cubeB, &arena, &scratch), "testing/difference.stl");
+        mesh_facesToSTLFile(csg_facesDifference(&cubeA, &cubeB, &arena, &scratch), "testing/difference.stl");
     }
 
     snz_arenaDeinit(&arena);

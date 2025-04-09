@@ -137,9 +137,9 @@ bool _skt_vertLoopContainsVertLoop(_skt_VertLoop* a, _skt_VertLoop* b) {
 //     }
 // }
 
-static mesh_Face* _skt_vertLoopToMeshFace(int64_t opUniqueId, _skt_VertLoop* l, mesh_BSPTriList* list, snz_Arena* scratch, snz_Arena* out) {
-    mesh_Face* f = SNZ_ARENA_PUSH(out, mesh_Face);
-    f->id = (mesh_GeoID){
+static mesh_Face _skt_vertLoopToMeshFace(int64_t opUniqueId, _skt_VertLoop* l, snz_Arena* scratch, snz_Arena* out) {
+    mesh_Face f = { 0 };
+    f.id = (mesh_GeoID){
         .geoKind = MESH_GK_FACE,
         .opUniqueId = opUniqueId,
         .baseNodeId = l->sumOfLineUidHashes,
@@ -149,6 +149,7 @@ static mesh_Face* _skt_vertLoopToMeshFace(int64_t opUniqueId, _skt_VertLoop* l, 
     bool* culledFlags = SNZ_ARENA_PUSH_ARR(scratch, l->pts.count, bool);
     int culledCount = 0;
 
+    SNZ_ARENA_ARR_BEGIN(out, geo_Tri);
     int iterationsSinceTriWasAdded = 0;
     for (int startIdx = 0; true; (startIdx++, iterationsSinceTriWasAdded++)) {
         if (iterationsSinceTriWasAdded > l->pts.count) {
@@ -205,11 +206,12 @@ static mesh_Face* _skt_vertLoopToMeshFace(int64_t opUniqueId, _skt_VertLoop* l, 
             continue;
         }
 
-        mesh_BSPTriListPushNew(out, list, t.a, t.b, t.c, f);
+        *SNZ_ARENA_PUSH(out, geo_Tri) = t;
         culledFlags[ptIndexes[1]] = true;
         culledCount++;
         iterationsSinceTriWasAdded = 0;
     }
+    f.tris = SNZ_ARENA_ARR_END(out, geo_Tri);
     return f;
 }
 
@@ -240,13 +242,11 @@ static int64_t _skt_hashUid(int64_t id) {
 // FIXME: exhaustive checks to make sure that there aren't any colinear & fully overlapped edges in the sketch before starting this
 // FIXME: decide whether we are going to cope with T intersections here, and if not, add checks to make sure they don't exist on inputs
 // arena and scratch can be the same arena
-// fills out BSPTri list, edges, corners, faces, but not face tris or bspTree in mesh
-// uid used to correctly fill in geoIds for the result mesh
-mesh_Mesh skt_sketchTriangulate(int64_t opUniqueId, const sk_Sketch* sketch, snz_Arena* arena, snz_Arena* scratch) {
+// uid used to correctly fill in geoIds for the results
+void skt_sketchTriangulate(const sk_Sketch* sketch, mesh_FaceSlice* outFaces, mesh_TempGeo* outTempGeo, int64_t opUid, snz_Arena* arena, snz_Arena* scratch) {
     _skt_Point* firstPoint = NULL;
     _skt_IntersectionEdge* firstIntersectionEdge = NULL;
     { // intersections
-
         // import pts
         SNZ_ARENA_ARR_BEGIN(scratch, _skt_Point);
         int i = 0;
@@ -554,21 +554,34 @@ mesh_Mesh skt_sketchTriangulate(int64_t opUniqueId, const sk_Sketch* sketch, snz
     // }
 
     // triangulation
-    mesh_BSPTriList tris = mesh_BSPTriListInit();
-    mesh_Face* firstFace = NULL;
-
-    for (_skt_Island* island = firstIsland; island; island = island->next) {
-        for (_skt_VertLoop* l = island->firstLoop; l; l = l->next) {
-            mesh_Face* new = _skt_vertLoopToMeshFace(opUniqueId, l, &tris, scratch, arena);
-            new->next = firstFace;
-            firstFace = new;
+    { // faces arr (FIXME: gross)
+        int faceCount = 0;
+        for (_skt_Island* island = firstIsland; island; island = island->next) {
+            for (_skt_VertLoop* l = island->firstLoop; l; l = l->next) {
+                faceCount++;
+            }
         }
-    } // end island loop
+        mesh_FaceSlice faces = (mesh_FaceSlice){
+            .count = faceCount,
+            .elems = SNZ_ARENA_PUSH_ARR(arena, faceCount, mesh_Face),
+        };
 
-    // move points and lines over to the mesh
-    mesh_Edge* firstEdge = NULL;
-    mesh_CornerSlice corners = { 0 };
-    {
+        int64_t i = 0;
+        for (_skt_Island* island = firstIsland; island; island = island->next) {
+            for (_skt_VertLoop* l = island->firstLoop; l; l = l->next) {
+                faces.elems[i] = _skt_vertLoopToMeshFace(opUid, l, scratch, arena);
+                i++;
+            }
+        }
+
+        *outFaces = faces;
+    }
+
+    mesh_TempGeo out = (mesh_TempGeo){
+        .firstCorner = NULL,
+        .firstEdge = NULL
+    };
+    { // collect edges
         for (_skt_IntersectionEdge* edge = firstIntersectionEdge; edge; edge = edge->next) {
             if (edge->culled) {
                 continue;
@@ -579,7 +592,7 @@ mesh_Mesh skt_sketchTriangulate(int64_t opUniqueId, const sk_Sketch* sketch, snz
             points[1].XY = edge->p2->pos;
 
             *e = (mesh_Edge){
-                .next = firstEdge,
+                .next = out.firstEdge,
                 .points = (HMM_Vec3Slice) {
                     .count = 2,
                     .elems = points,
@@ -587,33 +600,29 @@ mesh_Mesh skt_sketchTriangulate(int64_t opUniqueId, const sk_Sketch* sketch, snz
                 .id = (mesh_GeoID) {
                     .geoKind = MESH_GK_EDGE,
                     .baseNodeId = edge->sourceUniqueId,
-                    .opUniqueId = opUniqueId,
+                    .opUniqueId = opUid,
                 }
             };
-            firstEdge = e;
+            out.firstEdge = e;
         }
-
-        SNZ_ARENA_ARR_BEGIN(arena, mesh_Corner);
-        for (_skt_Point* p = firstPoint; p; p = p->next) {
-            *SNZ_ARENA_PUSH(arena, mesh_Corner) = (mesh_Corner){
-                .pos.XY = p->pos,
-                .id = (mesh_GeoID) {
-                    .geoKind = MESH_GK_CORNER,
-                    .baseNodeId = p->sourceUniqueId,
-                    .opUniqueId = opUniqueId,
-                },
-            };
-        }
-        corners = SNZ_ARENA_ARR_END(arena, mesh_Corner);
     }
 
-    mesh_Mesh out = (mesh_Mesh){
-        .firstFace = firstFace,
-        .firstEdge = firstEdge,
-        .corners = corners,
-        .bspTris = tris,
-    };
-    return out;
+    { // collect corners
+        for (_skt_Point* p = firstPoint; p; p = p->next) {
+            mesh_Corner* c = SNZ_ARENA_PUSH(arena, mesh_Corner);
+            *c = (mesh_Corner){
+                .id = (mesh_GeoID){
+                    .geoKind = MESH_GK_CORNER,
+                    .baseNodeId = p->sourceUniqueId,
+                    .opUniqueId = opUid,
+                },
+                .position.XY = p->pos,
+                .next = out.firstCorner,
+            };
+            out.firstCorner = c;
+        };
+    } // end collecting corners
+    *outTempGeo = out;
 }
 
 void skt_tests() {
