@@ -43,10 +43,10 @@ typedef struct {
 
 SNZ_SLICE(mesh_Face);
 
-ren3d_Mesh mesh_FacesToRenderMesh(mesh_FaceSlice faces, snz_Arena* scratch) {
+ren3d_Mesh mesh_facesToRenderMesh(const mesh_FaceSlice* faces, snz_Arena* scratch) {
     SNZ_ARENA_ARR_BEGIN(scratch, ren3d_Vert);
-    for (int64_t i = 0; i < faces.count; i++) {
-        mesh_Face f = faces.elems[i];
+    for (int64_t i = 0; i < faces->count; i++) {
+        mesh_Face f = faces->elems[i];
         for (int64_t j = 0; j < f.tris.count; j++) {
             geo_Tri tri = f.tris.elems[j];
             HMM_Vec3 normal = geo_triNormal(tri);
@@ -466,7 +466,8 @@ mesh_EdgeSlice mesh_faceToAllAdjacentEdges(const mesh_TempGeo* tempGeo, const me
     return SNZ_ARENA_ARR_END(arena, mesh_Edge);
 }
 
-HMM_Vec3 mesh_edgesToCorner(HMM_Vec3Slice a, HMM_Vec3Slice b) {
+// return indicates success
+bool mesh_edgesToCorner(HMM_Vec3Slice a, HMM_Vec3Slice b, HMM_Vec3* outPt) {
     SNZ_ASSERTF(a.count > 0, "edge with only %lld points.", a.count);
     SNZ_ASSERTF(b.count > 0, "edge with only %lld points.", b.count);
 
@@ -476,12 +477,16 @@ HMM_Vec3 mesh_edgesToCorner(HMM_Vec3Slice a, HMM_Vec3Slice b) {
     HMM_Vec3 bEnd = b.elems[b.count - 1];
 
     if (geo_v3Equal(aStart, bStart)) {
-        return aStart;
+        *outPt = aStart;
+        return true;
     } else if (geo_v3Equal(aStart, bEnd)) {
-        return aStart;
+        *outPt = aStart;
+        return true;
     } else if (geo_v3Equal(aEnd, bEnd)) {
-        return aEnd;
+        *outPt = aEnd;
+        return true;
     }
+    return false;
 }
 
 typedef struct _mesh_TriSliceLLNode _mesh_TriSliceLLNode;

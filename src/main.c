@@ -47,7 +47,7 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
     sk_tests();
     skt_tests();
     ser_tests();
-    mesh_tests();
+    csg_tests();
 
     main_appLifetimeArena = snz_arenaInit(100000, "main app lifetime arena");
     main_fontArena = snz_arenaInit(10000000, "main font arena");
@@ -100,7 +100,7 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
         mesh_FaceSlice cubeB = mesh_cube(scratch);
         mesh_facesTransform(cubeB, HMM_Rotate_RH(HMM_AngleDeg(30), HMM_V3(1, 1, 1)));
         mesh_facesTranslate(cubeB, HMM_V3(1, 1, 1));
-        mesh_FaceSlice faces = csg_facesUnion(&cubeA, &cubeB, &main_baseMeshArena, &scratch);
+        mesh_FaceSlice faces = csg_facesUnion(&cubeA, &cubeB, &main_baseMeshArena, scratch);
         tl_timelinePushBaseGeometry(&main_timeline, HMM_V2(-200, 0), faces);
     }
 
@@ -365,7 +365,7 @@ void main_frame(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screen
                     if (op) {
                         HMM_Vec3 cameraPos, mouseDir;
                         HMM_Mat4 vp;
-                        main_sceneBuild(&op->scene, HMM_V2(w, h), inter, dt, &cameraPos, &mouseDir, &vp);
+                        main_sceneBuild(&main_timelineScene, HMM_V2(w, h), inter, dt, &cameraPos, &mouseDir, &vp);
 
                         if (op->kind == TL_OPK_SKETCH) {
                             sk_Sketch* opSketch = &op->val.sketch;
@@ -373,10 +373,9 @@ void main_frame(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screen
                             sku_drawAndBuildSketch(opSketch, alignOfSketch, vp, cameraPos, soundVal, HMM_V2(w, h), scratch);
                             sku_endFrameForUIInstance(inputs, alignOfSketch, vp, cameraPos, mouseDir);
                         } else {
-                            if (op->scene.mesh) {
-                                mesh_meshBuild(op->scene.mesh, vp, cameraPos, mouseDir, inter, HMM_V2(w, h), scratch);
-                                snzu_frameDrawAndGenInteractions(inputs, HMM_M4D(1.0f));
-                            }
+                            // FIXME: better name for this fn
+                            mesh_meshBuild(&main_timelineScene, vp, cameraPos, mouseDir, inter, HMM_V2(w, h), scratch);
+                            snzu_frameDrawAndGenInteractions(inputs, HMM_M4D(1.0f));
                         }
 
                         // draw crosshair
@@ -384,8 +383,8 @@ void main_frame(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screen
                             // FIXME: looks jumpy with camera in squishy mode
                             // FIXME: I don't like gl here
                             glDisable(GL_DEPTH_TEST);
-                            geo_Align origin = op->scene.orbitOrigin;
-                            float scale = op->scene.orbitDist * 0.05;
+                            geo_Align origin = main_timelineScene.orbitOrigin;
+                            float scale = main_timelineScene.orbitDist * 0.05;
                             HMM_Vec4 pts[2] = { 0 };
                             pts[0].XYZ = HMM_Add(origin.pt, HMM_Mul(origin.vertical, scale));
                             pts[1].XYZ = origin.pt;
@@ -396,11 +395,7 @@ void main_frame(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screen
                     }
                 } else if (main_currentView == SC_VIEW_TIMELINE) {
                     if (main_timeline.activeOp) {
-                        mesh_Mesh* mesh = main_timeline.activeOp->scene.mesh;
-                        if (mesh) {
-                            ren3d_Mesh* renderMesh = &mesh->renderMesh;
-                            main_drawTimelineMeshPreview(dt, HMM_V2(w, h), renderMesh);
-                        }
+                        main_drawTimelineMeshPreview(dt, HMM_V2(w, h), &main_timelineScene.renderMesh);
                     }
                     HMM_Mat4 vp = { 0 };
                     snzu_Input inputCopy = inputs;

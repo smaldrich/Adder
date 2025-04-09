@@ -256,6 +256,7 @@ static int _csg_splitTri(geo_Tri* tri, const csg_Node* cutter, geo_Tri** outResu
     // anything greater than 5 should be impossible, anything less than 4 should have been put on
     // one side, not marked spanning
     SNZ_ASSERT(false, "unreachable.");
+    return 0;
 }
 
 // return indicates if any child got clipped
@@ -307,6 +308,7 @@ static _csg_TempFace* _csg_tempFacesFindLast(_csg_TempFace* first) {
         }
     }
     SNZ_ASSERT(false, "this function probably shouldn't be used for whatever you are doing.");
+    return NULL;
 }
 
 static _csg_TempFace* _csg_facesToTempFaces(const mesh_FaceSlice* faces, snz_Arena* arena) {

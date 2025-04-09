@@ -35,11 +35,12 @@ typedef struct {
 // copies faces and tempgeo elts to a new arena with space for ui data for them
 // scene returned is valid for the length of arenas life
 // FIXME: array content isn't getting copied rn so the above isn't actually true
-tl_Scene tl_sceneInit(const mesh_FaceSlice* faces, mesh_TempGeo* tempGeo, snz_Arena* arena) {
+tl_Scene tl_sceneInit(const mesh_FaceSlice* faces, mesh_TempGeo* tempGeo, snz_Arena* arena, snz_Arena* scratch) {
     // FIXME: initialize camera to always be outside mesh based on faces
     tl_Scene out = (tl_Scene){
         .orbitDist = 5,
         .orbitOrigin = geo_alignZero(),
+        .renderMesh = mesh_facesToRenderMesh(faces, scratch),
     };
 
     out.faces = (tl_SceneGeoSlice){
@@ -412,6 +413,6 @@ tl_Scene tl_solveForNode(tl_Timeline* t, tl_Op* targetOp, snz_Arena* scratch) {
         }
     } // end loop solving
 
-    tl_Scene out = tl_sceneInit(targetOp->solve.faces, targetOp->solve.tempGeo, t->generatedArena);
+    tl_Scene out = tl_sceneInit(targetOp->solve.faces, targetOp->solve.tempGeo, t->generatedArena, scratch);
     return out;
 }
