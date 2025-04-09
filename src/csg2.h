@@ -209,70 +209,54 @@ static int _csg_splitTri(geo_Tri* tri, const csg_Node* cutter, geo_Tri** outResu
     }
 
     if (vertCount == 5) {
+        geo_Tri* tris = SNZ_ARENA_PUSH_ARR(arena, 3, geo_Tri);
+        bool* insOrOuts = SNZ_ARENA_PUSH_ARR(arena, 3, bool);
+
         bool t1Outside = HMM_DotV3(HMM_SubV3(rotatedVerts[1], cutter->origin), cutter->normal) > 0;
-        geo_Tri* t1 = SNZ_ARENA_PUSH(arena, geo_Tri);
-        *t1 = (geo_Tri){
+        (*outInOrOut)[0] = t1Outside;
+        tris[0] = (geo_Tri){
             .a = rotatedVerts[0],
             .b = rotatedVerts[1],
             .c = rotatedVerts[2],
-        },
-
-        csg_Tri* t2 = SNZ_ARENA_PUSH(arena, csg_Tri);
-        *t2 = (csg_Tri){
-            .tri = (geo_Tri){
-                .a = rotatedVerts[2],
-                .b = rotatedVerts[3],
-                .c = rotatedVerts[4],
-            },
-            .ancestor = tri,
-            .sourceFace = tri->sourceFace,
         };
 
-        csg_Tri* t3 = SNZ_ARENA_PUSH(arena, csg_Tri);
-        *t3 = (csg_Tri){
-            .tri = (geo_Tri){
-                .a = rotatedVerts[4],
-                .b = rotatedVerts[0],
-                .c = rotatedVerts[2],
-            },
-            .ancestor = tri,
-            .sourceFace = tri->sourceFace,
+        (*outInOrOut)[1] = !t1Outside;
+        tris[1] = (geo_Tri){
+            .a = rotatedVerts[2],
+            .b = rotatedVerts[3],
+            .c = rotatedVerts[4],
         };
 
-        csg_TriList* t1List = t1Outside ? outOutsideList : outInsideList;
-        csg_TriList* t2and3List = t1Outside ? outInsideList : outOutsideList;
+        (*outInOrOut)[2] = !t1Outside;
+        tris[2] = (geo_Tri){
+            .a = rotatedVerts[4],
+            .b = rotatedVerts[0],
+            .c = rotatedVerts[2],
+        };
 
-        csg_triListPush(t1List, t1);
-        csg_triListPush(t2and3List, t2);
-        csg_triListPush(t2and3List, t3);
+        (*outResultTris) = tris;
+        (*outInOrOut) = insOrOuts;
+        return 3;
     }  // end 5 vert-check
     else if (vertCount == 4) {
-        csg_Tri* t1 = SNZ_ARENA_PUSH(arena, csg_Tri);
-        *t1 = (csg_Tri){
-            .tri = (geo_Tri){
-                .a = rotatedVerts[0],
-                .b = rotatedVerts[1],
-                .c = rotatedVerts[2],
-            },
-            .ancestor = tri,
-            .sourceFace = tri->sourceFace,
-        };
-
-        csg_Tri* t2 = SNZ_ARENA_PUSH(arena, csg_Tri);
-        *t2 = (csg_Tri){
-            .tri = (geo_Tri){
-                .a = rotatedVerts[2],
-                .b = rotatedVerts[3],
-                .c = rotatedVerts[0],
-            },
-            .ancestor = tri,
-            .sourceFace = tri->sourceFace,
-        };
+        geo_Tri* tris = SNZ_ARENA_PUSH_ARR(arena, 3, geo_Tri);
+        bool* insOrOuts = SNZ_ARENA_PUSH_ARR(arena, 3, bool);
 
         // t1B should never be colinear with the cut plane so long as rotation has been done correctly
-        bool t1Outside = HMM_DotV3(HMM_SubV3(t1->tri.b, cutter->tri.a), cutNormal) > 0;
-        csg_triListPush(t1Outside ? outOutsideList : outInsideList, t1);
-        csg_triListPush(t1Outside ? outInsideList : outOutsideList, t2);
+        bool t1Outside = HMM_DotV3(HMM_SubV3(rotatedVerts[1], cutter->origin), cutter->normal) > 0;
+        (*outInOrOut)[0] = t1Outside;
+        tris[0] = (geo_Tri){
+            .a = rotatedVerts[0],
+            .b = rotatedVerts[1],
+            .c = rotatedVerts[2],
+        };
+
+        (*outInOrOut)[1] = !t1Outside;
+        tris[1] = (geo_Tri){
+            .a = rotatedVerts[2],
+            .b = rotatedVerts[3],
+            .c = rotatedVerts[0],
+        };
     }
     // anything greater than 5 should be impossible, anything less than 4 should have been put on
     // one side, not marked spanning
@@ -329,11 +313,15 @@ mesh_FaceSlice csg_facesClip(mesh_FaceSlice faces, const csg_Node* tree, bool re
     for (_csg_TempFace* f = firstInFace; f;) {
         SNZ_ARENA_ARR_BEGIN(arena, geo_Tri);
         for (int64_t i = 0; i < f->face.tris.count; i++) {
+            void* scratchStart = scratch->end;
+
             geo_Tri t = f->face.tris.elems[i];
-            bool anyClipped = _csg_clipTri(t, removeWithin, tree, arena);
+            bool anyClipped = _csg_clipTri(&t, removeWithin, tree, arena, scratch);
             if (!anyClipped) {
                 *SNZ_ARENA_PUSH(arena, geo_Tri) = t;
             }
+
+            scratch->end = scratch->start;
         }
         f->face.tris = SNZ_ARENA_ARR_END(arena, geo_Tri);
 
@@ -352,4 +340,122 @@ mesh_FaceSlice csg_facesClip(mesh_FaceSlice faces, const csg_Node* tree, bool re
         *SNZ_ARENA_PUSH(arena, mesh_Face) = f->face;
     }
     return SNZ_ARENA_ARR_END(arena, mesh_Face);
+}
+
+void csg_tests() {
+    snz_testPrintSection("csg");
+
+    snz_Arena arena = snz_arenaInit(1000000, "csg test arena");
+    snz_Arena scratch = snz_arenaInit(1000000, "csg test scratch arena");
+    PoolAlloc pool = poolAllocInit();
+
+    {
+        HMM_Vec3 verts[] = {
+            HMM_V3(0, 0, 0),
+            HMM_V3(1, 0, 0),
+            HMM_V3(1, 1, 0),
+            HMM_V3(1, 0, -1),
+        };
+
+        mesh_FaceSlice faces = (mesh_FaceSlice){
+            .count = 1,
+            .elems = SNZ_ARENA_PUSH(&arena, mesh_Face),
+        };
+        SNZ_ARENA_ARR_BEGIN(&arena, geo_Tri);
+        *SNZ_ARENA_PUSH(&arena, geo_Tri) = geo_triInit(verts[0], verts[1], verts[2]);
+        *SNZ_ARENA_PUSH(&arena, geo_Tri) = geo_triInit(verts[0], verts[2], verts[3]);
+        *SNZ_ARENA_PUSH(&arena, geo_Tri) = geo_triInit(verts[0], verts[3], verts[1]);
+        *SNZ_ARENA_PUSH(&arena, geo_Tri) = geo_triInit(verts[3], verts[2], verts[1]);
+        faces.elems[0].tris = SNZ_ARENA_ARR_END(&arena, geo_Tri);
+
+        csg_Node* tree = csg_facesToNodes(faces, &arena);
+        snz_testPrint(csg_nodesContainPoint(tree, HMM_V3(0.5, 0.5, 0.0)) == true, "Tetra contains pt");
+        snz_testPrint(csg_nodesContainPoint(tree, HMM_V3(0.5, 1.0, 0.5)) == false, "Tetra doesn't contain pt");
+        snz_testPrint(csg_nodesContainPoint(tree, HMM_V3(0, 0, 0)) == true, "Tetra contains edge pt");
+        snz_testPrint(csg_nodesContainPoint(tree, HMM_V3(1, 0, -1)) == true, "Tetra contains edge pt 2");
+        snz_testPrint(csg_nodesContainPoint(tree, HMM_V3(-1, 0, -1)) == false, "Tetra doesn't contain point 2");
+        snz_testPrint(csg_nodesContainPoint(tree, HMM_V3(3, 3, 3)) == false, "Tetra doesn't contain point 3");
+        snz_testPrint(csg_nodesContainPoint(tree, HMM_V3(INFINITY, NAN, NAN)) == false, "Tetra doesn't contain invalid floats");
+    }
+
+    snz_arenaClear(&arena);
+    poolAllocClear(&pool);
+
+    {
+        HMM_Vec3 verts[] = {
+            HMM_V3(-0.5, 0, 0),
+            HMM_V3(0, 1, 0),
+            HMM_V3(0.5, 0, 0),
+            HMM_V3(0, -1, -1),
+            HMM_V3(0, -1, 1),
+        };
+
+        mesh_FaceSlice faces = (mesh_FaceSlice){
+            .count = 1,
+            .elems = SNZ_ARENA_PUSH(&arena, mesh_Face),
+        };
+        SNZ_ARENA_ARR_BEGIN(&arena, geo_Tri);
+
+        // top faces
+        *SNZ_ARENA_PUSH(&arena, geo_Tri) = geo_triInit(verts[1], verts[2], verts[3]);
+        *SNZ_ARENA_PUSH(&arena, geo_Tri) = geo_triInit(verts[1], verts[4], verts[2]);
+        *SNZ_ARENA_PUSH(&arena, geo_Tri) = geo_triInit(verts[1], verts[3], verts[0]);
+        *SNZ_ARENA_PUSH(&arena, geo_Tri) = geo_triInit(verts[1], verts[0], verts[4]);
+
+        // bottom faces
+        *SNZ_ARENA_PUSH(&arena, geo_Tri) = geo_triInit(verts[0], verts[3], verts[2]);
+        *SNZ_ARENA_PUSH(&arena, geo_Tri) = geo_triInit(verts[0], verts[2], verts[4]);
+        faces.elems[0].tris = SNZ_ARENA_ARR_END(&arena, geo_Tri);
+
+        mesh_facesToSTLFile(faces, "testing/object.stl");
+
+        csg_Node* tree = csg_facesToNodes(faces, &arena);
+
+        snz_testPrint(csg_nodesContainPoint(tree, HMM_V3(0, 0, 0)) == true, "horn contain test 1");
+        snz_testPrint(csg_nodesContainPoint(tree, HMM_V3(0, 10, 0)) == false, "horn contain test 2");
+        snz_testPrint(csg_nodesContainPoint(tree, HMM_V3(0, 0, -0.1)) == true, "horn contain test 3");
+        snz_testPrint(csg_nodesContainPoint(tree, HMM_V3(-0.5, 0, 0)) == true, "horn contain test 4");
+        snz_testPrint(csg_nodesContainPoint(tree, HMM_V3(0, -1, -1)) == true, "horn contain test 5");
+        snz_testPrint(csg_nodesContainPoint(tree, HMM_V3(-1, -1, -1)) == false, "horn contain test 6");
+        snz_testPrint(csg_nodesContainPoint(tree, HMM_V3(0, -0.5, 0)) == false, "horn contain test 7");
+    }
+
+    snz_arenaClear(&arena);
+    snz_arenaClear(&scratch);
+    poolAllocClear(&pool);
+
+    {
+        mesh_FaceSlice cubeA = mesh_cube(&arena);
+        csg_Node* treeA = csg_facesToNodes(cubeA, &arena);
+
+        mesh_FaceSlice cubeB = mesh_cube(&arena);
+        mesh_facesTransform(cubeB, HMM_Rotate_RH(HMM_AngleDeg(30), HMM_V3(1, 1, 1)));
+        mesh_facesTranslate(cubeB, HMM_V3(1, 1, 1));
+        csg_Node* treeB = csg_facesToNodes(cubeB, &arena);
+
+        mesh_FaceSlice aClipped = csg_facesClip(cubeA, treeB, true, &arena, &scratch);
+        mesh_FaceSlice bClipped = csg_facesClip(cubeB, treeA, true, &arena, &scratch);
+        csg_TriList* final = csg_triListJoin(aClipped, bClipped);
+        mesh_facesToSTLFile(final, "testing/union.stl");
+    }
+
+    {
+        mesh_FaceSlice cubeA = mesh_cube(&arena);
+        csg_Node* treeA = csg_facesToNodes(cubeA, &arena);
+
+        mesh_FaceSlice cubeB = mesh_cube(&arena);
+        mesh_facesTransform(cubeB, HMM_Rotate_RH(HMM_AngleDeg(30), HMM_V3(1, 1, 1)));
+        mesh_facesTranslate(cubeB, HMM_V3(1, 1, 1));
+        csg_Node* treeB = csg_facesToNodes(cubeB, &arena);
+
+        mesh_FaceSlice aClipped = csg_facesClip(cubeA, treeB, true, &arena, &scratch);
+        mesh_FaceSlice bClipped = csg_facesClip(cubeB, treeA, false, &arena, &scratch);
+        mesh_facesInvert(bClipped);
+
+        csg_TriList* final = csg_triListJoin(aClipped, bClipped);
+        csg_triListToSTLFile(final, "testing/intersection.stl");
+    }
+
+    snz_arenaDeinit(&arena);
+    poolAllocDeinit(&pool);
 }
