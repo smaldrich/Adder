@@ -299,37 +299,37 @@ mesh_Scene tl_solveForNode(tl_Timeline* t, tl_Op* targetOp, snz_Arena* scratch) 
             op->solve.tempGeo = tempGeo;
         } else if (op->kind == TL_OPK_BASE_GEOMETRY) {
             op->solve.faces = &op->val.baseGeometry;
-            op->solve.tempGeo = ahh;
+            op->solve.tempGeo = mesh_facesToTempGeo(op->solve.faces, op->uniqueId, t->generatedArena, scratch);
         } else if (op->kind == TL_OPK_EXTRUDE) {
-            tl_Op* targetDep = NULL;
-            const mesh_Face* ogFace = NULL;
-            float targetSize = 0;
-            { // unpack and validate args/dependent geo/etc.
-                SNZ_ASSERTF(op->args[0].kind == TL_OPAK_GEOID_FACE, "Extrude requires first arg to be a face. Actual kind: %d", op->args[0].kind);
-                mesh_GeoID targetFaceId = op->args[0].geoId;
-                targetDep = tl_timelineGetOpByUID(t, op->args[0].geoId.opUniqueId);
+            // tl_Op* targetDep = NULL;
+            // const mesh_Face* ogFace = NULL;
+            // float targetSize = 0;
+            // { // unpack and validate args/dependent geo/etc.
+            //     SNZ_ASSERTF(op->args[0].kind == TL_OPAK_GEOID_FACE, "Extrude requires first arg to be a face. Actual kind: %d", op->args[0].kind);
+            //     mesh_GeoID targetFaceId = op->args[0].geoId;
+            //     targetDep = tl_timelineGetOpByUID(t, op->args[0].geoId.opUniqueId);
 
-                SNZ_ASSERTF(op->args[1].kind == TL_OPAK_NUMBER, "Extrude requires second arg to be a number. Actual kind: %d", op->args[1].kind);
-                targetSize = op->args[1].number;
+            //     SNZ_ASSERTF(op->args[1].kind == TL_OPAK_NUMBER, "Extrude requires second arg to be a number. Actual kind: %d", op->args[1].kind);
+            //     targetSize = op->args[1].number;
 
-                mesh_GeoIDResult geo = mesh_geoIdFind(targetDep->solve.faces, targetDep->solve.tempGeo, targetFaceId);
-                SNZ_ASSERT(geo.kind == MESH_GK_FACE, "Extrude geoid find failed.");
-                SNZ_ASSERT(mesh_faceFlat(geo.face), "Face to extrude wasn't flat.");
-                ogFace = geo.face;
-            }
+            //     mesh_GeoIDResult geo = mesh_geoIdFind(targetDep->solve.faces, targetDep->solve.tempGeo, targetFaceId);
+            //     SNZ_ASSERT(geo.kind == MESH_GK_FACE, "Extrude geoid find failed.");
+            //     SNZ_ASSERT(mesh_faceFlat(geo.face), "Face to extrude wasn't flat.");
+            //     ogFace = geo.face;
+            // }
 
-            int64_t newFaceCount = 2 + edgeCount;
-            mesh_FaceSlice newFaces = (mesh_FaceSlice){
-                .count = newFaceCount,
-                .elems = SNZ_ARENA_PUSH_ARR(t->generatedArena, newFaceCount, mesh_Face),
-            };
+            // int64_t newFaceCount = 1;
+            // mesh_FaceSlice newFaces = (mesh_FaceSlice){
+            //     .count = newFaceCount,
+            //     .elems = SNZ_ARENA_PUSH_ARR(t->generatedArena, newFaceCount, mesh_Face),
+            // };
 
-            HMM_Vec3 translation = HMM_Mul(geo_triNormal(ogFace->tris.elems[0]), targetSize);
+            // HMM_Vec3 translation = HMM_Mul(geo_triNormal(ogFace->tris.elems[0]), targetSize);
 
-            mesh_FaceSlice* faces = SNZ_ARENA_PUSH(t->generatedArena, mesh_FaceSlice);
-            *faces = csg_facesUnion(targetDep->solve.faces, &newFaces, t->generatedArena, scratch);
-            op->solve.faces = faces;
-            op->solve.tempGeo = ahh;
+            // mesh_FaceSlice* faces = SNZ_ARENA_PUSH(t->generatedArena, mesh_FaceSlice);
+            // *faces = csg_facesUnion(targetDep->solve.faces, &newFaces, t->generatedArena, scratch);
+            // op->solve.faces = faces;
+            // op->solve.tempGeo = mesh_facesToTempGeo(faces, op->uniqueId, t->generatedArena, scratch);
         } else {
             SNZ_ASSERTF(false, "unreachable. kind: %lld", op->kind);
         }

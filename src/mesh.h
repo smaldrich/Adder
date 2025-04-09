@@ -453,7 +453,7 @@ mesh_Edge mesh_facesToEdge(const mesh_Face* faceA, const mesh_Face* faceB, int64
     return out;
 }
 
-mesh_EdgeSlice mesh_faceToAllAdjacentEdges(const mesh_TempGeo* tempGeo, const mesh_Face* face, snz_Arena* arena) {
+mesh_EdgeSlice mesh_tempGeoFindAllAdjacentEdges(const mesh_TempGeo* tempGeo, const mesh_Face* face, snz_Arena* arena) {
     SNZ_ARENA_ARR_BEGIN(arena, mesh_Edge);
     for (const mesh_Edge* e = tempGeo->firstEdge; e; e = e->next) {
         const mesh_GeoID* idA = e->id.diffGeo1;
@@ -466,27 +466,114 @@ mesh_EdgeSlice mesh_faceToAllAdjacentEdges(const mesh_TempGeo* tempGeo, const me
     return SNZ_ARENA_ARR_END(arena, mesh_Edge);
 }
 
-// return indicates success
-bool mesh_edgesToCorner(HMM_Vec3Slice a, HMM_Vec3Slice b, HMM_Vec3* outPt) {
-    SNZ_ASSERTF(a.count > 0, "edge with only %lld points.", a.count);
-    SNZ_ASSERTF(b.count > 0, "edge with only %lld points.", b.count);
+// uid for correct geoId on the corner
+mesh_Corner* mesh_edgesToCorner(const mesh_Edge* a, const mesh_Edge* b, int64_t opUid, snz_Arena* arena) {
+    SNZ_ASSERTF(a->points.count > 0, "edge with only %lld points.", a->points.count);
+    SNZ_ASSERTF(b->points.count > 0, "edge with only %lld points.", b->points.count);
 
-    HMM_Vec3 aStart = a.elems[0];
-    HMM_Vec3 aEnd = a.elems[a.count - 1];
-    HMM_Vec3 bStart = b.elems[0];
-    HMM_Vec3 bEnd = b.elems[b.count - 1];
+    HMM_Vec3 aStart = a->points.elems[0];
+    HMM_Vec3 aEnd = a->points.elems[a->points.count - 1];
+    HMM_Vec3 bStart = b->points.elems[0];
+    HMM_Vec3 bEnd = b->points.elems[b->points.count - 1];
 
+    HMM_Vec3* pos = NULL;
     if (geo_v3Equal(aStart, bStart)) {
-        *outPt = aStart;
-        return true;
+        pos = &aStart;
     } else if (geo_v3Equal(aStart, bEnd)) {
-        *outPt = aStart;
-        return true;
+        pos = &aStart;
     } else if (geo_v3Equal(aEnd, bEnd)) {
-        *outPt = aEnd;
-        return true;
+        pos = &aEnd;
     }
-    return false;
+
+    if (!pos) {
+        return NULL;
+    }
+
+    mesh_Corner* corner = SNZ_ARENA_PUSH(arena, mesh_Corner);
+    *corner = (mesh_Corner){
+        .position = *pos,
+        .id = (mesh_GeoID) {
+            .opUniqueId = opUid,
+            .geoKind = MESH_GK_CORNER,
+            .diffGeo1 = mesh_geoIdDuplicate(&a->id, arena),
+            .diffGeo2 = mesh_geoIdDuplicate(&b->id, arena),
+        }
+    };
+    return corner;
+}
+
+typedef struct {
+    mesh_Face* a;
+    mesh_Face* b;
+} _mesh_FacePair;
+
+SNZ_SLICE(_mesh_FacePair);
+
+typedef struct {
+    mesh_Edge* a;
+    mesh_Edge* b;
+} _mesh_EdgePair;
+
+SNZ_SLICE(_mesh_EdgePair);
+
+// generates all edges and corners for the given faces, opui to correctly create geoIds
+mesh_TempGeo* mesh_facesToTempGeo(const mesh_FaceSlice* faces, int64_t opUid, snz_Arena* arena, snz_Arena* scratch) {
+    mesh_TempGeo* out = SNZ_ARENA_PUSH(arena, mesh_TempGeo);
+    *out = (mesh_TempGeo){
+        .firstCorner = NULL,
+        .firstEdge = NULL,
+    };
+
+    SNZ_ARENA_ARR_BEGIN(scratch, _mesh_FacePair);
+    for (int64_t i = 0; i < faces->count; i++) {
+        mesh_Face* faceA = &faces->elems[i];
+        for (int64_t j = i; j < faces->count; j++) {
+            mesh_Face* faceB = &faces->elems[j];
+            *SNZ_ARENA_PUSH(scratch, _mesh_FacePair) = (_mesh_FacePair){
+                .a = faceA,
+                .b = faceB,
+            };
+        }
+    }
+    _mesh_FacePairSlice facePairs = SNZ_ARENA_ARR_END(scratch, _mesh_FacePair);
+
+    // generate edges from face pairs
+    for (int64_t i = 0; i < facePairs.count; i++) {
+        _mesh_FacePair pair = facePairs.elems[i];
+        mesh_Edge e = mesh_facesToEdge(pair.a, pair.b, opUid, arena, scratch);
+        if (!e.points.count) {
+            continue;
+        }
+
+        mesh_Edge* edgeCopy = SNZ_ARENA_PUSH(arena, mesh_Edge);
+        *edgeCopy = e;
+        edgeCopy->next = out->firstEdge;
+        out->firstEdge = edgeCopy;
+    }
+
+    SNZ_ARENA_ARR_BEGIN(scratch, _mesh_EdgePair);
+    for (mesh_Edge* edge = out->firstEdge; edge; edge = edge->next) {
+        for (mesh_Edge* other = edge->next; other; other = other->next) {
+            *SNZ_ARENA_PUSH(scratch, _mesh_EdgePair) = (_mesh_EdgePair){
+                .a = edge,
+                .b = other,
+            };
+        }
+    }
+    _mesh_EdgePairSlice edgePairs = SNZ_ARENA_ARR_END(scratch, _mesh_EdgePair);
+
+    // generating corners
+    for (int64_t i = 0; i < edgePairs.count; i++) {
+        _mesh_EdgePair pair = edgePairs.elems[i];
+
+        mesh_Corner* corner = mesh_edgesToCorner(pair.a, pair.b, opUid, arena);
+        if (!corner) {
+            continue;
+        }
+        corner->next = out->firstCorner;
+        out->firstCorner = corner;
+    }
+    return out;
 }
 
 typedef struct _mesh_TriSliceLLNode _mesh_TriSliceLLNode;
