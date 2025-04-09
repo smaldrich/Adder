@@ -130,18 +130,6 @@ void mesh_facesTransform(mesh_FaceSlice faces, HMM_Mat4 transform) {
     } // faces
 }
 
-void mesh_facesInvert(mesh_FaceSlice faces) {
-    for (int64_t i = 0; i < faces.count; i++) {
-        mesh_Face* f = &faces.elems[i];
-        for (int64_t j = 0; j < f->tris.count; j++) {
-            geo_Tri* tri = &f->tris.elems[j];
-            HMM_Vec3 temp = tri->c;
-            tri->c = tri->b;
-            tri->b = temp;
-        }
-    }
-}
-
 // 2 width cube, centered on the origin, face geoids not filled out
 mesh_FaceSlice mesh_cube(snz_Arena* arena) {
     HMM_Vec3 v[] = {

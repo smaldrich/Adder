@@ -10,8 +10,6 @@ typedef struct {
     geo_Align orbitOrigin;
     HMM_Vec2 orbitAngle;
     float orbitDist;
-
-    mesh_Mesh* mesh;
 } tl_Scene;
 
 tl_Scene tl_sceneInit() {
@@ -19,7 +17,6 @@ tl_Scene tl_sceneInit() {
     tl_Scene out = (tl_Scene){
         .orbitDist = 5,
         .orbitOrigin = geo_alignZero(),
-        .mesh = NULL,
     };
     return out;
 }
@@ -99,10 +96,13 @@ struct tl_Op {
     tl_OpKind kind;
     union {
         sk_Sketch sketch;
-        mesh_Mesh baseGeometry;
+        mesh_FaceSlice baseGeometry;
     } val;
     tl_OpArg args[TL_OP_ARG_MAX_COUNT];
-    tl_Scene scene; // updated per solve - camera data persists tho
+
+    tl_Scene scene;
+
+    mesh_FaceSlice solvedFaces;
 };
 
 SNZ_SLICE_NAMED(tl_Op*, tl_OpPtrSlice);
@@ -168,34 +168,15 @@ tl_Op* tl_timelinePushSketch(tl_Timeline* tl, HMM_Vec2 pos, sk_Sketch sketch) {
     return out;
 }
 
-// also generates geoIds for everything in the mesh - mesh shouldn't be retained after this call
-tl_Op* tl_timelinePushBaseGeometry(tl_Timeline* tl, HMM_Vec2 pos, mesh_Mesh mesh) {
+// generates geoIds for faces - which shouldn't be retained after this call
+tl_Op* tl_timelinePushBaseGeometry(tl_Timeline* tl, HMM_Vec2 pos, mesh_FaceSlice faces) {
     tl_Op* out = _tl_timelinePushOp(tl);
     out->ui.pos = pos;
     out->kind = TL_OPK_BASE_GEOMETRY;
-    out->val.baseGeometry = mesh;
-    out->scene.mesh = &out->val.baseGeometry;
 
-    int64_t nextId = 0;
-    for (int64_t i = 0; i < mesh.corners.count; i++) {
-        mesh.corners.elems[i].id = (mesh_GeoID){
-            .geoKind = MESH_GK_CORNER,
-            .baseNodeId = nextId,
-            .opUniqueId = out->uniqueId,
-        };
-        nextId++;
-    }
-
-    for (mesh_Edge* e = mesh.firstEdge; e; e = e->next) {
-        e->id = (mesh_GeoID){
-            .geoKind = MESH_GK_EDGE,
-            .baseNodeId = nextId,
-            .opUniqueId = out->uniqueId,
-        };
-        nextId++;
-    }
-
-    for (mesh_Face* f = mesh.firstFace; f; f = f->next) {
+    int64_t nextId = 1;
+    for (int64_t i = 0; i < faces.count; i++) {
+        mesh_Face* f = &faces.elems[i];
         f->id = (mesh_GeoID){
             .geoKind = MESH_GK_FACE,
             .baseNodeId = nextId,
@@ -203,6 +184,7 @@ tl_Op* tl_timelinePushBaseGeometry(tl_Timeline* tl, HMM_Vec2 pos, mesh_Mesh mesh
         };
         nextId++;
     }
+    out->val.baseGeometry = faces;
     return out;
 }
 
@@ -262,50 +244,10 @@ void tl_timelineCullOpsMarkedForDelete(tl_Timeline* t) {
     // FIXME: free list
 }
 
-void tl_solveForNode(tl_Timeline* t, tl_Op* targetOp, snz_Arena* scratch) {
-    if (!targetOp) {
-        return;
-    }
-
-    SNZ_ARENA_ARR_BEGIN(scratch, tl_Op*);
-    *SNZ_ARENA_PUSH(scratch, tl_Op*) = targetOp;
-    while (true) { // FIXME: cutoff
-        bool anyAdded = false;
-        tl_OpPtrSlice added = (tl_OpPtrSlice){
-            .count = scratch->arrModeElemCount,
-            .elems = (tl_Op**)(scratch->end) - scratch->arrModeElemCount,
-        };
-
-        for (int opIdx = 0; opIdx < added.count; opIdx++) {
-            tl_Op* op = added.elems[opIdx];
-            for (int argIdx = 0; argIdx < TL_OP_ARG_MAX_COUNT; argIdx++) {
-                tl_Op* new = tl_timelineGetOpByUID(t, op->args[argIdx].geoId.opUniqueId);
-                if (!new) {
-                    tl_OpArgKind kind = tl_opArgKindsExpected[op->kind][argIdx];
-                    if (tl_opArgKindExpectsDependency(kind)) {
-                        SNZ_ASSERT(false, "tried to solve with a missing dep.");
-                    }
-                    continue;
-                }
-                bool inAdded = false;
-                for (int k = 0; k < added.count; k++) {
-                    if (added.elems[k] == new) {
-                        inAdded = true;
-                    }
-                }
-                if (inAdded) {
-                    continue;
-                }
-                *SNZ_ARENA_PUSH(scratch, tl_Op*) = new;
-                anyAdded = true;
-            }
-        }
-
-        if (!anyAdded) {
-            break;
-        }
-    }
-    tl_OpPtrSlice dependencies = SNZ_ARENA_ARR_END_NAMED(scratch, tl_Op*, tl_OpPtrSlice);
+// FIXME: bubbles please
+void tl_solve(tl_Timeline* t, ren3d_Mesh* renderMesh, snz_Arena* scratch) {
+    // FIXME: topo sort please :)
+    // FIXME: current geoID hashmap please
 
     snz_arenaClear(t->generatedArena);
     poolAllocClear(t->generatedPool);
@@ -313,9 +255,7 @@ void tl_solveForNode(tl_Timeline* t, tl_Op* targetOp, snz_Arena* scratch) {
     for (int i = dependencies.count - 1; i >= 0; i--) {
         tl_Op* op = dependencies.elems[i];
         SNZ_ASSERT(!op->markedForDeletion, "tl op marked for delete made it to the solving stage");
-        if (op->kind != TL_OPK_SKETCH && op->kind != TL_OPK_BASE_GEOMETRY) {
-            op->scene.mesh = NULL;
-        }
+        op->solvedFaces = (mesh_FaceSlice){ 0 };
 
         if (op->kind == TL_OPK_SKETCH) {
             sk_sketchSolve(&op->val.sketch);
@@ -323,7 +263,7 @@ void tl_solveForNode(tl_Timeline* t, tl_Op* targetOp, snz_Arena* scratch) {
             *m = skt_sketchTriangulate(op->uniqueId, &op->val.sketch, t->generatedArena, scratch);
             op->scene.mesh = m;
         } else if (op->kind == TL_OPK_BASE_GEOMETRY) {
-            continue;
+            op->solvedFaces = op->val.baseGeometry;
         } else if (op->kind == TL_OPK_EXTRUDE) {
             SNZ_ASSERTF(op->args[0].kind == TL_OPAK_GEOID_FACE, "Extrude requires first arg to be a face. Actual kind: %d", op->args[0].kind);
             tl_Op* dep = tl_timelineGetOpByUID(t, op->args[0].geoId.opUniqueId);
@@ -392,19 +332,5 @@ void tl_solveForNode(tl_Timeline* t, tl_Op* targetOp, snz_Arena* scratch) {
         }
     } // end loop solving
 
-    mesh_Mesh* m = targetOp->scene.mesh;
-    if (!m->firstEdge) {
-        mesh_meshGenerateEdges(m, t->generatedArena, scratch);
-    }
-    if (!m->corners.count) {
-        mesh_meshGenerateCorners(m, t->generatedArena, scratch);
-    }
-    if (!m->firstFace->tris.count) {
-        mesh_BSPTriListToFaceTris(t->generatedPool, m);
-    }
-    if (m->renderMesh.vaId) { // FIXME: get a decent check for null rendermeshes
-        // FIXME: probably shouldnt store one of these per scene if solves only happen for one op
-        ren3d_meshDeinit(&m->renderMesh);
-    }
-    m->renderMesh = mesh_BSPTriListToRenderMesh(m->bspTris, scratch);
+    // FIXME: rendermesh update :)
 }

@@ -326,6 +326,8 @@ static mesh_FaceSlice _csg_tempFacesToFaces(_csg_TempFace* firstFace, snz_Arena*
 }
 
 // destructive to OG face list - reuses nodes in output
+// FIXME: handle the case where a face gets split and we need new faceIds
+// FIXME: put new faceIDs on to everything that changes
 static _csg_TempFace* _csg_tempFacesClip(_csg_TempFace* faces, const csg_Node* tree, bool removeWithin, snz_Arena* arena, snz_Arena* scratch) {
     _csg_TempFace* firstOutFace = NULL;
     for (_csg_TempFace* f = faces; f;) {
@@ -354,6 +356,17 @@ static _csg_TempFace* _csg_tempFacesClip(_csg_TempFace* faces, const csg_Node* t
     return firstOutFace;
 }
 
+static void _csg_tempFacesInvert(_csg_TempFace* first) {
+    for (_csg_TempFace* f = first; f; f = f->next) {
+        for (int64_t j = 0; j < f->face.tris.count; j++) {
+            geo_Tri* tri = &f->face.tris.elems[j];
+            HMM_Vec3 temp = tri->c;
+            tri->c = tri->b;
+            tri->b = temp;
+        }
+    }
+}
+
 mesh_FaceSlice csg_facesUnion(mesh_FaceSlice a, mesh_FaceSlice b, snz_Arena* arena, snz_Arena* scratch) {
     _csg_TempFace* aFaces = _csg_facesToTempFaces(a, scratch);
     _csg_TempFace* bFaces = _csg_facesToTempFaces(b, scratch);
@@ -376,6 +389,7 @@ mesh_FaceSlice csg_facesDifference(mesh_FaceSlice a, mesh_FaceSlice b, snz_Arena
 
     aFaces = _csg_tempFacesClip(aFaces, bNodes, true, arena, scratch);
     bFaces = _csg_tempFacesClip(bFaces, aNodes, false, arena, scratch);
+    _csg_tempFacesInvert(bFaces);
 
     _csg_TempFace* last = _csg_tempFacesFindLast(aFaces);
     last->next = bFaces;
@@ -389,7 +403,9 @@ mesh_FaceSlice csg_facesIntersection(mesh_FaceSlice a, mesh_FaceSlice b, snz_Are
     csg_Node* bNodes = csg_facesToNodes(b, scratch);
 
     aFaces = _csg_tempFacesClip(aFaces, bNodes, false, arena, scratch);
+    _csg_tempFacesInvert(aFaces);
     bFaces = _csg_tempFacesClip(bFaces, aNodes, false, arena, scratch);
+    _csg_tempFacesInvert(bFaces);
 
     _csg_TempFace* last = _csg_tempFacesFindLast(aFaces);
     last->next = bFaces;
