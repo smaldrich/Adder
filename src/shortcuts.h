@@ -399,17 +399,17 @@ bool scc_sceneLookAt(_sc_CommandFuncArgs args) {
         float t = 0;
         HMM_Vec3 lineOrigin = HMM_Add(origin->pt, newNorm);
         bool hit = geo_rayPlaneIntersection(
-            selectedFace->tris.elems[0].a, newNorm,
+            selected->faceTris.elems[0].a, newNorm,
             lineOrigin, newNorm, &t);
         SNZ_ASSERT(hit, "can't find a point to move orbit origin to.");
         origin->pt = HMM_Add(lineOrigin, HMM_Mul(newNorm, t));
-    } else if (selectedCorner) {
-        op->scene.orbitOrigin.pt = selectedCorner->pos;
-    } else if (selectedEdge) {
+    } else if (selected->id.geoKind == MESH_GK_CORNER) {
+        args.scene->orbitOrigin.pt = selected->cornerPos;
+    } else if (selected->id.geoKind == MESH_GK_EDGE) {
         // FIXME: what about curved edges??
-        SNZ_ASSERTF(selectedEdge->points.count >= 2, "edge with only %lld point(s)", selectedEdge->points.count);
-        HMM_Vec3 p1 = selectedEdge->points.elems[0];
-        HMM_Vec3 p2 = selectedEdge->points.elems[1];
+        SNZ_ASSERTF(selected->edgePoints.count >= 2, "edge with only %lld point(s)", selected->edgePoints.count);
+        HMM_Vec3 p1 = selected->edgePoints.elems[0];
+        HMM_Vec3 p2 = selected->edgePoints.elems[1];
         HMM_Vec3 dir = HMM_Norm(HMM_Sub(p2, p1));
         dir = HMM_Norm(HMM_Cross(HMM_Cross(origin->normal, dir), origin->normal));
 
@@ -428,8 +428,9 @@ bool scc_sceneLookAt(_sc_CommandFuncArgs args) {
         if (!isnan(closest.X)) {
             origin->vertical = closest;
         }
-
-        op->scene.orbitAngle = HMM_V2(0, 0);
+        args.scene->orbitAngle = HMM_V2(0, 0);
+    } else {
+        SNZ_ASSERTF(false, "unreachable. kind: %d", selected->id.geoKind);
     }
 
     geo_alignAssertValid(origin);
@@ -442,10 +443,10 @@ bool scc_sceneRotateCameraLeft(_sc_CommandFuncArgs args) {
     if (!op) {
         return true;
     }
-    geo_Align* origin = &op->scene.orbitOrigin;
+    geo_Align* origin = &args.scene->orbitOrigin;
     HMM_Vec3 newVertical = HMM_Norm(HMM_Cross(origin->normal, origin->vertical));
     origin->vertical = newVertical;
-    geo_alignAssertValid(&op->scene.orbitOrigin);
+    geo_alignAssertValid(&args.scene->orbitOrigin);
     return true;
 }
 
@@ -454,10 +455,10 @@ bool scc_sceneRotateCameraRight(_sc_CommandFuncArgs args) {
     if (!op) {
         return true;
     }
-    geo_Align* origin = &op->scene.orbitOrigin;
+    geo_Align* origin = &args.scene->orbitOrigin;
     HMM_Vec3 newVertical = HMM_Norm(HMM_Cross(origin->vertical, origin->normal));
     origin->vertical = newVertical;
-    geo_alignAssertValid(&op->scene.orbitOrigin);
+    geo_alignAssertValid(&args.scene->orbitOrigin);
     return true;
 }
 
@@ -468,35 +469,26 @@ bool scc_sceneTake(_sc_CommandFuncArgs args) {
         return true;
     }
 
-    mesh_Mesh* mesh = args.timeline->activeOp->scene.mesh;
-
     int foundCount = 0;
     tl_OpArg outArg = { 0 };
-    for (int64_t i = 0; i < mesh->corners.count; i++) {
-        mesh_Corner* c = &mesh->corners.elems[i];
-        if (c->sel.selected) {
-            outArg.kind = TL_OPAK_GEOID_CORNER;
-            outArg.geoId = c->id;
-            foundCount++;
-        }
-    }
-    for (mesh_Edge* e = mesh->firstEdge; e; e = e->next) {
-        if (e->sel.selected) {
-            outArg.kind = TL_OPAK_GEOID_FACE;
-            outArg.geoId = e->id;
-            foundCount++;
-        }
-    }
-
-    // FIXME: accelerator for finding a single selected obj?
-    for (mesh_Face* f = mesh->firstFace; f; f = f->next) {
-        if (f->sel.selected) {
-            outArg.kind = TL_OPAK_GEOID_FACE;
-            outArg.geoId = f->id;
+    for (int64_t i = 0; i < args.scene->allGeo.count; i++) {
+        tl_SceneGeo* geo = &args.scene->allGeo.elems[i];
+        if (geo->sel.selected) {
+            if (geo->id.geoKind == MESH_GK_CORNER) {
+                outArg.kind = TL_OPAK_GEOID_CORNER;
+            } else if (geo->id.geoKind == MESH_GK_EDGE) {
+                outArg.kind = TL_OPAK_GEOID_EDGE;
+            } else if (geo->id.geoKind == MESH_GK_FACE) {
+                outArg.kind = TL_OPAK_GEOID_FACE;
+            } else {
+                SNZ_ASSERTF(false, "unreachable. kind: %d", geo->id.geoKind);
+            }
+            outArg.geoId = geo->id;
             foundCount++;
         }
     }
 
+    // FIXME: multiple take
     if (foundCount == 1) {
         args.timeline->takenArgSignal = outArg;
     }
