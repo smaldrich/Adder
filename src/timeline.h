@@ -9,17 +9,70 @@
 #include "csg2.h"
 
 typedef struct {
+    ui_SelectionState sel;
+    mesh_GeoID id;
+    union {
+        HMM_Vec3 cornerPos;
+        HMM_Vec3Slice edgePoints;
+        geo_TriSlice faceTris;
+    };
+} tl_SceneGeo;
+
+SNZ_SLICE(tl_SceneGeo);
+
+typedef struct {
     geo_Align orbitOrigin;
     HMM_Vec2 orbitAngle;
     float orbitDist;
+    ren3d_Mesh renderMesh;
+
+    tl_SceneGeoSlice corners;
+    tl_SceneGeoSlice edges;
+    tl_SceneGeoSlice faces;
 } tl_Scene;
 
-tl_Scene tl_sceneInit() {
-    // FIXME: initialize this to not be inside of geometry
+// copies faces and tempgeo elts to a new arena with space for ui data for them
+// scene returned is valid for the length of arenas life
+// FIXME: array content isn't getting copied rn so the above isn't actually true
+tl_Scene tl_sceneInit(const mesh_FaceSlice* faces, mesh_TempGeo* tempGeo, snz_Arena* arena) {
+    // FIXME: initialize camera to always be outside mesh based on faces
     tl_Scene out = (tl_Scene){
         .orbitDist = 5,
         .orbitOrigin = geo_alignZero(),
     };
+
+    out.faces = (tl_SceneGeoSlice){
+        .count = faces->count,
+        .elems = SNZ_ARENA_PUSH_ARR(arena, faces->count, tl_SceneGeo),
+    };
+    for (int64_t i = 0; i < faces->count; i++) {
+        out.faces.elems[i] = (tl_SceneGeo){
+            .id = faces->elems[i].id,
+            .faceTris = faces->elems[i].tris,
+        };
+        SNZ_ASSERT(faces->elems[i].id.geoKind == MESH_GK_FACE, "Face has a geoid that isn't a face.");
+    }
+
+    SNZ_ARENA_ARR_BEGIN(arena, tl_SceneGeo);
+    for (mesh_Edge* e = tempGeo->firstEdge; e; e = e->next) {
+        *SNZ_ARENA_PUSH(arena, tl_SceneGeo) = (tl_SceneGeo){
+            .id = e->id,
+            .edgePoints = e->points,
+        };
+        SNZ_ASSERT(e->id.geoKind == MESH_GK_EDGE, "Edge has a geoid that isn't an edge.");
+    }
+    out.edges = SNZ_ARENA_ARR_END(arena, tl_SceneGeo);
+
+    SNZ_ARENA_ARR_BEGIN(arena, tl_SceneGeo);
+    for (mesh_Corner* c = tempGeo->firstCorner; c; c = c->next) {
+        *SNZ_ARENA_PUSH(arena, tl_SceneGeo) = (tl_SceneGeo){
+            .id = c->id,
+            .cornerPos = c->position,
+        };
+        SNZ_ASSERT(c->id.geoKind == MESH_GK_CORNER, "Corner has a geoid that isn't a corner.");
+    }
+    out.corners = SNZ_ARENA_ARR_END(arena, tl_SceneGeo);
+
     return out;
 }
 
@@ -247,10 +300,8 @@ void tl_timelineCullOpsMarkedForDelete(tl_Timeline* t) {
 }
 
 // FIXME: bubbles & remove target op plz
-void tl_solveForNode(tl_Timeline* t, tl_Op* targetOp, snz_Arena* scratch) {
-    if (!targetOp) {
-        return;
-    }
+tl_Scene tl_solveForNode(tl_Timeline* t, tl_Op* targetOp, snz_Arena* scratch) {
+    SNZ_ASSERT(targetOp, "Solve for node requires a node.");
 
     SNZ_ARENA_ARR_BEGIN(scratch, tl_Op*);
     *SNZ_ARENA_PUSH(scratch, tl_Op*) = targetOp;
@@ -352,5 +403,6 @@ void tl_solveForNode(tl_Timeline* t, tl_Op* targetOp, snz_Arena* scratch) {
         }
     } // end loop solving
 
-    // FIXME: rendermesh update :)
+    tl_Scene out = tl_sceneInit(targetOp->solve.faces, targetOp->solve.tempGeo, t->generatedArena);
+    return out;
 }

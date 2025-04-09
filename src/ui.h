@@ -598,6 +598,8 @@ typedef struct {
     float hoverAnim;
 } ui_SelectionState;
 
+SNZ_SLICE(ui_SelectionState);
+
 typedef struct ui_SelectionStatus ui_SelectionStatus;
 struct ui_SelectionStatus {
     bool hovered;
