@@ -78,10 +78,10 @@ static void _csg_facesToNodesInner(snz_Arena* arena, csg_Node* parent, csg_Node*
     parent->outerTree = outerList;
 
     if (parent->innerTree != NULL) {
-        _csg_nodeFix(arena, parent->innerTree, innerList->nextUnsorted);
+        _csg_facesToNodesInner(arena, parent->innerTree, innerList->nextUnsorted);
     }
     if (parent->outerTree != NULL) {
-        _csg_nodeFix(arena, parent->outerTree, outerList->nextUnsorted);
+        _csg_facesToNodesInner(arena, parent->outerTree, outerList->nextUnsorted);
     }
 }
 
@@ -204,21 +204,21 @@ static int _csg_splitTri(geo_Tri* tri, const csg_Node* cutter, geo_Tri** outResu
         bool* insOrOuts = SNZ_ARENA_PUSH_ARR(arena, 3, bool);
 
         bool t1Outside = HMM_DotV3(HMM_SubV3(rotatedVerts[1], cutter->origin), cutter->normal) > 0;
-        (*outInOrOut)[0] = t1Outside;
+        insOrOuts[0] = t1Outside;
         tris[0] = (geo_Tri){
             .a = rotatedVerts[0],
             .b = rotatedVerts[1],
             .c = rotatedVerts[2],
         };
 
-        (*outInOrOut)[1] = !t1Outside;
+        insOrOuts[1] = !t1Outside;
         tris[1] = (geo_Tri){
             .a = rotatedVerts[2],
             .b = rotatedVerts[3],
             .c = rotatedVerts[4],
         };
 
-        (*outInOrOut)[2] = !t1Outside;
+        insOrOuts[2] = !t1Outside;
         tris[2] = (geo_Tri){
             .a = rotatedVerts[4],
             .b = rotatedVerts[0],
@@ -230,24 +230,28 @@ static int _csg_splitTri(geo_Tri* tri, const csg_Node* cutter, geo_Tri** outResu
         return 3;
     }  // end 5 vert-check
     else if (vertCount == 4) {
-        geo_Tri* tris = SNZ_ARENA_PUSH_ARR(arena, 3, geo_Tri);
-        bool* insOrOuts = SNZ_ARENA_PUSH_ARR(arena, 3, bool);
+        geo_Tri* tris = SNZ_ARENA_PUSH_ARR(arena, 2, geo_Tri);
+        bool* insOrOuts = SNZ_ARENA_PUSH_ARR(arena, 2, bool);
 
         // t1B should never be colinear with the cut plane so long as rotation has been done correctly
         bool t1Outside = HMM_DotV3(HMM_SubV3(rotatedVerts[1], cutter->origin), cutter->normal) > 0;
-        (*outInOrOut)[0] = t1Outside;
+        insOrOuts[0] = t1Outside;
         tris[0] = (geo_Tri){
             .a = rotatedVerts[0],
             .b = rotatedVerts[1],
             .c = rotatedVerts[2],
         };
 
-        (*outInOrOut)[1] = !t1Outside;
+        insOrOuts[1] = !t1Outside;
         tris[1] = (geo_Tri){
             .a = rotatedVerts[2],
             .b = rotatedVerts[3],
             .c = rotatedVerts[0],
         };
+
+        (*outResultTris) = tris;
+        (*outInOrOut) = insOrOuts;
+        return 2;
     }
     // anything greater than 5 should be impossible, anything less than 4 should have been put on
     // one side, not marked spanning
@@ -341,7 +345,7 @@ static _csg_TempFace* _csg_tempFacesClip(_csg_TempFace* faces, const csg_Node* t
                 *SNZ_ARENA_PUSH(arena, geo_Tri) = t;
             }
 
-            scratch->end = scratch->start;
+            scratch->end = scratchStart;
         }
         f->face.tris = SNZ_ARENA_ARR_END(arena, geo_Tri);
 

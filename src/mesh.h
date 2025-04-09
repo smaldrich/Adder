@@ -43,25 +43,6 @@ typedef struct {
 
 SNZ_SLICE(mesh_Face);
 
-typedef struct mesh_Edge mesh_Edge;
-struct mesh_Edge {
-    mesh_Edge* next;
-    mesh_GeoID id;
-    HMM_Vec3Slice points;
-};
-
-typedef struct mesh_Corner mesh_Corner;
-struct mesh_Corner {
-    mesh_Edge* next;
-    mesh_GeoID id;
-    HMM_Vec3 position;
-};
-
-typedef struct {
-    mesh_Edge* firstEdge;
-    mesh_Corner* firstCorner;
-} mesh_TempGeo;
-
 ren3d_Mesh mesh_FacesToRenderMesh(mesh_FaceSlice faces, snz_Arena* scratch) {
     SNZ_ARENA_ARR_BEGIN(scratch, ren3d_Vert);
     for (int64_t i = 0; i < faces.count; i++) {
@@ -185,6 +166,106 @@ mesh_FaceSlice mesh_cube(snz_Arena* arena) {
         };
     }
     return SNZ_ARENA_ARR_END(arena, mesh_Face);
+}
+
+typedef struct mesh_Edge mesh_Edge;
+struct mesh_Edge {
+    mesh_Edge* next;
+    mesh_GeoID id;
+    HMM_Vec3Slice points;
+};
+
+SNZ_SLICE(mesh_Edge);
+
+typedef struct mesh_Corner mesh_Corner;
+struct mesh_Corner {
+    mesh_Corner* next;
+    mesh_GeoID id;
+    HMM_Vec3 position;
+};
+
+typedef struct {
+    mesh_Edge* firstEdge;
+    mesh_Corner* firstCorner;
+} mesh_TempGeo;
+
+static bool _mesh_geoIdEqual(mesh_GeoID a, mesh_GeoID b) {
+    bool equal = true;
+    equal &= a.geoKind == b.geoKind;
+    equal &= a.opUniqueId == b.opUniqueId;
+    equal &= a.baseNodeId == b.baseNodeId;
+    equal &= (a.diffGeo1 == NULL) == (b.diffGeo1 == NULL);
+    equal &= (a.diffGeo2 == NULL) == (b.diffGeo2 == NULL);
+    if (!equal) {
+        return false;
+    }
+
+    if (a.diffGeo1) {
+        equal &= _mesh_geoIdEqual(*a.diffGeo1, *b.diffGeo1);
+    }
+    if (a.diffGeo2) {
+        equal &= _mesh_geoIdEqual(*a.diffGeo2, *b.diffGeo2);
+    }
+    return equal;
+}
+
+typedef struct {
+    mesh_GeoKind kind;
+    union {
+        const mesh_Corner* corner;
+        const mesh_Edge* edge;
+        const mesh_Face* face;
+    };
+} mesh_GeoIDResult;
+
+// searches faces and tempGeo for a piece of geometry with a matching geo id to the one given
+// return will have a null ptr and kind of MESH_GK_DOES_NOT_EXIST if nothing is found
+// FIXME: for a perf boost, use a hashtable for id -> geo in each mesh instead of looping
+// FIXME: assert no more than one match
+mesh_GeoIDResult mesh_geoIdFind(const mesh_FaceSlice* faces, const mesh_TempGeo* tempGeo, mesh_GeoID target) {
+    mesh_GeoIDResult out = (mesh_GeoIDResult){
+        .kind = target.geoKind,
+    };
+
+    if (out.kind == MESH_GK_FACE) {
+        for (int64_t i = 0; i < faces->count; i++) {
+            if (_mesh_geoIdEqual(target, faces->elems[i].id)) {
+                out.face = &faces->elems[i];
+                return out;
+            }
+        }
+    } else if (out.kind == MESH_GK_EDGE) {
+        for (mesh_Edge* e = tempGeo->firstEdge; e; e = e->next) {
+            if (_mesh_geoIdEqual(target, e->id)) {
+                out.edge = e;
+                return out;
+            }
+        }
+    } else if (out.kind == MESH_GK_CORNER) {
+        for (mesh_Corner* c = tempGeo->firstCorner; c; c = c->next) {
+            if (_mesh_geoIdEqual(target, c->id)) {
+                out.corner = c;
+                return out;
+            }
+        }
+    } else {
+        SNZ_ASSERTF(false, "unreachable. kind: %d", target.geoKind);
+    }
+    out.kind = MESH_GK_DOES_NOT_EXIST;
+    return out;
+}
+
+mesh_GeoID* mesh_geoIdDuplicate(const mesh_GeoID* src, snz_Arena* arena) {
+    mesh_GeoID* new = SNZ_ARENA_PUSH(arena, mesh_GeoID);
+    *new = *src;
+    if (new->diffGeo1) {
+        new->diffGeo1 = mesh_geoIdDuplicate(new->diffGeo1, arena);
+    }
+
+    if (new->diffGeo2) {
+        new->diffGeo2 = mesh_geoIdDuplicate(new->diffGeo2, arena);
+    }
+    return new;
 }
 
 typedef struct {
@@ -372,17 +453,17 @@ mesh_Edge mesh_facesToEdge(const mesh_Face* faceA, const mesh_Face* faceB, int64
     return out;
 }
 
-HMM_Vec3SliceSlice mesh_faceToAllAdjacentEdges(const mesh_FaceSlice* faces, const mesh_Face* face, snz_Arena* scratch, snz_Arena* out) {
-    SNZ_ARENA_ARR_BEGIN(scratch, mesh_Face);
-    for (int64_t i = 0; i < faces->count; i++) {
-        const mesh_Face* f = &faces->elems[i];
-        if (f == face) {
-            continue;
+mesh_EdgeSlice mesh_faceToAllAdjacentEdges(const mesh_TempGeo* tempGeo, const mesh_Face* face, snz_Arena* arena) {
+    SNZ_ARENA_ARR_BEGIN(arena, mesh_Edge);
+    for (const mesh_Edge* e = tempGeo->firstEdge; e; e = e->next) {
+        const mesh_GeoID* idA = e->id.diffGeo1;
+        const mesh_GeoID* idB = e->id.diffGeo2;
+        if (_mesh_geoIdEqual(*idA, face->id) || _mesh_geoIdEqual(*idB, face->id)) {
+            mesh_Edge* new = SNZ_ARENA_PUSH(arena, mesh_Edge);
+            new->next = NULL;
         }
-        *SNZ_ARENA_PUSH(scratch, mesh_Face) = *f;
     }
-    mesh_FaceSlice adj = SNZ_ARENA_ARR_END(scratch, mesh_Face);
-    ahh;
+    return SNZ_ARENA_ARR_END(arena, mesh_Edge);
 }
 
 HMM_Vec3 mesh_edgesToCorner(HMM_Vec3Slice a, HMM_Vec3Slice b) {
@@ -451,7 +532,6 @@ static mesh_FaceSlice _mesh_groupTrisToFaces(geo_TriSlice tris, PoolAlloc* pool,
             }
 
             { // debug logging status because this algo takes forever
-                int64_t total = 0;
                 int64_t sectioned = 0;
                 for (int64_t i = 0; i < tris.count; i++) {
                     sectioned += triTakenFlags[i];
@@ -459,9 +539,9 @@ static mesh_FaceSlice _mesh_groupTrisToFaces(geo_TriSlice tris, PoolAlloc* pool,
                 SNZ_LOGF("pushed a new face! %lld/%lld", sectioned, tris.count);
             }
 
-            _mesh_TriSliceLLNode* node = SNZ_ARENA_PUSH(scratch, mesh_Face);
+            _mesh_TriSliceLLNode* node = SNZ_ARENA_PUSH(scratch, _mesh_TriSliceLLNode);
             *node = (_mesh_TriSliceLLNode){
-                .face = (mesh_Face) { 0 },
+                .face = { { 0 } }, // no idea why, but apparently gcc is only happy if there are two curlies here
                 .next = firstTriSlice,
             };
             firstTriSlice = node;
@@ -632,9 +712,9 @@ void mesh_facesToSTLFile(mesh_FaceSlice faces, const char* path) {
     fprintf(f, "solid object\n");
 
     for (int64_t i = 0; i < faces.count; i++) {
-        mesh_Face* f = &faces.elems[i];
-        for (int64_t j = 0; j < f->tris.count; j++) {
-            geo_Tri tri = f->tris.elems[j];
+        mesh_Face* face = &faces.elems[i];
+        for (int64_t j = 0; j < face->tris.count; j++) {
+            geo_Tri tri = face->tris.elems[j];
             HMM_Vec3 normal = geo_triNormal(tri);
             fprintf(f, "facet normal %f %f %f\n", normal.X, normal.Y, normal.Z);
             fprintf(f, "outer loop\n");
@@ -648,83 +728,4 @@ void mesh_facesToSTLFile(mesh_FaceSlice faces, const char* path) {
 
     fprintf(f, "endsolid object\n");
     fclose(f);
-}
-
-static bool _mesh_geoIdEqual(mesh_GeoID a, mesh_GeoID b) {
-    bool equal = true;
-    equal &= a.geoKind == b.geoKind;
-    equal &= a.opUniqueId == b.opUniqueId;
-    equal &= a.baseNodeId == b.baseNodeId;
-    equal &= (a.diffGeo1 == NULL) == (b.diffGeo1 == NULL);
-    equal &= (a.diffGeo2 == NULL) == (b.diffGeo2 == NULL);
-    if (!equal) {
-        return false;
-    }
-
-    if (a.diffGeo1) {
-        equal &= _mesh_geoIdEqual(*a.diffGeo1, *b.diffGeo1);
-    }
-    if (a.diffGeo2) {
-        equal &= _mesh_geoIdEqual(*a.diffGeo2, *b.diffGeo2);
-    }
-    return equal;
-}
-
-typedef struct {
-    mesh_GeoKind kind;
-    union {
-        const mesh_Corner* corner;
-        const mesh_Edge* edge;
-        const mesh_Face* face;
-    };
-} mesh_GeoIDResult;
-
-// searches faces and tempGeo for a piece of geometry with a matching geo id to the one given
-// return will have a null ptr and kind of MESH_GK_DOES_NOT_EXIST if nothing is found
-// FIXME: for a perf boost, use a hashtable for id -> geo in each mesh instead of looping
-// FIXME: assert no more than one match
-mesh_GeoIDResult mesh_geoIdFind(const mesh_FaceSlice* faces, const mesh_TempGeo* tempGeo, mesh_GeoID target) {
-    mesh_GeoIDResult out = (mesh_GeoIDResult){
-        .kind = target.geoKind,
-    };
-
-    if (out.kind == MESH_GK_FACE) {
-        for (int64_t i = 0; i < faces->count; i++) {
-            if (_mesh_geoIdEqual(target, faces->elems[i].id)) {
-                out.face = &faces->elems[i];
-                return out;
-            }
-        }
-    } else if (out.kind == MESH_GK_EDGE) {
-        for (mesh_Edge* e = tempGeo->firstEdge; e; e = e->next) {
-            if (_mesh_geoIdEqual(target, e->id)) {
-                out.edge = e;
-                return out;
-            }
-        }
-    } else if (out.kind == MESH_GK_CORNER) {
-        for (mesh_Corner* c = tempGeo->firstCorner; c; c = c->next) {
-            if (_mesh_geoIdEqual(target, c->id)) {
-                out.corner = c;
-                return out;
-            }
-        }
-    } else {
-        SNZ_ASSERTF(false, "unreachable. kind: %d", target.geoKind);
-    }
-    out.kind = MESH_GK_DOES_NOT_EXIST;
-    return out;
-}
-
-mesh_GeoID* mesh_geoIdDuplicate(const mesh_GeoID* src, snz_Arena* arena) {
-    mesh_GeoID* new = SNZ_ARENA_PUSH(arena, mesh_GeoID);
-    *new = *src;
-    if (new->diffGeo1) {
-        new->diffGeo1 = mesh_geoIdDuplicate(new->diffGeo1, arena);
-    }
-
-    if (new->diffGeo2) {
-        new->diffGeo2 = mesh_geoIdDuplicate(new->diffGeo2, arena);
-    }
-    return new;
 }

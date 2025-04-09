@@ -6,6 +6,7 @@
 #include "snooze.h"
 #include "ui.h"
 #include "mesh.h"
+#include "csg2.h"
 
 typedef struct {
     geo_Align orbitOrigin;
@@ -141,7 +142,6 @@ static tl_Op* _tl_timelinePushOp(tl_Timeline* tl) {
     *out = (tl_Op){
         .next = tl->firstOp,
         .uniqueId = tl->nextUniqueId,
-        .scene = tl_sceneInit(),
     };
     tl->firstOp = out;
     tl->nextUniqueId++;
@@ -335,46 +335,13 @@ void tl_solveForNode(tl_Timeline* t, tl_Op* targetOp, snz_Arena* scratch) {
                 ogFace = geo.face;
             }
 
-            int64_t newFaceCount = 0;
+            int64_t newFaceCount = 2 + edgeCount;
             mesh_FaceSlice newFaces = (mesh_FaceSlice){
-                .count = ,
+                .count = newFaceCount,
                 .elems = SNZ_ARENA_PUSH_ARR(t->generatedArena, newFaceCount, mesh_Face),
             };
 
-            mesh_Face* newFace = SNZ_ARENA_PUSH(t->generatedArena, mesh_Face);
-            *newFace = (mesh_Face){
-                .next = m->firstFace,
-                .id = (mesh_GeoID) {
-                    .geoKind = MESH_GK_FACE,
-                    .opUniqueId = op->uniqueId,
-                    .differentiationInt = 1,
-                    .diffGeo1 = mesh_geoIdDuplicate(&op->args[0].geoId, t->generatedArena),
-                },
-            };
-            m->firstFace = newFace;
-
-            mesh_BSPTriList newTris = mesh_BSPTriListInit();
-
-            HMM_Vec3 translation = HMM_V3(0, 0, 0);
-            translation = HMM_Mul(geo_triNormal(newTris.first->tri), op->args[1].number);
-            mesh_BSPTriListTransform(&newTris, HMM_Translate(translation)); // FIXME: can do this faster with just a translate list fn
-
-            { // stitch siding
-                mesh_VertLoop* loops = mesh_faceToVertLoops(m, ogFace, scratch, scratch);
-                for (mesh_VertLoop* loop = loops; loop; loop = loop->next) {
-                    int64_t count = loop->points.count;
-                    for (int64_t i = 0; i < count; i++) {
-                        HMM_Vec3 pt = loop->points.elems[i];
-                        HMM_Vec3 nextPt = loop->points.elems[(i + 1) % count];
-
-                        HMM_Vec3 upperPt = HMM_Add(pt, translation);
-                        HMM_Vec3 upperNextPt = HMM_Add(nextPt, translation);
-
-                        mesh_BSPTriListPushNew(t->generatedArena, &newTris, pt, upperPt, upperNextPt, newFace);
-                        mesh_BSPTriListPushNew(t->generatedArena, &newTris, upperNextPt, nextPt, pt, newFace);
-                    }
-                }
-            }
+            HMM_Vec3 translation = HMM_Mul(geo_triNormal(ogFace->tris.elems[0]), targetSize);
 
             mesh_FaceSlice* faces = SNZ_ARENA_PUSH(t->generatedArena, mesh_FaceSlice);
             *faces = csg_facesUnion(targetDep->solve.faces, &newFaces, t->generatedArena, scratch);
