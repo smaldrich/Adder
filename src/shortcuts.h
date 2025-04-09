@@ -26,9 +26,11 @@ typedef struct {
     snz_Arena* scratch;
     sk_Sketch* activeSketch;
     tl_Timeline* timeline;
-    sc_View* currentView;  // read/write
     bool firstFrame;
 
+    tl_Scene* scene;
+
+    sc_View* currentView;  // read/write
     tl_Op** argBarFocusOverride; // read/write
 } _sc_CommandFuncArgs;
 
@@ -284,7 +286,7 @@ bool scc_timelineRotate(_sc_CommandFuncArgs args) {
 
 bool scc_timelineAddGeometry(_sc_CommandFuncArgs args) {
     *args.currentView = SC_VIEW_SCENE;
-    tl_Op* newOp = tl_timelinePushBaseGeometry(args.timeline, HMM_V2(0, 0), (mesh_Mesh) { 0 });
+    tl_Op* newOp = tl_timelinePushBaseGeometry(args.timeline, HMM_V2(0, 0), (mesh_FaceSlice) { 0 });
     // FIXME: should be on the mouse, isn't // enter move mode?
     newOp->ui.sel.selected = true;
     newOp->ui.sel.selectionAnim = 1;
@@ -339,16 +341,20 @@ bool scc_timelineMarkActive(_sc_CommandFuncArgs args) {
     return true;
 }
 
-// FIXME: move to geo.h
 void _scc_sceneDeselectAll(tl_Scene* scene) {
-    for (mesh_Face* f = scene->mesh->firstFace; f; f = f->next) {
-        f->sel.selected = false;
+    for (int64_t i = 0; i < scene->faces.count; i++) {
+        tl_SceneGeo* geo = &scene->faces.elems[i];
+        geo->sel.selected = false;
     }
-    for (mesh_Edge* e = scene->mesh->firstEdge; e; e = e->next) {
-        e->sel.selected = false;
+
+    for (int64_t i = 0; i < scene->edges.count; i++) {
+        tl_SceneGeo* geo = &scene->edges.elems[i];
+        geo->sel.selected = false;
     }
-    for (int i = 0; i < scene->mesh->corners.count; i++) {
-        scene->mesh->corners.elems[i].sel.selected = false;
+
+    for (int64_t i = 0; i < scene->corners.count; i++) {
+        tl_SceneGeo* geo = &scene->corners.elems[i];
+        geo->sel.selected = false;
     }
 }
 
@@ -356,50 +362,27 @@ bool scc_sceneLookAt(_sc_CommandFuncArgs args) {
     tl_Op* op = args.timeline->activeOp;
     if (!op) {
         return true;
-    } else if (!op->scene.mesh) {
-        return true;
     }
-    mesh_Mesh* m = op->scene.mesh;
 
-    mesh_Face* selectedFace = NULL;
-    for (mesh_Face* f = m->firstFace; f; f = f->next) {
-        if (f->sel.selected) {
-            if (selectedFace) {
+    tl_SceneGeo* selected = NULL;
+    for (int64_t i = 0; i < args.scene->allGeo.count; i++) {
+        tl_SceneGeo* geo = &args.scene->allGeo.elems[i];
+        if (geo->sel.selected) {
+            if (selected) {
                 return true;
             }
-            selectedFace = f;
+            selected = geo;
         }
     }
 
-    mesh_Corner* selectedCorner = NULL;
-    for (int i = 0; i < m->corners.count; i++) {
-        mesh_Corner* c = &m->corners.elems[i];
-        if (c->sel.selected) {
-            if (selectedCorner || selectedFace) {
-                return true;
-            }
-            selectedCorner = c;
-        }
-    }
-
-    mesh_Edge* selectedEdge = NULL;
-    for (mesh_Edge* e = m->firstEdge; e; e = e->next) {
-        if (e->sel.selected) {
-            if (selectedCorner || selectedFace || selectedEdge) {
-                return true;
-            }
-            selectedEdge = e;
-        }
-    }
-
-    if (!selectedFace && !selectedCorner && !selectedEdge) {
+    if (!selected) {
         return true;
     }
 
-    geo_Align* origin = &op->scene.orbitOrigin;
-    if (selectedFace) {
-        SNZ_ASSERT(selectedFace->tris.count > 0, "face with no tris??");
-        HMM_Vec3 newNorm = geo_triNormal(selectedFace->tris.elems[0]); // FIXME: what about curved faces??
+    geo_Align* origin = &args.scene->orbitOrigin;
+    if (selected->id.geoKind == MESH_GK_FACE) {
+        SNZ_ASSERT(selected->faceTris.count > 0, "face with no tris.");
+        HMM_Vec3 newNorm = geo_triNormal(selected->faceTris.elems[0]); // FIXME: what about curved faces??
         SNZ_ASSERT(isfinite(newNorm.X), "invalid (likely zero area) tri.");
 
         // adjust so that vertical is 90 off the new normal
@@ -410,7 +393,7 @@ bool scc_sceneLookAt(_sc_CommandFuncArgs args) {
             origin->vertical = HMM_Norm(newVert);
         }
         origin->normal = newNorm;
-        op->scene.orbitAngle = HMM_V2(0, 0);
+        args.scene->orbitAngle = HMM_V2(0, 0);
 
         // adjusting orbit center to be on the new plane
         float t = 0;

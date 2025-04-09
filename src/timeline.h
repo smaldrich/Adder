@@ -29,6 +29,7 @@ typedef struct {
     tl_SceneGeoSlice corners;
     tl_SceneGeoSlice edges;
     tl_SceneGeoSlice faces;
+    tl_SceneGeoSlice allGeo; // overlaps with corners, edges, faces
 } tl_Scene;
 
 // copies faces and tempgeo elts to a new arena with space for ui data for them
@@ -72,6 +73,14 @@ tl_Scene tl_sceneInit(const mesh_FaceSlice* faces, mesh_TempGeo* tempGeo, snz_Ar
         SNZ_ASSERT(c->id.geoKind == MESH_GK_CORNER, "Corner has a geoid that isn't a corner.");
     }
     out.corners = SNZ_ARENA_ARR_END(arena, tl_SceneGeo);
+
+    // FIXME: this is a little hacky and a little dangerous, and a little scuffed
+    // and very wierd, but it makes a lot of logic much simpler to be able to
+    // iterate over all geo in one loop, so here it is
+    out.allGeo = (tl_SceneGeoSlice){
+        .count = out.faces.count + out.edges.count + out.corners.count,
+        .elems = out.faces.elems,
+    };
 
     return out;
 }
