@@ -1,68 +1,41 @@
 #include "snooze.h"
 #include "mesh.h"
 
-static ui_SelectionStatus* _mesh_meshGenSelStatuses(mesh_Mesh* mesh, mesh_Face* hoveredFace, mesh_Edge* hoveredEdge, mesh_Corner* hoveredCorner, snz_Arena* scratch) {
+static ui_SelectionStatus* _meshu_sceneGenSelStatuses(mesh_Scene* scene, mesh_SceneGeo* hoveredGeo, snz_Arena* arena) {
     ui_SelectionStatus* firstStatus = NULL;
-    for (mesh_Face* f = mesh->firstFace; f; f = f->next) {
-        ui_SelectionStatus* status = SNZ_ARENA_PUSH(scratch, ui_SelectionStatus);
+    for (int64_t i = 0; i < scene->allGeo.count; i++) {
+        mesh_SceneGeo* geo = &scene->allGeo.elems[i];
+        ui_SelectionStatus* status = SNZ_ARENA_PUSH(arena, ui_SelectionStatus);
         *status = (ui_SelectionStatus){
             .withinDragZone = false,
 
-            .hovered = f == hoveredFace,
+            .hovered = geo == hoveredGeo,
             .next = firstStatus,
-            .state = &f->sel,
-        };
-        firstStatus = status;
-    }
-
-    for (mesh_Edge* e = mesh->firstEdge; e; e = e->next) {
-        ui_SelectionStatus* status = SNZ_ARENA_PUSH(scratch, ui_SelectionStatus);
-        *status = (ui_SelectionStatus){
-            .withinDragZone = false,
-
-            .hovered = e == hoveredEdge,
-            .next = firstStatus,
-            .state = &e->sel,
-        };
-        firstStatus = status;
-    }
-
-    for (int i = 0; i < mesh->corners.count; i++) {
-        mesh_Corner* c = &mesh->corners.elems[i];
-        ui_SelectionStatus* status = SNZ_ARENA_PUSH(scratch, ui_SelectionStatus);
-        *status = (ui_SelectionStatus){
-            .withinDragZone = false,
-
-            .hovered = c == hoveredCorner,
-            .next = firstStatus,
-            .state = &c->sel,
+            .state = &geo->sel,
         };
         firstStatus = status;
     }
     return firstStatus;
 }
 
-// FIXME: geo_ui.h for consistency
-void mesh_meshBuild(mesh_Mesh* mesh, HMM_Mat4 vp, HMM_Vec3 cameraPos, HMM_Vec3 mouseDir, const snzu_Interaction* inter, HMM_Vec2 panelSize, snz_Arena* scratch) {
+void meshu_sceneBuild(mesh_Scene* scene, HMM_Mat4 vp, HMM_Vec3 cameraPos, HMM_Vec3 mouseDir, const snzu_Interaction* inter, HMM_Vec2 panelSize, snz_Arena* scratch) {
     SNZ_ASSERT(cameraPos.X || !cameraPos.X, "AHH");
     SNZ_ASSERT(mouseDir.X || !mouseDir.X, "AHH");
 
-    mesh_Face* hoveredFace = NULL;
-    mesh_Edge* hoveredEdge = NULL;
-    mesh_Corner* hoveredCorner = NULL;
+    mesh_SceneGeo* hoveredGeo = NULL;
     { // finding hovered elts.
         float minDistSquared = INFINITY;
-        mesh_Face* minFace = NULL;
-        for (mesh_Face* f = mesh->firstFace; f; f = f->next) {
-            for (int i = 0; i < f->tris.count; i++) {
-                geo_Tri t = f->tris.elems[i];
+        for (int64_t i = 0; i < scene->faces.count; i++) {
+            mesh_SceneGeo* f = &scene->faces.elems[i];
+            for (int64_t j = 0; j < f->faceTris.count; i++) {
+                geo_Tri t = f->faceTris.elems[i];
                 HMM_Vec3 pos = HMM_V3(0, 0, 0);
                 // FIXME: bounding box opt. to cull tri checks
                 if (geo_rayTriIntersection(cameraPos, mouseDir, t, &pos)) {
                     float distSquared = HMM_LenSqr(HMM_Sub(pos, cameraPos));
                     if (distSquared < minDistSquared) {
                         minDistSquared = distSquared;
-                        minFace = f;
+                        hoveredGeo = f;
                         break;
                     }
                 }
@@ -74,12 +47,12 @@ void mesh_meshBuild(mesh_Mesh* mesh, HMM_Mat4 vp, HMM_Vec3 cameraPos, HMM_Vec3 m
             clipDist = sqrtf(clipDist);
         }
 
-        mesh_Edge* minEdge = NULL;
-        for (mesh_Edge* e = mesh->firstEdge; e; e = e->next) {
-            for (int i = 0; i < e->points.count - 1; i++) {
+        for (int64_t i = 0; i < scene->edges.count; i++) {
+            mesh_SceneGeo* e = &scene->edges.elems[i];
+            for (int64_t j = 0; j < e->edgePoints.count; j++) {
                 geo_Line l = (geo_Line){
-                    .a = e->points.elems[i],
-                    .b = e->points.elems[i + 1],
+                    .a = e->edgePoints.elems[i],
+                    .b = e->edgePoints.elems[i + 1],
                 };
                 float distFromRay = 0;
                 HMM_Vec3 pos = geo_rayClosestPointOnSegment(cameraPos, HMM_Add(cameraPos, mouseDir), l.a, l.b, &distFromRay);
@@ -92,16 +65,14 @@ void mesh_meshBuild(mesh_Mesh* mesh, HMM_Mat4 vp, HMM_Vec3 cameraPos, HMM_Vec3 m
                     continue;
                 }
                 clipDist = distFromCamera;
-                minFace = NULL;
-                minEdge = e;
+                hoveredGeo = e;
             }
         }
 
-        mesh_Corner* minCorner = NULL;
-        for (int i = 0; i < mesh->corners.count; i++) {
-            mesh_Corner* c = &mesh->corners.elems[i];
-            float dist = geo_rayPointDistance(cameraPos, mouseDir, c->pos);
-            float distFromCamera = HMM_Len(HMM_Sub(c->pos, cameraPos));
+        for (int64_t i = 0; i < scene->corners.count; i++) {
+            mesh_SceneGeo* c = &scene->corners.elems[i];
+            float dist = geo_rayPointDistance(cameraPos, mouseDir, c->cornerPos);
+            float distFromCamera = HMM_Len(HMM_Sub(c->cornerPos, cameraPos));
             float size = 0.002 * distFromCamera;
             if (dist > size) {
                 continue;
@@ -109,19 +80,13 @@ void mesh_meshBuild(mesh_Mesh* mesh, HMM_Mat4 vp, HMM_Vec3 cameraPos, HMM_Vec3 m
                 continue;
             }
             clipDist = dist;
-            minEdge = NULL;
-            minFace = NULL;
-            minCorner = c;
+            hoveredGeo = c;
         }
-
-        hoveredCorner = minCorner;
-        hoveredEdge = minEdge;
-        hoveredFace = minFace;
     } // end hover checks
 
     { // sel region logic
         ui_SelectionRegion* const region = SNZU_USE_MEM(ui_SelectionRegion, "region");
-        ui_SelectionStatus* firstStatus = _mesh_meshGenSelStatuses(mesh, hoveredFace, hoveredEdge, hoveredCorner, scratch);
+        ui_SelectionStatus* firstStatus = _meshu_sceneGenSelStatuses(scene, hoveredGeo, scratch);
         ui_selectionRegionUpdate(region, firstStatus, inter->mouseActions[SNZU_MB_LEFT], inter->mousePosLocal, inter->keyMods & KMOD_SHIFT, true, false);
         ui_selectionRegionAnimate(region, firstStatus);
     }
@@ -129,15 +94,16 @@ void mesh_meshBuild(mesh_Mesh* mesh, HMM_Mat4 vp, HMM_Vec3 cameraPos, HMM_Vec3 m
     ren3d_VertSlice faceMeshVerts = { 0 };
     {
         SNZ_ARENA_ARR_BEGIN(scratch, ren3d_Vert);
-        for (mesh_Face* f = mesh->firstFace; f; f = f->next) {
+        for (int64_t i = 0; i < scene->faces.count; i++) {
+            mesh_SceneGeo* f = &scene->faces.elems[i];
             float sumAnim = f->sel.hoverAnim + f->sel.selectionAnim;
             if (!geo_floatZero(sumAnim)) {
                 HMM_Vec4 targetColor = ui_colorAccent;
                 targetColor.A = 0.8;
                 HMM_Vec4 color = HMM_Lerp(ui_colorTransparentPanel, f->sel.selectionAnim, targetColor);
                 color.A = HMM_Lerp(0.0f, SNZ_MIN(sumAnim, 1), color.A);
-                for (int i = 0; i < f->tris.count; i++) {
-                    geo_Tri t = f->tris.elems[i];
+                for (int i = 0; i < f->faceTris.count; i++) {
+                    geo_Tri t = f->faceTris.elems[i];
                     HMM_Vec3 normal = geo_triNormal(t);
                     for (int j = 0; j < 3; j++) {
                         float scaleFactor = HMM_Len(HMM_Sub(cameraPos, t.elems[j])) * f->sel.hoverAnim * 0.02f;
@@ -189,7 +155,7 @@ void mesh_meshBuild(mesh_Mesh* mesh, HMM_Mat4 vp, HMM_Vec3 cameraPos, HMM_Vec3 m
 
     { // render
         ren3d_drawMesh(
-            &mesh->renderMesh,
+            &scene->renderMesh,
             vp, HMM_M4D(1.0f),
             HMM_V4(1, 1, 1, 1), HMM_V3(-1, -1, -1), ui_lightAmbient);
 
@@ -203,14 +169,15 @@ void mesh_meshBuild(mesh_Mesh* mesh, HMM_Mat4 vp, HMM_Vec3 cameraPos, HMM_Vec3 m
             glEnable(GL_DEPTH_TEST);
         }
 
-        for (mesh_Edge* edge = mesh->firstEdge; edge; edge = edge->next) {
+        for (int64_t i = 0; i < scene->edges.count; i++) {
+            mesh_SceneGeo* edge = &scene->edges.elems[i];
             // FIXME: ew gross
             if (edge->sel.selected) {
                 glDisable(GL_DEPTH_TEST);
             }
-            for (int i = 0; i < edge->points.count - 1; i++) {
-                HMM_Vec3 a = edge->points.elems[i];
-                HMM_Vec3 b = edge->points.elems[i + 1];
+            for (int i = 0; i < edge->edgePoints.count - 1; i++) {
+                HMM_Vec3 a = edge->edgePoints.elems[i];
+                HMM_Vec3 b = edge->edgePoints.elems[i + 1];
                 HMM_Vec4 pts[2] = {
                     HMM_V4(a.X, a.Y, a.Z, 1),
                     HMM_V4(b.X, b.Y, b.Z, 1),
@@ -232,15 +199,15 @@ void mesh_meshBuild(mesh_Mesh* mesh, HMM_Mat4 vp, HMM_Vec3 cameraPos, HMM_Vec3 m
             }
         }
 
-        for (int i = 0; i < mesh->corners.count; i++) {
-            mesh_Corner* corner = &mesh->corners.elems[i];
+        for (int64_t i = 0; i < scene->corners.count; i++) {
+            mesh_SceneGeo* corner = &scene->corners.elems[i];
             // FIXME: ew gross
             if (corner->sel.selected) {
                 glDisable(GL_DEPTH_TEST);
             }
             float size = HMM_Lerp(ui_cornerHalfSize, corner->sel.hoverAnim + corner->sel.selectionAnim, ui_cornerHoveredHalfSize);
             HMM_Vec4 col = HMM_Lerp(ui_colorText, corner->sel.selectionAnim, ui_colorAccent);
-            ren3d_drawBillboard(vp, panelSize, *ui_cornerTexture, col, corner->pos, HMM_V2(size, size));
+            ren3d_drawBillboard(vp, panelSize, *ui_cornerTexture, col, corner->cornerPos, HMM_V2(size, size));
             if (corner->sel.selected) {
                 glEnable(GL_DEPTH_TEST);
             }

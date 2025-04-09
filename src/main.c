@@ -14,6 +14,7 @@
 #include "timelineui.h"
 #include "ui.h"
 #include "mesh.h"
+#include "meshui.h"
 #include "geometry.h"
 #include "ser.h"
 #include "csg2.h"
@@ -28,7 +29,7 @@ tl_Timeline main_timeline;
 snz_Arena main_tlArena;
 PoolAlloc main_tlGeneratedPool;
 snz_Arena main_tlGeneratedArena;
-tl_Scene main_timelineScene;
+mesh_Scene main_timelineScene;
 
 snzu_Instance main_uiInstance;
 snzu_Instance main_sceneUIInstance;
@@ -177,7 +178,7 @@ void main_drawTimelineMeshPreview(float dt, HMM_Vec2 panelSize, const ren3d_Mesh
 
 // takes care of camera logic + skybox
 void main_sceneBuild(
-    tl_Scene* scene,
+    mesh_Scene* scene,
     HMM_Vec2 panelSize, snzu_Interaction* panelInter, float dt,
     HMM_Vec3* outCamPos, HMM_Vec3* outMouseDir,
     HMM_Mat4* outVP) {
@@ -373,8 +374,7 @@ void main_frame(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screen
                             sku_drawAndBuildSketch(opSketch, alignOfSketch, vp, cameraPos, soundVal, HMM_V2(w, h), scratch);
                             sku_endFrameForUIInstance(inputs, alignOfSketch, vp, cameraPos, mouseDir);
                         } else {
-                            // FIXME: better name for this fn
-                            mesh_meshBuild(&main_timelineScene, vp, cameraPos, mouseDir, inter, HMM_V2(w, h), scratch);
+                            meshu_sceneBuild(&main_timelineScene, vp, cameraPos, mouseDir, inter, HMM_V2(w, h), scratch);
                             snzu_frameDrawAndGenInteractions(inputs, HMM_M4D(1.0f));
                         }
 

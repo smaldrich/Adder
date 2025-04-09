@@ -28,7 +28,7 @@ typedef struct {
     tl_Timeline* timeline;
     bool firstFrame;
 
-    tl_Scene* scene;
+    mesh_Scene* scene;
 
     sc_View* currentView;  // read/write
     tl_Op** argBarFocusOverride; // read/write
@@ -341,19 +341,19 @@ bool scc_timelineMarkActive(_sc_CommandFuncArgs args) {
     return true;
 }
 
-void _scc_sceneDeselectAll(tl_Scene* scene) {
+void _scc_sceneDeselectAll(mesh_Scene* scene) {
     for (int64_t i = 0; i < scene->faces.count; i++) {
-        tl_SceneGeo* geo = &scene->faces.elems[i];
+        mesh_SceneGeo* geo = &scene->faces.elems[i];
         geo->sel.selected = false;
     }
 
     for (int64_t i = 0; i < scene->edges.count; i++) {
-        tl_SceneGeo* geo = &scene->edges.elems[i];
+        mesh_SceneGeo* geo = &scene->edges.elems[i];
         geo->sel.selected = false;
     }
 
     for (int64_t i = 0; i < scene->corners.count; i++) {
-        tl_SceneGeo* geo = &scene->corners.elems[i];
+        mesh_SceneGeo* geo = &scene->corners.elems[i];
         geo->sel.selected = false;
     }
 }
@@ -364,9 +364,9 @@ bool scc_sceneLookAt(_sc_CommandFuncArgs args) {
         return true;
     }
 
-    tl_SceneGeo* selected = NULL;
+    mesh_SceneGeo* selected = NULL;
     for (int64_t i = 0; i < args.scene->allGeo.count; i++) {
-        tl_SceneGeo* geo = &args.scene->allGeo.elems[i];
+        mesh_SceneGeo* geo = &args.scene->allGeo.elems[i];
         if (geo->sel.selected) {
             if (selected) {
                 return true;
@@ -472,7 +472,7 @@ bool scc_sceneTake(_sc_CommandFuncArgs args) {
     int foundCount = 0;
     tl_OpArg outArg = { 0 };
     for (int64_t i = 0; i < args.scene->allGeo.count; i++) {
-        tl_SceneGeo* geo = &args.scene->allGeo.elems[i];
+        mesh_SceneGeo* geo = &args.scene->allGeo.elems[i];
         if (geo->sel.selected) {
             if (geo->id.geoKind == MESH_GK_CORNER) {
                 outArg.kind = TL_OPAK_GEOID_CORNER;

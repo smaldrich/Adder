@@ -734,3 +734,81 @@ void mesh_facesToSTLFile(mesh_FaceSlice faces, const char* path) {
     fprintf(f, "endsolid object\n");
     fclose(f);
 }
+
+typedef struct {
+    ui_SelectionState sel;
+    mesh_GeoID id;
+    union {
+        HMM_Vec3 cornerPos;
+        HMM_Vec3Slice edgePoints;
+        geo_TriSlice faceTris;
+    };
+} mesh_SceneGeo;
+
+SNZ_SLICE(mesh_SceneGeo);
+
+typedef struct {
+    geo_Align orbitOrigin;
+    HMM_Vec2 orbitAngle;
+    float orbitDist;
+    ren3d_Mesh renderMesh;
+
+    mesh_SceneGeoSlice corners;
+    mesh_SceneGeoSlice edges;
+    mesh_SceneGeoSlice faces;
+    mesh_SceneGeoSlice allGeo; // overlaps with corners, edges, faces
+} mesh_Scene;
+
+// copies faces and tempgeo elts to a new arena with space for ui data for them
+// scene returned is valid for the length of arenas life
+// FIXME: array content isn't getting copied rn so the above isn't actually true
+mesh_Scene mesh_sceneInit(const mesh_FaceSlice* faces, const mesh_TempGeo* tempGeo, snz_Arena* arena, snz_Arena* scratch) {
+    // FIXME: initialize camera to always be outside mesh based on faces
+    mesh_Scene out = (mesh_Scene){
+        .orbitDist = 5,
+        .orbitOrigin = geo_alignZero(),
+        .renderMesh = mesh_facesToRenderMesh(faces, scratch),
+    };
+
+    out.faces = (mesh_SceneGeoSlice){
+        .count = faces->count,
+        .elems = SNZ_ARENA_PUSH_ARR(arena, faces->count, mesh_SceneGeo),
+    };
+    for (int64_t i = 0; i < faces->count; i++) {
+        out.faces.elems[i] = (mesh_SceneGeo){
+            .id = faces->elems[i].id,
+            .faceTris = faces->elems[i].tris,
+        };
+        SNZ_ASSERT(faces->elems[i].id.geoKind == MESH_GK_FACE, "Face has a geoid that isn't a face.");
+    }
+
+    SNZ_ARENA_ARR_BEGIN(arena, mesh_SceneGeo);
+    for (mesh_Edge* e = tempGeo->firstEdge; e; e = e->next) {
+        *SNZ_ARENA_PUSH(arena, mesh_SceneGeo) = (mesh_SceneGeo){
+            .id = e->id,
+            .edgePoints = e->points,
+        };
+        SNZ_ASSERT(e->id.geoKind == MESH_GK_EDGE, "Edge has a geoid that isn't an edge.");
+    }
+    out.edges = SNZ_ARENA_ARR_END(arena, mesh_SceneGeo);
+
+    SNZ_ARENA_ARR_BEGIN(arena, mesh_SceneGeo);
+    for (mesh_Corner* c = tempGeo->firstCorner; c; c = c->next) {
+        *SNZ_ARENA_PUSH(arena, mesh_SceneGeo) = (mesh_SceneGeo){
+            .id = c->id,
+            .cornerPos = c->position,
+        };
+        SNZ_ASSERT(c->id.geoKind == MESH_GK_CORNER, "Corner has a geoid that isn't a corner.");
+    }
+    out.corners = SNZ_ARENA_ARR_END(arena, mesh_SceneGeo);
+
+    // FIXME: this is a little hacky and a little dangerous, and a little scuffed
+    // and very wierd, but it makes a lot of logic much simpler to be able to
+    // iterate over all geo in one loop, so here it is
+    out.allGeo = (mesh_SceneGeoSlice){
+        .count = out.faces.count + out.edges.count + out.corners.count,
+        .elems = out.faces.elems,
+    };
+
+    return out;
+}
