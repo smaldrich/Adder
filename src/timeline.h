@@ -244,10 +244,51 @@ void tl_timelineCullOpsMarkedForDelete(tl_Timeline* t) {
     // FIXME: free list
 }
 
-// FIXME: bubbles please
-void tl_solve(tl_Timeline* t, ren3d_Mesh* renderMesh, snz_Arena* scratch) {
-    // FIXME: topo sort please :)
-    // FIXME: current geoID hashmap please
+// FIXME: bubbles & remove target op plz
+void tl_solveForNode(tl_Timeline* t, tl_Op* targetOp, snz_Arena* scratch) {
+    if (!targetOp) {
+        return;
+    }
+
+    SNZ_ARENA_ARR_BEGIN(scratch, tl_Op*);
+    *SNZ_ARENA_PUSH(scratch, tl_Op*) = targetOp;
+    while (true) { // FIXME: cutoff
+        bool anyAdded = false;
+        tl_OpPtrSlice added = (tl_OpPtrSlice){
+            .count = scratch->arrModeElemCount,
+            .elems = (tl_Op**)(scratch->end) - scratch->arrModeElemCount,
+        };
+
+        for (int opIdx = 0; opIdx < added.count; opIdx++) {
+            tl_Op* op = added.elems[opIdx];
+            for (int argIdx = 0; argIdx < TL_OP_ARG_MAX_COUNT; argIdx++) {
+                tl_Op* new = tl_timelineGetOpByUID(t, op->args[argIdx].geoId.opUniqueId);
+                if (!new) {
+                    tl_OpArgKind kind = tl_opArgKindsExpected[op->kind][argIdx];
+                    if (tl_opArgKindExpectsDependency(kind)) {
+                        SNZ_ASSERT(false, "tried to solve with a missing dep.");
+                    }
+                    continue;
+                }
+                bool inAdded = false;
+                for (int k = 0; k < added.count; k++) {
+                    if (added.elems[k] == new) {
+                        inAdded = true;
+                    }
+                }
+                if (inAdded) {
+                    continue;
+                }
+                *SNZ_ARENA_PUSH(scratch, tl_Op*) = new;
+                anyAdded = true;
+            }
+        }
+
+        if (!anyAdded) {
+            break;
+        }
+    }
+    tl_OpPtrSlice dependencies = SNZ_ARENA_ARR_END_NAMED(scratch, tl_Op*, tl_OpPtrSlice);
 
     snz_arenaClear(t->generatedArena);
     poolAllocClear(t->generatedPool);
