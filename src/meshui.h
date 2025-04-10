@@ -27,7 +27,7 @@ void meshu_sceneBuild(mesh_Scene* scene, HMM_Mat4 vp, HMM_Vec3 cameraPos, HMM_Ve
         float minDistSquared = INFINITY;
         for (int64_t i = 0; i < scene->faces.count; i++) {
             mesh_SceneGeo* f = &scene->faces.elems[i];
-            for (int64_t j = 0; j < f->faceTris.count; i++) {
+            for (int64_t j = 0; j < f->faceTris.count; j++) {
                 geo_Tri t = f->faceTris.elems[i];
                 HMM_Vec3 pos = HMM_V3(0, 0, 0);
                 // FIXME: bounding box opt. to cull tri checks

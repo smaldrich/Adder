@@ -336,8 +336,7 @@ bool scc_timelineMarkActive(_sc_CommandFuncArgs args) {
 
     args.timeline->activeOp = selected;
     *args.currentView = SC_VIEW_SCENE;
-    tl_solveForNode(args.timeline, args.timeline->activeOp, args.scratch);
-
+    *args.scene = tl_solveForNode(args.timeline, args.timeline->activeOp, args.scratch);
     return true;
 }
 
@@ -572,7 +571,8 @@ bool _sc_commandShouldBeAvailible(_sc_Command* cmd, sc_View view, bool activeSke
     return out;
 }
 
-void sc_updateAndBuildHintWindow(sk_Sketch* activeSketch, tl_Timeline* timeline, sc_View* outCurrentView, tl_Op** argBarFocusOverride, snz_Arena* scratch, bool targetOpen) {
+// literally every arg here gets modified by sc functions
+void sc_updateAndBuildHintWindow(sk_Sketch* activeSketch, tl_Timeline* timeline, sc_View* outCurrentView, mesh_Scene* scene, tl_Op** argBarFocusOverride, snz_Arena* scratch, bool targetOpen) {
     snzu_boxNew("updatesParent");
     snzu_boxFillParent();
 
@@ -583,6 +583,7 @@ void sc_updateAndBuildHintWindow(sk_Sketch* activeSketch, tl_Timeline* timeline,
         .currentView = outCurrentView,
         .firstFrame = false,
         .argBarFocusOverride = argBarFocusOverride,
+        .scene = scene,
     };
 
     {

@@ -366,7 +366,7 @@ void main_frame(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screen
                 snzu_frameStart(scratch, HMM_V2(0, 0), dt);
 
                 if (main_currentView == SC_VIEW_SCENE) {
-                    tl_Op* op = main_timeline.activeOp;
+                    tl_Op* op = main_timeline.activeOp; // FIXME: hell is tl.activeOp
                     if (op) {
                         HMM_Vec3 cameraPos, mouseDir;
                         HMM_Mat4 vp;
@@ -510,7 +510,7 @@ void main_frame(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screen
                 activeSketch = &main_timeline.activeOp->val.sketch;
             }
         }
-        sc_updateAndBuildHintWindow(activeSketch, &main_timeline, &main_currentView, &main_argBarFocusOverride, scratch, openHintWindow);
+        sc_updateAndBuildHintWindow(activeSketch, &main_timeline, &main_currentView, &main_timelineScene, &main_argBarFocusOverride, scratch, openHintWindow);
 
         snzu_boxNew("capsIndicator");
         snzu_boxFillParent();
