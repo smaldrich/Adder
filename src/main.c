@@ -46,9 +46,13 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
 
     _poolAllocTests();
     sk_tests();
+    fflush(_snz_logFile);
     skt_tests();
+    fflush(_snz_logFile);
     ser_tests();
+    fflush(_snz_logFile);
     csg_tests();
+    fflush(_snz_logFile);
 
     main_appLifetimeArena = snz_arenaInit(100000, "main app lifetime arena");
     main_fontArena = snz_arenaInit(10000000, "main font arena");

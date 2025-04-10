@@ -18,7 +18,8 @@ struct csg_Node {
         struct { // used during construction of trees as temp vars
             csg_Node* nextUnsorted;
             geo_Tri* sourceTri;
-        };
+            bool shouldSkip;
+        } temp;
     };
 };
 
@@ -43,63 +44,73 @@ static _csg_PlaneRelation _csg_triClassify(geo_Tri tri, HMM_Vec3 planeNormal, HM
 }
 
 static void _csg_facesToNodesInner(snz_Arena* arena, csg_Node* parent, csg_Node* unsorted) {
+    HMM_Vec3 normal = geo_triNormal(*parent->temp.sourceTri);
+    HMM_Vec3 origin = parent->temp.sourceTri->a;
+
     csg_Node* innerList = NULL;
     csg_Node* outerList = NULL;
     {
         csg_Node* next = NULL;
         for (csg_Node* node = unsorted; node; node = next) {
-            next = node->nextUnsorted;
+            next = node->temp.nextUnsorted;
+            if (node->temp.shouldSkip) {
+                continue;
+            }
 
-            _csg_PlaneRelation rel = _csg_triClassify(*node->sourceTri, parent->normal, parent->origin);
+            _csg_PlaneRelation rel = _csg_triClassify(*node->temp.sourceTri, normal, origin);
             if (rel == CSG_PR_OUTSIDE) {
-                node->nextUnsorted = outerList;
+                node->temp.nextUnsorted = outerList;
                 outerList = node;
             } else if (rel == CSG_PR_WITHIN) {
-                node->nextUnsorted = innerList;
+                node->temp.nextUnsorted = innerList;
                 innerList = node;
             } else if (rel == CSG_PR_COPLANAR) {
                 // if coplanar, add this doesn't do anything
                 // FIXME: this case is only deduping adjacent coplanar tris, but there are more cases to catch to make trees smaller
-                _csg_facesToNodesInner(arena, parent->nextUnsorted, unsorted);
+                node->temp.shouldSkip = true;
             } else {
                 // it spans both sides, we need one node for each side // FIXME: does this need to be split too?
                 csg_Node* duplicate = SNZ_ARENA_PUSH(arena, csg_Node);
-                duplicate->origin = node->origin;
-                duplicate->normal = node->normal;
+                duplicate->temp.sourceTri = node->temp.sourceTri;
 
-                node->nextUnsorted = innerList;
+                node->temp.nextUnsorted = innerList;
                 innerList = node;
-                duplicate->nextUnsorted = outerList;
+                duplicate->temp.nextUnsorted = outerList;
                 outerList = duplicate;
             }
         }
     }
+    memset(parent, 0, sizeof(*parent));
     parent->innerTree = innerList;
     parent->outerTree = outerList;
+    parent->origin = origin;
+    parent->normal = normal;
 
     if (parent->innerTree != NULL) {
-        _csg_facesToNodesInner(arena, parent->innerTree, innerList->nextUnsorted);
+        _csg_facesToNodesInner(arena, parent->innerTree, innerList->temp.nextUnsorted);
     }
     if (parent->outerTree != NULL) {
-        _csg_facesToNodesInner(arena, parent->outerTree, outerList->nextUnsorted);
+        _csg_facesToNodesInner(arena, parent->outerTree, outerList->temp.nextUnsorted);
     }
 }
 
 csg_Node* csg_facesToNodes(const mesh_FaceSlice* faces, snz_Arena* arena) {
-    csg_Node* firstNode;
+    csg_Node* firstNode = NULL;
     for (int64_t i = 0; i < faces->count; i++) {
         mesh_Face* f = &faces->elems[i];
         for (int64_t j = 0; j < f->tris.count; j++) {
             geo_Tri* t = &f->tris.elems[j];
             csg_Node* node = SNZ_ARENA_PUSH(arena, csg_Node);
             *node = (csg_Node){
-                .nextUnsorted = firstNode,
-                .sourceTri = t,
+                .temp = {
+                    .nextUnsorted = firstNode,
+                    .sourceTri = t,
+                },
             };
             firstNode = node;
         }
     }
-    _csg_facesToNodesInner(arena, firstNode, firstNode->nextUnsorted);
+    _csg_facesToNodesInner(arena, firstNode, firstNode->temp.nextUnsorted);
     return firstNode;
 }
 
@@ -354,8 +365,8 @@ static _csg_TempFace* _csg_tempFacesClip(_csg_TempFace* faces, const csg_Node* t
         _csg_TempFace* next = f->next;
         // don't push to out list if nothing made it past clipping
         if (f->face.tris.count > 0) {
-            firstOutFace = f;
             f->next = firstOutFace;
+            firstOutFace = f;
         }
         f = next;
     }

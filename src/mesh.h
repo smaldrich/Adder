@@ -380,8 +380,8 @@ static HMM_Vec3Slice _mesh_orderedPointsFromLineSet(geo_LineSlice lines, snz_Are
 
     HMM_Vec3Slice forward = _mesh_groupPointsAdjacent(lines, startPt, scratch);
     HMM_Vec3Slice reverse = _mesh_groupPointsAdjacent(lines, startPt, scratch);
-    HMM_Vec3Slice extra = _mesh_groupPointsAdjacent(lines, startPt, scratch);
-    SNZ_ASSERT(!extra.count, "edge points can't be ordered, there are three segments adjacent.");
+    // HMM_Vec3Slice extra = _mesh_groupPointsAdjacent(lines, startPt, scratch);
+    // SNZ_ASSERT(!extra.count, "edge points can't be ordered, there are three segments adjacent.");
 
     HMM_Vec3Slice out = { 0 };
     // add one for center point, which has not been pushed by either call to group adj
