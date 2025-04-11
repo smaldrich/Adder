@@ -801,6 +801,7 @@ mesh_FaceSlice mesh_stlFileToFaces(const char* path, snz_Arena* arena, snz_Arena
 
 void mesh_facesToSTLFile(mesh_FaceSlice faces, const char* path) {
     FILE* f = fopen(path, "w");
+    SNZ_ASSERTF(f, "Opening file '%s' failed.", path);
     fprintf(f, "solid object\n");
 
     for (int64_t i = 0; i < faces.count; i++) {

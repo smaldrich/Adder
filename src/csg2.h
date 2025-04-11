@@ -342,12 +342,28 @@ static mesh_FaceSlice _csg_tempFacesToFaces(_csg_TempFace* firstFace, snz_Arena*
     return SNZ_ARENA_ARR_END(arena, mesh_Face);
 }
 
+static void _csg_triToFile(const char* path, geo_Tri t) {
+    geo_TriSlice tris = {
+        .count = 1,
+        .elems = &t,
+    };
+    mesh_Face f = (mesh_Face){
+        .tris = tris,
+    };
+    mesh_FaceSlice faces = (mesh_FaceSlice){
+        .count = 1,
+        .elems = &f,
+    };
+    mesh_facesToSTLFile(faces, path);
+}
+
 // destructive to OG face list - reuses nodes in output
 // FIXME: handle the case where a face gets split and we need new faceIds
 // FIXME: put new faceIDs on to everything that changes
 static _csg_TempFace* _csg_tempFacesClip(_csg_TempFace* faces, const csg_Node* tree, bool removeWithin, snz_Arena* arena, snz_Arena* scratch) {
     _csg_TempFace* firstOutFace = NULL;
-    for (_csg_TempFace* f = faces; f;) {
+    int faceIdx = 0;
+    for (_csg_TempFace* f = faces; f; faceIdx++) {
         SNZ_ARENA_ARR_BEGIN(arena, geo_Tri);
         for (int64_t i = 0; i < f->face.tris.count; i++) {
             void* scratchStart = scratch->end;
@@ -357,6 +373,10 @@ static _csg_TempFace* _csg_tempFacesClip(_csg_TempFace* faces, const csg_Node* t
             if (!anyClipped) {
                 *SNZ_ARENA_PUSH(arena, geo_Tri) = t;
             }
+
+            _csg_triToFile(snz_arenaFormatStr(scratch, "testing/%d_%lld_start.stl", faceIdx, i), t);
+            geo_Tri* last = ((geo_Tri*)arena->end) - 1;
+            _csg_triToFile(snz_arenaFormatStr(scratch, "testing/%d_%lld_end.stl", faceIdx, i), *last);
 
             scratch->end = scratchStart;
         }
@@ -516,7 +536,8 @@ void csg_tests() {
         mesh_FaceSlice cubeB = mesh_cube(&arena);
         mesh_facesTransform(cubeB, HMM_Rotate_RH(HMM_AngleDeg(30), HMM_V3(1, 1, 1)));
         mesh_facesTranslate(cubeB, HMM_V3(1, 1, 1));
-        mesh_facesToSTLFile(csg_facesUnion(&cubeA, &cubeB, &arena, &scratch), "testing/union.stl");
+        mesh_FaceSlice faces = csg_facesUnion(&cubeA, &cubeB, &arena, &scratch);
+        mesh_facesToSTLFile(faces, "testing/union.stl");
     }
 
     {
