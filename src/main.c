@@ -117,8 +117,21 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
 
         snz_arenaClear(scratch);
 
-        faces = mesh_stlFileToFaces("testing/difference.stl", &main_baseMeshArena, scratch, &main_baseMeshPool);
-        tl_timelinePushBaseGeometry(&main_timeline, HMM_V2(-200, -200), faces);
+        // faces = mesh_stlFileToFaces("testing/difference.stl", &main_baseMeshArena, scratch, &main_baseMeshPool);
+        // tl_timelinePushBaseGeometry(&main_timeline, HMM_V2(-200, -200), faces);
+    }
+
+    for (int64_t i = 0; i < 6; i++) {
+        for (int64_t j = 0; j < 2; j++) {
+            const char* path1 = snz_arenaFormatStr(scratch, "%lld_%lld_start.stl", i, j);
+            const char* path2 = snz_arenaFormatStr(scratch, "%lld_%lld_end.stl", i, j);
+            mesh_FaceSlice startFaces = mesh_stlFileToFaces(path1, &main_baseMeshArena, scratch, &main_baseMeshPool);
+            mesh_FaceSlice endFaces = mesh_stlFileToFaces(path2, &main_baseMeshArena, scratch, &main_baseMeshPool);
+
+            float xPos = ((i * 2) + j) * 150;
+            tl_timelinePushBaseGeometry(&main_timeline, HMM_V2(xPos, 200), startFaces);
+            tl_timelinePushBaseGeometry(&main_timeline, HMM_V2(xPos, 350), endFaces);
+        }
     }
 }
 

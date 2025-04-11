@@ -536,17 +536,21 @@ void csg_tests() {
         mesh_FaceSlice cubeB = mesh_cube(&arena);
         mesh_facesTransform(cubeB, HMM_Rotate_RH(HMM_AngleDeg(30), HMM_V3(1, 1, 1)));
         mesh_facesTranslate(cubeB, HMM_V3(1, 1, 1));
-        mesh_FaceSlice faces = csg_facesUnion(&cubeA, &cubeB, &arena, &scratch);
+        csg_Node* nodesB = csg_facesToNodes(&cubeB, &arena);
+
+        _csg_TempFace* aFaces = _csg_facesToTempFaces(&cubeA, &scratch);
+        _csg_tempFacesClip(aFaces, nodesB, true, &arena, &scratch);
+        mesh_FaceSlice faces = _csg_tempFacesToFaces(aFaces, &arena);
         mesh_facesToSTLFile(faces, "testing/union.stl");
     }
 
-    {
-        mesh_FaceSlice cubeA = mesh_cube(&arena);
-        mesh_FaceSlice cubeB = mesh_cube(&arena);
-        mesh_facesTransform(cubeB, HMM_Rotate_RH(HMM_AngleDeg(30), HMM_V3(1, 1, 1)));
-        mesh_facesTranslate(cubeB, HMM_V3(1, 1, 1));
-        mesh_facesToSTLFile(csg_facesDifference(&cubeA, &cubeB, &arena, &scratch), "testing/difference.stl");
-    }
+    // {
+    //     mesh_FaceSlice cubeA = mesh_cube(&arena);
+    //     mesh_FaceSlice cubeB = mesh_cube(&arena);
+    //     mesh_facesTransform(cubeB, HMM_Rotate_RH(HMM_AngleDeg(30), HMM_V3(1, 1, 1)));
+    //     mesh_facesTranslate(cubeB, HMM_V3(1, 1, 1));
+    //     mesh_facesToSTLFile(csg_facesDifference(&cubeA, &cubeB, &arena, &scratch), "testing/difference.stl");
+    // }
 
     snz_arenaDeinit(&arena);
     snz_arenaDeinit(&scratch);
