@@ -29,6 +29,24 @@ float geo_triArea(geo_Tri t) {
     return HMM_Len(cross) * 0.5f;
 }
 
+geo_TriSlice geo_triSliceDuplicate(const geo_TriSlice* oldTris, snz_Arena* arena) {
+    geo_TriSlice newTris = (geo_TriSlice){
+        .count = oldTris->count,
+        .elems = SNZ_ARENA_PUSH_ARR(arena, oldTris->count, geo_Tri),
+    };
+    memcpy(newTris.elems, oldTris->elems, oldTris->count * sizeof(geo_Tri));
+    return newTris;
+}
+
+void geo_triSliceInvert(geo_TriSlice* tris) {
+    for (int64_t i = 0; i < tris->count; i++) {
+        geo_Tri* tri = &tris->elems[i];
+        HMM_Vec3 temp = tri->c;
+        tri->c = tri->b;
+        tri->b = temp;
+    }
+}
+
 typedef struct {
     HMM_Vec3 a;
     HMM_Vec3 b;

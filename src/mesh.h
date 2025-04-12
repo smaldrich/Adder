@@ -118,15 +118,19 @@ bool mesh_faceFlat(const mesh_Face* f) {
     return true;
 }
 
+void mesh_faceTranslate(const mesh_Face* face, HMM_Vec3 offset) {
+    for (int64_t triIdx = 0; triIdx < face->tris.count; triIdx++) {
+        geo_Tri* tri = &face->tris.elems[triIdx];
+        for (int i = 0; i < 3; i++) {
+            tri->elems[i] = HMM_Add(tri->elems[i], offset);
+        } // verts
+    } // tris
+}
+
 void mesh_facesTranslate(mesh_FaceSlice faces, HMM_Vec3 offset) {
     for (int64_t faceIdx = 0; faceIdx < faces.count; faceIdx++) {
         mesh_Face* f = &faces.elems[faceIdx];
-        for (int64_t triIdx = 0; triIdx < f->tris.count; triIdx++) {
-            geo_Tri* tri = &f->tris.elems[triIdx];
-            for (int i = 0; i < 3; i++) {
-                tri->elems[i] = HMM_Add(tri->elems[i], offset);
-            } // verts
-        } // tris
+        mesh_faceTranslate(f, offset);
     } // faces
 }
 

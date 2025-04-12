@@ -376,17 +376,6 @@ static _csg_TempFace* _csg_tempFacesClip(_csg_TempFace* faces, const csg_Node* t
     return firstOutFace;
 }
 
-static void _csg_tempFacesInvert(_csg_TempFace* first) {
-    for (_csg_TempFace* f = first; f; f = f->next) {
-        for (int64_t i = 0; i < f->face.tris.count; i++) {
-            geo_Tri* tri = &f->face.tris.elems[i];
-            HMM_Vec3 temp = tri->c;
-            tri->c = tri->b;
-            tri->b = temp;
-        }
-    }
-}
-
 mesh_FaceSlice csg_facesUnion(const mesh_FaceSlice* a, const mesh_FaceSlice* b, snz_Arena* arena, snz_Arena* scratch) {
     _csg_TempFace* aFaces = _csg_facesToTempFaces(a, scratch);
     _csg_TempFace* bFaces = _csg_facesToTempFaces(b, scratch);
@@ -409,7 +398,9 @@ mesh_FaceSlice csg_facesDifference(const mesh_FaceSlice* a, const mesh_FaceSlice
 
     aFaces = _csg_tempFacesClip(aFaces, bNodes, true, arena, scratch);
     bFaces = _csg_tempFacesClip(bFaces, aNodes, false, arena, scratch);
-    _csg_tempFacesInvert(bFaces);
+    for (_csg_TempFace* f = bFaces; f; f = f->next) {
+        geo_triSliceInvert(&f->face.tris);
+    }
 
     _csg_TempFace* last = _csg_tempFacesFindLast(aFaces);
     last->next = bFaces;
@@ -423,9 +414,13 @@ mesh_FaceSlice csg_facesIntersection(const mesh_FaceSlice* a, const mesh_FaceSli
     csg_Node* bNodes = csg_facesToNodes(b, scratch);
 
     aFaces = _csg_tempFacesClip(aFaces, bNodes, false, arena, scratch);
-    _csg_tempFacesInvert(aFaces);
+    for (_csg_TempFace* f = bFaces; f; f = f->next) {
+        geo_triSliceInvert(&f->face.tris);
+    }
     bFaces = _csg_tempFacesClip(bFaces, aNodes, false, arena, scratch);
-    _csg_tempFacesInvert(bFaces);
+    for (_csg_TempFace* f = bFaces; f; f = f->next) {
+        geo_triSliceInvert(&f->face.tris);
+    }
 
     _csg_TempFace* last = _csg_tempFacesFindLast(aFaces);
     last->next = bFaces;
