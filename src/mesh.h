@@ -90,6 +90,22 @@ mesh_FaceSlice mesh_facesDuplicate(mesh_FaceSlice faces, snz_Arena* arena) {
     return SNZ_ARENA_ARR_END(arena, mesh_Face);
 }
 
+void mesh_faceAssertValid(const mesh_Face* face) {
+    SNZ_ASSERT(face->id.geoKind == MESH_GK_FACE, "Face has a geoid that isn't a face.");
+    SNZ_ASSERTF(face->tris.count > 0, "Face with %lld tris", face->tris.count);
+    for (int64_t i = 0; i < face->tris.count; i++) {
+        geo_Tri t = face->tris.elems[i];
+        SNZ_ASSERT(!geo_floatZero(geo_triArea(t)), "Zero area triangle.");
+    }
+}
+
+void mesh_facesAssertValid(const mesh_FaceSlice* faces) {
+    for (int64_t i = 0; i < faces->count; i++) {
+        const mesh_Face* face = &faces->elems[i];
+        mesh_faceAssertValid(face);
+    }
+}
+
 bool mesh_faceFlat(const mesh_Face* f) {
     SNZ_ASSERTF(f->tris.count > 0, "face with %lld tris.", f->tris.count);
     HMM_Vec3 normal = geo_triNormal(f->tris.elems[0]);
@@ -863,11 +879,12 @@ mesh_Scene mesh_sceneInit(const mesh_FaceSlice* faces, const mesh_TempGeo* tempG
         .elems = SNZ_ARENA_PUSH_ARR(arena, faces->count, mesh_SceneGeo),
     };
     for (int64_t i = 0; i < faces->count; i++) {
+        mesh_Face* face = &faces->elems[i];
         out.faces.elems[i] = (mesh_SceneGeo){
-            .id = faces->elems[i].id,
-            .faceTris = faces->elems[i].tris,
+            .id = face->id,
+            .faceTris = face->tris,
         };
-        SNZ_ASSERT(faces->elems[i].id.geoKind == MESH_GK_FACE, "Face has a geoid that isn't a face.");
+        mesh_faceAssertValid(face);
     }
 
     SNZ_ARENA_ARR_BEGIN(arena, mesh_SceneGeo);
@@ -877,6 +894,13 @@ mesh_Scene mesh_sceneInit(const mesh_FaceSlice* faces, const mesh_TempGeo* tempG
             .edgePoints = e->points,
         };
         SNZ_ASSERT(e->id.geoKind == MESH_GK_EDGE, "Edge has a geoid that isn't an edge.");
+
+        SNZ_ASSERTF(e->points.count > 0, "Edge with %lld points", e->points.count);
+        for (int64_t i = 1; i < e->points.count; i++) {
+            HMM_Vec3 a = e->points.elems[i - 1];
+            HMM_Vec3 b = e->points.elems[i];
+            SNZ_ASSERT(!geo_floatZero(HMM_Len(HMM_Sub(b, a))), "Segment with zero length;");
+        }
     }
     out.edges = SNZ_ARENA_ARR_END(arena, mesh_SceneGeo);
 
@@ -900,3 +924,29 @@ mesh_Scene mesh_sceneInit(const mesh_FaceSlice* faces, const mesh_TempGeo* tempG
 
     return out;
 }
+
+// void _mesh_triToFile(const char* path, geo_Tri t) {
+//     geo_TriSlice tris = {
+//         .count = 1,
+//         .elems = &t,
+//     };
+//     mesh_Face f = (mesh_Face){
+//         .tris = tris,
+//     };
+//     mesh_FaceSlice faces = (mesh_FaceSlice){
+//         .count = 1,
+//         .elems = &f,
+//     };
+//     mesh_facesToSTLFile(faces, path);
+// }
+
+// void _mesh_triSliceToFile(const char* path, geo_TriSlice tris) {
+//     mesh_Face f = (mesh_Face){
+//         .tris = tris,
+//     };
+//     mesh_FaceSlice faces = (mesh_FaceSlice){
+//         .count = 1,
+//         .elems = &f,
+//     };
+//     mesh_facesToSTLFile(faces, path);
+// }

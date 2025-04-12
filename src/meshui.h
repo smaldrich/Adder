@@ -175,18 +175,18 @@ void meshu_sceneBuild(mesh_Scene* scene, HMM_Mat4 vp, HMM_Vec3 cameraPos, HMM_Ve
             if (edge->sel.selected) {
                 glDisable(GL_DEPTH_TEST);
             }
-            for (int i = 0; i < edge->edgePoints.count - 1; i++) {
-                HMM_Vec3 a = edge->edgePoints.elems[i];
-                HMM_Vec3 b = edge->edgePoints.elems[i + 1];
+            for (int64_t j = 0; j < edge->edgePoints.count - 1; j++) {
+                HMM_Vec3 a = edge->edgePoints.elems[j];
+                HMM_Vec3 b = edge->edgePoints.elems[j + 1];
                 HMM_Vec4 pts[2] = {
                     HMM_V4(a.X, a.Y, a.Z, 1),
                     HMM_V4(b.X, b.Y, b.Z, 1),
                 };
 
-                for (int i = 0; i < 2; i++) {
-                    float scaleFactor = HMM_Len(HMM_Sub(cameraPos, pts[i].XYZ)) * 0.01;
-                    HMM_Vec3 offset = HMM_Mul(HMM_Norm(HMM_Sub(cameraPos, pts[i].XYZ)), scaleFactor);
-                    pts[i].XYZ = HMM_Add(pts[i].XYZ, offset);
+                for (int k = 0; k < 2; k++) {
+                    float scaleFactor = HMM_Len(HMM_Sub(cameraPos, pts[k].XYZ)) * 0.01;
+                    HMM_Vec3 offset = HMM_Mul(HMM_Norm(HMM_Sub(cameraPos, pts[k].XYZ)), scaleFactor);
+                    pts[k].XYZ = HMM_Add(pts[k].XYZ, offset);
                 }
 
                 HMM_Vec4 color = HMM_Lerp(ui_colorText, edge->sel.selectionAnim, ui_colorAccent);

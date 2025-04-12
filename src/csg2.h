@@ -136,7 +136,7 @@ bool csg_nodesContainPoint(csg_Node* tree, HMM_Vec3 point) {
 
 // returns number of subtris that tri got split into (also length of resultTris and inOrOut)
 // outInOrOut true values mean in
-static int _csg_splitTri(geo_Tri* tri, const csg_Node* cutter, geo_Tri** outResultTris, bool** outInOrOut, snz_Arena* arena) {
+static int _csg_splitTri(const geo_Tri* tri, const csg_Node* cutter, geo_Tri** outResultTris, bool** outInOrOut, snz_Arena* arena) {
     _csg_PlaneRelation rel = _csg_triClassify(*tri, cutter->normal, cutter->origin);
     if (rel == CSG_PR_COPLANAR) {
         assert(false);  // FIXME: this
@@ -272,7 +272,7 @@ static int _csg_splitTri(geo_Tri* tri, const csg_Node* cutter, geo_Tri** outResu
 
 // return indicates if any child got clipped
 // pushes all sub-tris to arena if any were clipped, if nothing is clipped, defers push to caller
-static bool _csg_clipTri(geo_Tri* tri, bool clipWithin, const csg_Node* cutter, snz_Arena* arena, snz_Arena* scratch) {
+static bool _csg_clipTri(const geo_Tri* tri, bool clipWithin, const csg_Node* cutter, snz_Arena* arena, snz_Arena* scratch) {
     bool* splitTrisInOrOut = NULL;
     geo_Tri* splitTris = NULL;
     int splitCount = _csg_splitTri(tri, cutter, &splitTris, &splitTrisInOrOut, scratch);
@@ -297,7 +297,7 @@ static bool _csg_clipTri(geo_Tri* tri, bool clipWithin, const csg_Node* cutter, 
         return false;
     }
 
-    for (int i = 0; i < 3; i++) {
+    for (int i = 0; i < splitCount; i++) {
         if (clipped[i]) {
             continue;
         }
@@ -342,21 +342,6 @@ static mesh_FaceSlice _csg_tempFacesToFaces(_csg_TempFace* firstFace, snz_Arena*
     return SNZ_ARENA_ARR_END(arena, mesh_Face);
 }
 
-static void _csg_triToFile(const char* path, geo_Tri t) {
-    geo_TriSlice tris = {
-        .count = 1,
-        .elems = &t,
-    };
-    mesh_Face f = (mesh_Face){
-        .tris = tris,
-    };
-    mesh_FaceSlice faces = (mesh_FaceSlice){
-        .count = 1,
-        .elems = &f,
-    };
-    mesh_facesToSTLFile(faces, path);
-}
-
 // destructive to OG face list - reuses nodes in output
 // FIXME: handle the case where a face gets split and we need new faceIds
 // FIXME: put new faceIDs on to everything that changes
@@ -373,10 +358,6 @@ static _csg_TempFace* _csg_tempFacesClip(_csg_TempFace* faces, const csg_Node* t
             if (!anyClipped) {
                 *SNZ_ARENA_PUSH(arena, geo_Tri) = t;
             }
-
-            _csg_triToFile(snz_arenaFormatStr(scratch, "testing/%d_%lld_start.stl", faceIdx, i), t);
-            geo_Tri* last = ((geo_Tri*)arena->end) - 1;
-            _csg_triToFile(snz_arenaFormatStr(scratch, "testing/%d_%lld_end.stl", faceIdx, i), *last);
 
             scratch->end = scratchStart;
         }
@@ -536,21 +517,18 @@ void csg_tests() {
         mesh_FaceSlice cubeB = mesh_cube(&arena);
         mesh_facesTransform(cubeB, HMM_Rotate_RH(HMM_AngleDeg(30), HMM_V3(1, 1, 1)));
         mesh_facesTranslate(cubeB, HMM_V3(1, 1, 1));
-        csg_Node* nodesB = csg_facesToNodes(&cubeB, &arena);
-
-        _csg_TempFace* aFaces = _csg_facesToTempFaces(&cubeA, &scratch);
-        _csg_tempFacesClip(aFaces, nodesB, true, &arena, &scratch);
-        mesh_FaceSlice faces = _csg_tempFacesToFaces(aFaces, &arena);
+        mesh_FaceSlice faces = csg_facesUnion(&cubeA, &cubeB, &arena, &scratch);
         mesh_facesToSTLFile(faces, "testing/union.stl");
     }
 
-    // {
-    //     mesh_FaceSlice cubeA = mesh_cube(&arena);
-    //     mesh_FaceSlice cubeB = mesh_cube(&arena);
-    //     mesh_facesTransform(cubeB, HMM_Rotate_RH(HMM_AngleDeg(30), HMM_V3(1, 1, 1)));
-    //     mesh_facesTranslate(cubeB, HMM_V3(1, 1, 1));
-    //     mesh_facesToSTLFile(csg_facesDifference(&cubeA, &cubeB, &arena, &scratch), "testing/difference.stl");
-    // }
+    {
+        mesh_FaceSlice cubeA = mesh_cube(&arena);
+        mesh_FaceSlice cubeB = mesh_cube(&arena);
+        mesh_facesTransform(cubeB, HMM_Rotate_RH(HMM_AngleDeg(30), HMM_V3(1, 1, 1)));
+        mesh_facesTranslate(cubeB, HMM_V3(1, 1, 1));
+        mesh_FaceSlice faces = csg_facesDifference(&cubeA, &cubeB, &arena, &scratch);
+        mesh_facesToSTLFile(faces, "testing/difference.stl");
+    }
 
     snz_arenaDeinit(&arena);
     snz_arenaDeinit(&scratch);

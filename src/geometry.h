@@ -22,6 +22,13 @@ geo_Tri geo_triInit(HMM_Vec3 a, HMM_Vec3 b, HMM_Vec3 c) {
 
 SNZ_SLICE(geo_Tri);
 
+float geo_triArea(geo_Tri t) {
+    HMM_Vec3 diffB = HMM_Sub(t.b, t.a);
+    HMM_Vec3 diffC = HMM_Sub(t.c, t.a);
+    HMM_Vec3 cross = HMM_Cross(diffB, diffC);
+    return HMM_Len(cross) * 0.5f;
+}
+
 typedef struct {
     HMM_Vec3 a;
     HMM_Vec3 b;
