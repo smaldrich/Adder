@@ -45,10 +45,10 @@ SNZ_SLICE(mesh_Face);
 
 ren3d_Mesh mesh_facesToRenderMesh(const mesh_FaceSlice* faces, snz_Arena* scratch) {
     SNZ_ARENA_ARR_BEGIN(scratch, ren3d_Vert);
-    for (int64_t i = 0; i < faces->count; i++) {
-        mesh_Face f = faces->elems[i];
-        for (int64_t j = 0; j < f.tris.count; j++) {
-            geo_Tri tri = f.tris.elems[j];
+    for (int64_t faceIdx = 0; faceIdx < faces->count; faceIdx++) {
+        mesh_Face f = faces->elems[faceIdx];
+        for (int64_t triIdx = 0; triIdx < f.tris.count; triIdx++) {
+            geo_Tri tri = f.tris.elems[triIdx];
             HMM_Vec3 normal = geo_triNormal(tri);
             for (int i = 0; i < 3; i++) {
                 *SNZ_ARENA_PUSH(scratch, ren3d_Vert) = (ren3d_Vert){
@@ -65,10 +65,10 @@ ren3d_Mesh mesh_facesToRenderMesh(const mesh_FaceSlice* faces, snz_Arena* scratc
 
 mesh_FaceSlice mesh_facesDuplicate(mesh_FaceSlice faces, snz_Arena* arena) {
     SNZ_ARENA_ARR_BEGIN(arena, geo_Tri);
-    for (int64_t i = 0; i < faces.count; i++) {
-        const mesh_Face* f = &faces.elems[i];
-        for (int64_t j = 0; j < f->tris.count; j++) {
-            *SNZ_ARENA_PUSH(arena, geo_Tri) = f->tris.elems[j];
+    for (int64_t faceIdx = 0; faceIdx < faces.count; faceIdx++) {
+        const mesh_Face* f = &faces.elems[faceIdx];
+        for (int64_t triIdx = 0; triIdx < f->tris.count; triIdx++) {
+            *SNZ_ARENA_PUSH(arena, geo_Tri) = f->tris.elems[triIdx];
             // FIXME: should be a memcpy but eh
         }
     }
@@ -76,8 +76,8 @@ mesh_FaceSlice mesh_facesDuplicate(mesh_FaceSlice faces, snz_Arena* arena) {
 
     SNZ_ARENA_ARR_BEGIN(arena, mesh_Face);
     int64_t triIdx = 0;
-    for (int64_t i = 0; i < faces.count; i++) {
-        mesh_Face ogFace = faces.elems[i];
+    for (int64_t faceIdx = 0; faceIdx < faces.count; faceIdx++) {
+        mesh_Face ogFace = faces.elems[faceIdx];
         *SNZ_ARENA_PUSH(arena, mesh_Face) = (mesh_Face){
             .id = ogFace.id,
             .tris = (geo_TriSlice) {
@@ -109,7 +109,7 @@ void mesh_facesAssertValid(const mesh_FaceSlice* faces) {
 bool mesh_faceFlat(const mesh_Face* f) {
     SNZ_ASSERTF(f->tris.count > 0, "face with %lld tris.", f->tris.count);
     HMM_Vec3 normal = geo_triNormal(f->tris.elems[0]);
-    for (int i = 1; i < f->tris.count; i++) {
+    for (int64_t i = 1; i < f->tris.count; i++) {
         geo_Tri t = f->tris.elems[i];
         if (!geo_v3Equal(geo_triNormal(t), normal)) {
             return false;
@@ -119,26 +119,26 @@ bool mesh_faceFlat(const mesh_Face* f) {
 }
 
 void mesh_facesTranslate(mesh_FaceSlice faces, HMM_Vec3 offset) {
-    for (int64_t i = 0; i < faces.count; i++) {
-        mesh_Face* f = &faces.elems[i];
-        for (int64_t j = 0; j < f->tris.count; j++) {
-            geo_Tri* tri = &f->tris.elems[j];
-            for (int k = 0; k < 3; k++) {
-                tri->elems[k] = HMM_Add(tri->elems[k], offset);
+    for (int64_t faceIdx = 0; faceIdx < faces.count; faceIdx++) {
+        mesh_Face* f = &faces.elems[faceIdx];
+        for (int64_t triIdx = 0; triIdx < f->tris.count; triIdx++) {
+            geo_Tri* tri = &f->tris.elems[triIdx];
+            for (int i = 0; i < 3; i++) {
+                tri->elems[i] = HMM_Add(tri->elems[i], offset);
             } // verts
         } // tris
     } // faces
 }
 
 void mesh_facesTransform(mesh_FaceSlice faces, HMM_Mat4 transform) {
-    for (int64_t i = 0; i < faces.count; i++) {
-        mesh_Face* f = &faces.elems[i];
-        for (int64_t j = 0; j < f->tris.count; j++) {
-            geo_Tri* tri = &f->tris.elems[j];
-            for (int k = 0; k < 3; k++) {
+    for (int64_t faceIdx = 0; faceIdx < faces.count; faceIdx++) {
+        mesh_Face* f = &faces.elems[faceIdx];
+        for (int64_t triIdx = 0; triIdx < f->tris.count; triIdx++) {
+            geo_Tri* tri = &f->tris.elems[triIdx];
+            for (int i = 0; i < 3; i++) {
                 HMM_Vec4 tmp = HMM_V4(0, 0, 0, 0);
-                tmp.XYZ = tri->elems[k];
-                tri->elems[k] = HMM_Mul(transform, tmp).XYZ;
+                tmp.XYZ = tri->elems[i];
+                tri->elems[i] = HMM_Mul(transform, tmp).XYZ;
             } // verts
         } // tris
     } // faces
@@ -541,10 +541,10 @@ mesh_TempGeo* mesh_facesToTempGeo(const mesh_FaceSlice* faces, int64_t opUid, sn
     };
 
     SNZ_ARENA_ARR_BEGIN(scratch, _mesh_FacePair);
-    for (int64_t i = 0; i < faces->count; i++) {
-        mesh_Face* faceA = &faces->elems[i];
-        for (int64_t j = i + 1; j < faces->count; j++) {
-            mesh_Face* faceB = &faces->elems[j];
+    for (int64_t aIdx = 0; aIdx < faces->count; aIdx++) {
+        mesh_Face* faceA = &faces->elems[aIdx];
+        for (int64_t bIdx = aIdx + 1; bIdx < faces->count; bIdx++) {
+            mesh_Face* faceB = &faces->elems[bIdx];
             *SNZ_ARENA_PUSH(scratch, _mesh_FacePair) = (_mesh_FacePair){
                 .a = faceA,
                 .b = faceB,
@@ -684,16 +684,16 @@ static mesh_FaceSlice _mesh_groupTrisToFaces(geo_TriSlice tris, PoolAlloc* pool,
             }
 
             bool adj = false;
-            for (int64_t i = 0; i < segments.count; i++) {
-                float angle = _geo_angleBetweenV3(triNormal, normals[i]);
+            for (int64_t segmentIdx = 0; segmentIdx < segments.count; segmentIdx++) {
+                float angle = _geo_angleBetweenV3(triNormal, normals[segmentIdx]);
                 if (angle > HMM_AngleDeg(30)) {
                     continue;
                 }
 
-                for (int j = 0; j < 3; j++) {
-                    if (_mesh_linePairAdjacentFast(triSegments[j], segments.elems[i])) {
+                for (int triSegIdx = 0; triSegIdx < 3; triSegIdx++) {
+                    if (_mesh_linePairAdjacentFast(triSegments[triSegIdx], segments.elems[segmentIdx])) {
                         adj = true; // pop this tri
-                        i = segments.count; // break the segment loop
+                        segmentIdx = segments.count; // break the segment loop
                         break;
                     }
                 }
@@ -820,10 +820,10 @@ void mesh_facesToSTLFile(mesh_FaceSlice faces, const char* path) {
     SNZ_ASSERTF(f, "Opening file '%s' failed.", path);
     fprintf(f, "solid object\n");
 
-    for (int64_t i = 0; i < faces.count; i++) {
-        mesh_Face* face = &faces.elems[i];
-        for (int64_t j = 0; j < face->tris.count; j++) {
-            geo_Tri tri = face->tris.elems[j];
+    for (int64_t faceIdx = 0; faceIdx < faces.count; faceIdx++) {
+        mesh_Face* face = &faces.elems[faceIdx];
+        for (int64_t triIdx = 0; triIdx < face->tris.count; triIdx++) {
+            geo_Tri tri = face->tris.elems[triIdx];
             HMM_Vec3 normal = geo_triNormal(tri);
             fprintf(f, "facet normal %f %f %f\n", normal.X, normal.Y, normal.Z);
             fprintf(f, "outer loop\n");

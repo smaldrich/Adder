@@ -115,12 +115,12 @@ bool _skt_vertLoopContainsVertLoop(_skt_VertLoop* a, _skt_VertLoop* b) {
         return false;
     }
 
-    for (int i = 0; i < a->pts.count; i++) {
-        HMM_Vec2 l1a = a->pts.elems[i];
-        HMM_Vec2 l1b = a->pts.elems[(i + 1) % a->pts.count];
-        for (int j = 0; j < b->pts.count; j++) {
-            HMM_Vec2 l2a = b->pts.elems[j];
-            HMM_Vec2 l2b = b->pts.elems[(j + 1) % b->pts.count];
+    for (int aIdx = 0; aIdx < a->pts.count; aIdx++) {
+        HMM_Vec2 l1a = a->pts.elems[aIdx];
+        HMM_Vec2 l1b = a->pts.elems[(aIdx + 1) % a->pts.count];
+        for (int bIdx = 0; bIdx < b->pts.count; bIdx++) {
+            HMM_Vec2 l2a = b->pts.elems[bIdx];
+            HMM_Vec2 l2b = b->pts.elems[(bIdx + 1) % b->pts.count];
             float t = 0;
             if (!_skt_lineLineIntersection(l1a, l1b, l2a, l2b, &t)) {
                 return false;

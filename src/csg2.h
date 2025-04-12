@@ -96,10 +96,10 @@ static void _csg_facesToNodesInner(snz_Arena* arena, csg_Node* parent, csg_Node*
 
 csg_Node* csg_facesToNodes(const mesh_FaceSlice* faces, snz_Arena* arena) {
     csg_Node* firstNode = NULL;
-    for (int64_t i = 0; i < faces->count; i++) {
-        mesh_Face* f = &faces->elems[i];
-        for (int64_t j = 0; j < f->tris.count; j++) {
-            geo_Tri* t = &f->tris.elems[j];
+    for (int64_t faceIdx = 0; faceIdx < faces->count; faceIdx++) {
+        mesh_Face* f = &faces->elems[faceIdx];
+        for (int64_t triIdx = 0; triIdx < f->tris.count; triIdx++) {
+            geo_Tri* t = &f->tris.elems[triIdx];
             csg_Node* node = SNZ_ARENA_PUSH(arena, csg_Node);
             *node = (csg_Node){
                 .temp = {

@@ -25,10 +25,10 @@ void meshu_sceneBuild(const mesh_Scene* scene, HMM_Mat4 vp, HMM_Vec3 cameraPos, 
     mesh_SceneGeo* hoveredGeo = NULL;
     { // finding hovered elts.
         float minDistSquared = INFINITY;
-        for (int64_t i = 0; i < scene->faces.count; i++) {
-            mesh_SceneGeo* f = &scene->faces.elems[i];
-            for (int64_t j = 0; j < f->faceTris.count; j++) {
-                geo_Tri t = f->faceTris.elems[i];
+        for (int64_t faceIdx = 0; faceIdx < scene->faces.count; faceIdx++) {
+            mesh_SceneGeo* f = &scene->faces.elems[faceIdx];
+            for (int64_t triIdx = 0; triIdx < f->faceTris.count; triIdx++) {
+                geo_Tri t = f->faceTris.elems[triIdx];
                 HMM_Vec3 pos = HMM_V3(0, 0, 0);
                 // FIXME: bounding box opt. to cull tri checks
                 if (geo_rayTriIntersection(cameraPos, mouseDir, t, &pos)) {
@@ -47,12 +47,12 @@ void meshu_sceneBuild(const mesh_Scene* scene, HMM_Mat4 vp, HMM_Vec3 cameraPos, 
             clipDist = sqrtf(clipDist);
         }
 
-        for (int64_t i = 0; i < scene->edges.count; i++) {
-            mesh_SceneGeo* e = &scene->edges.elems[i];
-            for (int64_t j = 0; j < e->edgePoints.count - 1; j++) {
+        for (int64_t edgeIdx = 0; edgeIdx < scene->edges.count; edgeIdx++) {
+            mesh_SceneGeo* e = &scene->edges.elems[edgeIdx];
+            for (int64_t pointIdx = 0; pointIdx < e->edgePoints.count - 1; pointIdx++) {
                 geo_Line l = (geo_Line){
-                    .a = e->edgePoints.elems[j],
-                    .b = e->edgePoints.elems[j + 1],
+                    .a = e->edgePoints.elems[pointIdx],
+                    .b = e->edgePoints.elems[pointIdx + 1],
                 };
                 float distFromRay = 0;
                 HMM_Vec3 pos = geo_rayClosestPointOnSegment(cameraPos, HMM_Add(cameraPos, mouseDir), l.a, l.b, &distFromRay);
@@ -94,20 +94,20 @@ void meshu_sceneBuild(const mesh_Scene* scene, HMM_Mat4 vp, HMM_Vec3 cameraPos, 
     ren3d_VertSlice faceMeshVerts = { 0 };
     {
         SNZ_ARENA_ARR_BEGIN(scratch, ren3d_Vert);
-        for (int64_t i = 0; i < scene->faces.count; i++) {
-            mesh_SceneGeo* f = &scene->faces.elems[i];
+        for (int64_t faceIdx = 0; faceIdx < scene->faces.count; faceIdx++) {
+            mesh_SceneGeo* f = &scene->faces.elems[faceIdx];
             float sumAnim = f->sel.hoverAnim + f->sel.selectionAnim;
             if (!geo_floatZero(sumAnim)) {
                 HMM_Vec4 targetColor = ui_colorAccent;
                 targetColor.A = 0.8;
                 HMM_Vec4 color = HMM_Lerp(ui_colorTransparentPanel, f->sel.selectionAnim, targetColor);
                 color.A = HMM_Lerp(0.0f, SNZ_MIN(sumAnim, 1), color.A);
-                for (int i = 0; i < f->faceTris.count; i++) {
-                    geo_Tri t = f->faceTris.elems[i];
+                for (int64_t triIdx = 0; triIdx < f->faceTris.count; triIdx++) {
+                    geo_Tri t = f->faceTris.elems[triIdx];
                     HMM_Vec3 normal = geo_triNormal(t);
-                    for (int j = 0; j < 3; j++) {
-                        float scaleFactor = HMM_Len(HMM_Sub(cameraPos, t.elems[j])) * f->sel.hoverAnim * 0.02f;
-                        HMM_Vec3 pos = HMM_Add(t.elems[j], HMM_MulV3F(normal, scaleFactor));
+                    for (int ptIdx = 0; ptIdx < 3; ptIdx++) {
+                        float scaleFactor = HMM_Len(HMM_Sub(cameraPos, t.elems[ptIdx])) * f->sel.hoverAnim * 0.02f;
+                        HMM_Vec3 pos = HMM_Add(t.elems[ptIdx], HMM_MulV3F(normal, scaleFactor));
                         ren3d_Vert* v = SNZ_ARENA_PUSH(scratch, ren3d_Vert);
                         *v = (ren3d_Vert){
                             .normal = normal,
