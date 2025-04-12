@@ -850,6 +850,7 @@ typedef struct {
 } mesh_SceneGeo;
 
 SNZ_SLICE(mesh_SceneGeo);
+SNZ_SLICE_NAMED(mesh_SceneGeo*, mesh_SceneGeoPtrSlice);
 
 typedef struct {
     geo_Align orbitOrigin;
@@ -860,7 +861,7 @@ typedef struct {
     mesh_SceneGeoSlice corners;
     mesh_SceneGeoSlice edges;
     mesh_SceneGeoSlice faces;
-    mesh_SceneGeoSlice allGeo; // overlaps with corners, edges, faces
+    mesh_SceneGeoPtrSlice allGeo; // overlaps with corners, edges, faces
 } mesh_Scene;
 
 // copies faces and tempgeo elts to a new arena with space for ui data for them
@@ -896,10 +897,10 @@ mesh_Scene mesh_sceneInit(const mesh_FaceSlice* faces, const mesh_TempGeo* tempG
         SNZ_ASSERT(e->id.geoKind == MESH_GK_EDGE, "Edge has a geoid that isn't an edge.");
 
         SNZ_ASSERTF(e->points.count > 0, "Edge with %lld points", e->points.count);
-        for (int64_t i = 1; i < e->points.count; i++) {
-            HMM_Vec3 a = e->points.elems[i - 1];
-            HMM_Vec3 b = e->points.elems[i];
-            SNZ_ASSERT(!geo_floatZero(HMM_Len(HMM_Sub(b, a))), "Segment with zero length;");
+        for (int64_t i = 0; i < e->points.count - 1; i++) {
+            HMM_Vec3 a = e->points.elems[i];
+            HMM_Vec3 b = e->points.elems[i + 1];
+            SNZ_ASSERT(!geo_v3Equal(a, b), "Segment with zero length;");
         }
     }
     out.edges = SNZ_ARENA_ARR_END(arena, mesh_SceneGeo);
@@ -914,13 +915,17 @@ mesh_Scene mesh_sceneInit(const mesh_FaceSlice* faces, const mesh_TempGeo* tempG
     }
     out.corners = SNZ_ARENA_ARR_END(arena, mesh_SceneGeo);
 
-    // FIXME: this is a little hacky and a little dangerous, and a little scuffed
-    // and very wierd, but it makes a lot of logic much simpler to be able to
-    // iterate over all geo in one loop, so here it is
-    out.allGeo = (mesh_SceneGeoSlice){
-        .count = out.faces.count + out.edges.count + out.corners.count,
-        .elems = out.faces.elems,
-    };
+    SNZ_ARENA_ARR_BEGIN(arena, mesh_SceneGeo*);
+    for (int64_t i = 0; i < out.faces.count; i++) {
+        *SNZ_ARENA_PUSH(arena, mesh_SceneGeo*) = &out.faces.elems[i];
+    }
+    for (int64_t i = 0; i < out.edges.count; i++) {
+        *SNZ_ARENA_PUSH(arena, mesh_SceneGeo*) = &out.edges.elems[i];
+    }
+    for (int64_t i = 0; i < out.corners.count; i++) {
+        *SNZ_ARENA_PUSH(arena, mesh_SceneGeo*) = &out.corners.elems[i];
+    }
+    out.allGeo = SNZ_ARENA_ARR_END_NAMED(arena, mesh_SceneGeo*, mesh_SceneGeoPtrSlice);
 
     return out;
 }

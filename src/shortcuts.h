@@ -365,7 +365,7 @@ bool scc_sceneLookAt(_sc_CommandFuncArgs args) {
 
     mesh_SceneGeo* selected = NULL;
     for (int64_t i = 0; i < args.scene->allGeo.count; i++) {
-        mesh_SceneGeo* geo = &args.scene->allGeo.elems[i];
+        mesh_SceneGeo* geo = args.scene->allGeo.elems[i];
         if (geo->sel.selected) {
             if (selected) {
                 return true;
@@ -471,7 +471,7 @@ bool scc_sceneTake(_sc_CommandFuncArgs args) {
     int foundCount = 0;
     tl_OpArg outArg = { 0 };
     for (int64_t i = 0; i < args.scene->allGeo.count; i++) {
-        mesh_SceneGeo* geo = &args.scene->allGeo.elems[i];
+        mesh_SceneGeo* geo = args.scene->allGeo.elems[i];
         if (geo->sel.selected) {
             if (geo->id.geoKind == MESH_GK_CORNER) {
                 outArg.kind = TL_OPAK_GEOID_CORNER;

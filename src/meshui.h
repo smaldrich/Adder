@@ -1,10 +1,10 @@
 #include "snooze.h"
 #include "mesh.h"
 
-static ui_SelectionStatus* _meshu_sceneGenSelStatuses(mesh_Scene* scene, mesh_SceneGeo* hoveredGeo, snz_Arena* arena) {
+static ui_SelectionStatus* _meshu_sceneGenSelStatuses(const mesh_Scene* scene, mesh_SceneGeo* hoveredGeo, snz_Arena* arena) {
     ui_SelectionStatus* firstStatus = NULL;
     for (int64_t i = 0; i < scene->allGeo.count; i++) {
-        mesh_SceneGeo* geo = &scene->allGeo.elems[i];
+        mesh_SceneGeo* geo = scene->allGeo.elems[i];
         ui_SelectionStatus* status = SNZ_ARENA_PUSH(arena, ui_SelectionStatus);
         *status = (ui_SelectionStatus){
             .withinDragZone = false,
@@ -18,7 +18,7 @@ static ui_SelectionStatus* _meshu_sceneGenSelStatuses(mesh_Scene* scene, mesh_Sc
     return firstStatus;
 }
 
-void meshu_sceneBuild(mesh_Scene* scene, HMM_Mat4 vp, HMM_Vec3 cameraPos, HMM_Vec3 mouseDir, const snzu_Interaction* inter, HMM_Vec2 panelSize, snz_Arena* scratch) {
+void meshu_sceneBuild(const mesh_Scene* scene, HMM_Mat4 vp, HMM_Vec3 cameraPos, HMM_Vec3 mouseDir, const snzu_Interaction* inter, HMM_Vec2 panelSize, snz_Arena* scratch) {
     SNZ_ASSERT(cameraPos.X || !cameraPos.X, "AHH");
     SNZ_ASSERT(mouseDir.X || !mouseDir.X, "AHH");
 
@@ -49,10 +49,10 @@ void meshu_sceneBuild(mesh_Scene* scene, HMM_Mat4 vp, HMM_Vec3 cameraPos, HMM_Ve
 
         for (int64_t i = 0; i < scene->edges.count; i++) {
             mesh_SceneGeo* e = &scene->edges.elems[i];
-            for (int64_t j = 0; j < e->edgePoints.count; j++) {
+            for (int64_t j = 0; j < e->edgePoints.count - 1; j++) {
                 geo_Line l = (geo_Line){
-                    .a = e->edgePoints.elems[i],
-                    .b = e->edgePoints.elems[i + 1],
+                    .a = e->edgePoints.elems[j],
+                    .b = e->edgePoints.elems[j + 1],
                 };
                 float distFromRay = 0;
                 HMM_Vec3 pos = geo_rayClosestPointOnSegment(cameraPos, HMM_Add(cameraPos, mouseDir), l.a, l.b, &distFromRay);
@@ -169,24 +169,24 @@ void meshu_sceneBuild(mesh_Scene* scene, HMM_Mat4 vp, HMM_Vec3 cameraPos, HMM_Ve
             glEnable(GL_DEPTH_TEST);
         }
 
-        for (int64_t i = 0; i < scene->edges.count; i++) {
-            mesh_SceneGeo* edge = &scene->edges.elems[i];
+        for (int64_t edgeIndex = 0; edgeIndex < scene->edges.count; edgeIndex++) {
+            mesh_SceneGeo* edge = &scene->edges.elems[edgeIndex];
             // FIXME: ew gross
             if (edge->sel.selected) {
                 glDisable(GL_DEPTH_TEST);
             }
-            for (int64_t j = 0; j < edge->edgePoints.count - 1; j++) {
-                HMM_Vec3 a = edge->edgePoints.elems[j];
-                HMM_Vec3 b = edge->edgePoints.elems[j + 1];
+            for (int64_t segmentIndex = 0; segmentIndex < edge->edgePoints.count - 1; segmentIndex++) {
+                HMM_Vec3 a = edge->edgePoints.elems[segmentIndex];
+                HMM_Vec3 b = edge->edgePoints.elems[segmentIndex + 1];
                 HMM_Vec4 pts[2] = {
                     HMM_V4(a.X, a.Y, a.Z, 1),
                     HMM_V4(b.X, b.Y, b.Z, 1),
                 };
 
-                for (int k = 0; k < 2; k++) {
-                    float scaleFactor = HMM_Len(HMM_Sub(cameraPos, pts[k].XYZ)) * 0.01;
-                    HMM_Vec3 offset = HMM_Mul(HMM_Norm(HMM_Sub(cameraPos, pts[k].XYZ)), scaleFactor);
-                    pts[k].XYZ = HMM_Add(pts[k].XYZ, offset);
+                for (int i = 0; i < 2; i++) {
+                    float scaleFactor = HMM_Len(HMM_Sub(cameraPos, pts[i].XYZ)) * 0.01;
+                    HMM_Vec3 offset = HMM_Mul(HMM_Norm(HMM_Sub(cameraPos, pts[i].XYZ)), scaleFactor);
+                    pts[i].XYZ = HMM_Add(pts[i].XYZ, offset);
                 }
 
                 HMM_Vec4 color = HMM_Lerp(ui_colorText, edge->sel.selectionAnim, ui_colorAccent);
