@@ -215,21 +215,21 @@ static int _csg_splitTri(const geo_Tri* tri, const csg_Node* cutter, geo_Tri** o
         bool* insOrOuts = SNZ_ARENA_PUSH_ARR(arena, 3, bool);
 
         bool t1Outside = HMM_DotV3(HMM_SubV3(rotatedVerts[1], cutter->origin), cutter->normal) > 0;
-        insOrOuts[0] = t1Outside;
+        insOrOuts[0] = !t1Outside;
         tris[0] = (geo_Tri){
             .a = rotatedVerts[0],
             .b = rotatedVerts[1],
             .c = rotatedVerts[2],
         };
 
-        insOrOuts[1] = !t1Outside;
+        insOrOuts[1] = t1Outside;
         tris[1] = (geo_Tri){
             .a = rotatedVerts[2],
             .b = rotatedVerts[3],
             .c = rotatedVerts[4],
         };
 
-        insOrOuts[2] = !t1Outside;
+        insOrOuts[2] = t1Outside;
         tris[2] = (geo_Tri){
             .a = rotatedVerts[4],
             .b = rotatedVerts[0],
@@ -246,14 +246,14 @@ static int _csg_splitTri(const geo_Tri* tri, const csg_Node* cutter, geo_Tri** o
 
         // t1B should never be colinear with the cut plane so long as rotation has been done correctly
         bool t1Outside = HMM_DotV3(HMM_SubV3(rotatedVerts[1], cutter->origin), cutter->normal) > 0;
-        insOrOuts[0] = t1Outside;
+        insOrOuts[0] = !t1Outside;
         tris[0] = (geo_Tri){
             .a = rotatedVerts[0],
             .b = rotatedVerts[1],
             .c = rotatedVerts[2],
         };
 
-        insOrOuts[1] = !t1Outside;
+        insOrOuts[1] = t1Outside;
         tris[1] = (geo_Tri){
             .a = rotatedVerts[2],
             .b = rotatedVerts[3],

@@ -839,6 +839,24 @@ void mesh_facesToSTLFile(mesh_FaceSlice faces, const char* path) {
     fclose(f);
 }
 
+void mesh_facesToDesmosFile(mesh_FaceSlice faces, const char* path) {
+    FILE* f = fopen(path, "w");
+    SNZ_ASSERTF(f, "Opening file '%s' failed.", path);
+
+    for (int64_t faceIdx = 0; faceIdx < faces.count; faceIdx++) {
+        mesh_Face* face = &faces.elems[faceIdx];
+        for (int64_t triIdx = 0; triIdx < face->tris.count; triIdx++) {
+            geo_Tri tri = face->tris.elems[triIdx];
+            fprintf(f, "triangle(");
+            fprintf(f, "(%f,%f,%f),", tri.a.X, tri.a.Y, tri.a.Z);
+            fprintf(f, "(%f,%f,%f),", tri.b.X, tri.b.Y, tri.b.Z);
+            fprintf(f, "(%f,%f,%f)", tri.c.X, tri.c.Y, tri.c.Z);
+            fprintf(f, ")\n");
+        }
+    }
+    fclose(f);
+}
+
 typedef struct {
     ui_SelectionState sel;
     mesh_GeoID id;

@@ -101,17 +101,6 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
 
     main_timeline = tl_timelineInit(&main_tlArena, &main_tlGeneratedArena, &main_tlGeneratedPool);
     {
-        mesh_FaceSlice cubeA = mesh_cube(scratch);
-        mesh_FaceSlice cubeB = mesh_cube(scratch);
-        mesh_facesTransform(cubeB, HMM_Rotate_RH(HMM_AngleDeg(30), HMM_V3(1, 1, 1)));
-        mesh_facesTranslate(cubeB, HMM_V3(1, 1, 1));
-        mesh_FaceSlice faces = csg_facesUnion(&cubeA, &cubeB, &main_baseMeshArena, scratch);
-        tl_timelinePushBaseGeometry(&main_timeline, HMM_V2(-200, 0), faces);
-    }
-
-    snz_arenaClear(scratch);
-
-    {
         mesh_FaceSlice faces = mesh_stlFileToFaces("res/demos/bracket.stl", &main_baseMeshArena, scratch, &main_baseMeshPool);
         tl_timelinePushBaseGeometry(&main_timeline, HMM_V2(0, -200), faces);
 
