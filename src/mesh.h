@@ -543,7 +543,7 @@ mesh_TempGeo* mesh_facesToTempGeo(const mesh_FaceSlice* faces, int64_t opUid, sn
     SNZ_ARENA_ARR_BEGIN(scratch, _mesh_FacePair);
     for (int64_t i = 0; i < faces->count; i++) {
         mesh_Face* faceA = &faces->elems[i];
-        for (int64_t j = i; j < faces->count; j++) {
+        for (int64_t j = i + 1; j < faces->count; j++) {
             mesh_Face* faceB = &faces->elems[j];
             *SNZ_ARENA_PUSH(scratch, _mesh_FacePair) = (_mesh_FacePair){
                 .a = faceA,
