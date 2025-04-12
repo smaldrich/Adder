@@ -289,7 +289,9 @@ static bool _csg_clipTri(const geo_Tri* tri, bool clipWithin, const csg_Node* cu
                 clipped[i] = true;
             }
         } else {
-            anyClipped |= _csg_clipTri(&splitTris[i], clipWithin, nextCutter, arena, scratch);
+            bool innerClipped = _csg_clipTri(&splitTris[i], clipWithin, nextCutter, arena, scratch);
+            anyClipped |= innerClipped;
+            clipped[i] = innerClipped;
         }
     }
 
@@ -376,8 +378,8 @@ static _csg_TempFace* _csg_tempFacesClip(_csg_TempFace* faces, const csg_Node* t
 
 static void _csg_tempFacesInvert(_csg_TempFace* first) {
     for (_csg_TempFace* f = first; f; f = f->next) {
-        for (int64_t j = 0; j < f->face.tris.count; j++) {
-            geo_Tri* tri = &f->face.tris.elems[j];
+        for (int64_t i = 0; i < f->face.tris.count; i++) {
+            geo_Tri* tri = &f->face.tris.elems[i];
             HMM_Vec3 temp = tri->c;
             tri->c = tri->b;
             tri->b = temp;
