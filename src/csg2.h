@@ -139,9 +139,15 @@ bool csg_nodesContainPoint(csg_Node* tree, HMM_Vec3 point) {
 static int _csg_splitTri(const geo_Tri* tri, const csg_Node* cutter, geo_Tri** outResultTris, bool** outInOrOut, snz_Arena* arena) {
     _csg_PlaneRelation rel = _csg_triClassify(*tri, cutter->normal, cutter->origin);
     if (rel == CSG_PR_COPLANAR) {
-        assert(false);  // FIXME: this
-        // FIXME: how do coplanar things factor into this?
-        // FIXME: full coplanar testing
+        HMM_Vec3 normal = geo_triNormal(*tri);
+        float dot = HMM_Dot(normal, cutter->normal);
+
+        *outResultTris = SNZ_ARENA_PUSH(arena, geo_Tri);
+        (*outResultTris)[0] = *tri;
+        *outInOrOut = SNZ_ARENA_PUSH(arena, bool);
+        (*outInOrOut)[0] = (dot > 0) ? false : true;
+        // if pointing same dir as cut, mark outside
+        return 1;
     } else if (rel == CSG_PR_OUTSIDE || rel == CSG_PR_WITHIN) {
         *outResultTris = SNZ_ARENA_PUSH(arena, geo_Tri);
         (*outResultTris)[0] = *tri;

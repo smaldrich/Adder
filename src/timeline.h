@@ -319,6 +319,8 @@ mesh_Scene tl_solveForNode(tl_Timeline* t, tl_Op* targetOp, snz_Arena* scratch) 
             }
 
             mesh_EdgeSlice edges = mesh_tempGeoFindAllAdjacentEdges(targetDep->solve.tempGeo, ogFace, scratch);
+            SNZ_ASSERT(edges.count, "No edges on face.");
+
             int64_t newFaceCount = 2 + edges.count;
             mesh_FaceSlice newFaces = (mesh_FaceSlice){
                 .count = newFaceCount,
@@ -352,8 +354,27 @@ mesh_Scene tl_solveForNode(tl_Timeline* t, tl_Op* targetOp, snz_Arena* scratch) 
                 newFaces.elems[1] = f;
             }
 
-            for (int64_t i = 0; i < edges.count; i++) {
-
+            for (int64_t edgeIdx = 0; edgeIdx < edges.count; edgeIdx++) {
+                mesh_Edge* e = &edges.elems[edgeIdx];
+                mesh_Face* f = &newFaces.elems[2 + edgeIdx];
+                f->id = (mesh_GeoID){
+                    .geoKind = MESH_GK_FACE,
+                    .opUniqueId = op->uniqueId,
+                    .diffGeo1 = mesh_geoIdDuplicate(&e->id, t->generatedArena),
+                };
+                int64_t triCount = (e->points.count - 1) * 2;
+                f->tris = (geo_TriSlice){
+                    .count = triCount,
+                    .elems = SNZ_ARENA_PUSH_ARR(t->generatedArena, triCount, geo_Tri),
+                };
+                for (int64_t ptIdx = 0; ptIdx < edges.count - 1; ptIdx++) {
+                    HMM_Vec3 pt1 = e->points.elems[ptIdx];
+                    HMM_Vec3 pt2 = e->points.elems[ptIdx + 1];
+                    HMM_Vec3 upperPt1 = HMM_Add(pt1, translation);
+                    HMM_Vec3 upperPt2 = HMM_Add(pt2, translation);
+                    f->tris.elems[ptIdx * 2 + 0] = geo_triInit(pt1, upperPt1, upperPt2);
+                    f->tris.elems[ptIdx * 2 + 1] = geo_triInit(upperPt2, pt2, pt1);
+                }
             }
 
             mesh_FaceSlice* faces = SNZ_ARENA_PUSH(t->generatedArena, mesh_FaceSlice);

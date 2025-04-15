@@ -480,7 +480,10 @@ mesh_EdgeSlice mesh_tempGeoFindAllAdjacentEdges(const mesh_TempGeo* tempGeo, con
         const mesh_GeoID* idB = e->id.diffGeo2;
         if (_mesh_geoIdEqual(*idA, face->id) || _mesh_geoIdEqual(*idB, face->id)) {
             mesh_Edge* new = SNZ_ARENA_PUSH(arena, mesh_Edge);
-            new->next = NULL;
+            *new = (mesh_Edge){
+                .id = e->id,
+                .points = e->points
+            };
         }
     }
     return SNZ_ARENA_ARR_END(arena, mesh_Edge);
