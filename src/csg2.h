@@ -145,8 +145,8 @@ static int _csg_splitTri(const geo_Tri* tri, const csg_Node* cutter, geo_Tri** o
         *outResultTris = SNZ_ARENA_PUSH(arena, geo_Tri);
         (*outResultTris)[0] = *tri;
         *outInOrOut = SNZ_ARENA_PUSH(arena, bool);
-        (*outInOrOut)[0] = (dot > 0) ? false : true;
-        // if pointing same dir as cut, mark outside
+        (*outInOrOut)[0] = (dot > 0) ? true : false;
+        // if pointing same dir as cut, mark inside
         return 1;
     } else if (rel == CSG_PR_OUTSIDE || rel == CSG_PR_WITHIN) {
         *outResultTris = SNZ_ARENA_PUSH(arena, geo_Tri);
