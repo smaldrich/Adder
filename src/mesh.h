@@ -489,6 +489,94 @@ mesh_EdgeSlice mesh_tempGeoFindAllAdjacentEdges(const mesh_TempGeo* tempGeo, con
     return SNZ_ARENA_ARR_END(arena, mesh_Edge);
 }
 
+// given a set of edges, this figures out which need to flip so that they all point clockwise around the face
+// useful for any operation that is creating new geometry from edges
+// return elems with a true value indicate they should be reversed to be correct
+boolSlice mesh_edgesGetFlipsToMatchFace(const mesh_Face* f, const mesh_EdgeSlice edges, snz_Arena* arena, snz_Arena* scratch) {
+    SNZ_ASSERT(mesh_faceFlat(f), "Face wasn't flat"); // FIXME: this fn should be able to handle other faces
+    SNZ_ASSERTF(f->tris.count > 0, "Face with %lld tris", f->tris.count);
+    SNZ_ASSERTF(edges.count > 0, "%lld edges", edges.count);
+
+    boolSlice outFlips = (boolSlice){
+        .count = edges.count,
+        .elems = SNZ_ARENA_PUSH_ARR(arena, edges.count, bool),
+    };
+
+    boolSlice culled = (boolSlice){
+        .count = edges.count,
+        .elems = SNZ_ARENA_PUSH_ARR(scratch, edges.count, bool),
+    };
+    while (true) { // FIXME: cutoff
+        const mesh_Edge* firstEdge = NULL;
+        for (int64_t i = 0; i < edges.count; i++) {
+            if (culled.elems[i]) {
+                continue;
+            }
+            firstEdge = &edges.elems[i];
+            culled.elems[i] = true;
+        }
+        if (!firstEdge) {
+            break; // no more edges to process, we can exit
+        }
+        SNZ_ASSERTF(firstEdge->points.count > 0, "Edge with %lld points", firstEdge->points.count);
+
+        HMM_Vec3 projectionU = HMM_V3(0, 0, 0);
+        HMM_Vec3 projectionV = HMM_V3(0, 0, 0);
+        {
+            HMM_Vec3 faceNormal = geo_triNormal(f->tris.elems[0]);
+            projectionU = firstEdge->points.elems[firstEdge->points.count - 1];
+            projectionU = HMM_Norm(HMM_Sub(projectionU, firstEdge->points.elems[0]));
+            projectionV = HMM_Norm(HMM_Cross(projectionU, faceNormal));
+            SNZ_ASSERT(isfinite(projectionV.X), "cross product failed.");
+        }
+
+        // loop until we have gone around the edge loop
+        HMM_Vec3 pos = firstEdge->points.elems[0];
+        SNZ_ARENA_ARR_BEGIN(scratch, int64_t);
+        float area = 0;
+        for (int64_t i = 0; i < edges.count; i++) {
+            if (culled.elems[i]) {
+                continue;
+            }
+            const mesh_Edge* newEdge = &edges.elems[i];
+            HMM_Vec3 firstPoint = newEdge->points.elems[0];
+            HMM_Vec3 lastPoint = newEdge->points.elems[newEdge->points.count - 1];
+
+            bool startMatches = geo_v3Equal(firstPoint, pos);
+            if (!startMatches && !geo_v3Equal(lastPoint, pos)) {
+                continue; // start and end both don't match current edge, it can't be adjacent, move on
+            }
+            culled.elems[i] = true;
+            pos = (startMatches) ? lastPoint : firstPoint;
+            outFlips.elems[i] = !startMatches; // indicate flipping if we matched with the end
+            *SNZ_ARENA_PUSH(scratch, int64_t) = i; // record visited
+
+            // shoelace area formula // FIXME: is this incorrect because we aren't doing all the internal points?
+            HMM_Vec2 projectedFirst = (HMM_Vec2){
+                .X = HMM_Dot(firstPoint, projectionU),
+                .Y = HMM_Dot(firstPoint, projectionV),
+            };
+            HMM_Vec2 projectedLast = (HMM_Vec2){
+                .X = HMM_Dot(lastPoint, projectionU),
+                .Y = HMM_Dot(lastPoint, projectionV),
+            };
+            area += projectedFirst.X * projectedLast.Y - projectedLast.X * projectedFirst.Y;
+        }
+        int64_tSlice visitedEdges = SNZ_ARENA_ARR_END(scratch, int64_t);
+
+        // above zero indicates counterclockwise according to the face plane that we projected on to
+        // FIXME: move to CCW winding order
+        // flipping every edge we collected so that the returned flips make every loop CW relative to the face
+        if (area > 0) {
+            for (int64_t i = 0; i < visitedEdges.count; i++) {
+                int64_t newIdx = visitedEdges.elems[i];
+                outFlips.elems[newIdx] = !outFlips.elems[newIdx];
+            }
+        }
+    } // end loop to seed new edge loops
+    return outFlips;
+}
+
 // uid for correct geoId on the corner
 mesh_Corner* mesh_edgesToCorner(const mesh_Edge* a, const mesh_Edge* b, int64_t opUid, snz_Arena* arena) {
     SNZ_ASSERTF(a->points.count > 0, "edge with only %lld points.", a->points.count);
