@@ -354,6 +354,7 @@ mesh_Scene tl_solveForNode(tl_Timeline* t, tl_Op* targetOp, snz_Arena* scratch) 
                 newFaces.elems[1] = f;
             }
 
+            boolSlice edgeFlips = mesh_edgesGetFlipsToMatchFace(ogFace, edges, scratch, scratch);
             for (int64_t edgeIdx = 0; edgeIdx < edges.count; edgeIdx++) {
                 mesh_Edge* e = &edges.elems[edgeIdx];
                 mesh_Face* f = &newFaces.elems[2 + edgeIdx];
@@ -367,9 +368,10 @@ mesh_Scene tl_solveForNode(tl_Timeline* t, tl_Op* targetOp, snz_Arena* scratch) 
                     .count = triCount,
                     .elems = SNZ_ARENA_PUSH_ARR(t->generatedArena, triCount, geo_Tri),
                 };
-                for (int64_t ptIdx = 0; ptIdx < edges.count - 1; ptIdx++) {
-                    HMM_Vec3 pt1 = e->points.elems[ptIdx];
-                    HMM_Vec3 pt2 = e->points.elems[ptIdx + 1];
+                for (int64_t ptIdx = 0; ptIdx < e->points.count - 1; ptIdx++) {
+                    bool flip = edgeFlips.elems[ptIdx];
+                    HMM_Vec3 pt1 = e->points.elems[ptIdx + !flip];
+                    HMM_Vec3 pt2 = e->points.elems[ptIdx + flip];
                     HMM_Vec3 upperPt1 = HMM_Add(pt1, translation);
                     HMM_Vec3 upperPt2 = HMM_Add(pt2, translation);
                     f->tris.elems[ptIdx * 2 + 0] = geo_triInit(pt1, upperPt1, upperPt2);
