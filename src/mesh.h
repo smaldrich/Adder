@@ -517,18 +517,24 @@ boolSlice mesh_edgesGetFlipsToMatchFace(const mesh_Face* f, const mesh_EdgeSlice
                 continue;
             }
             firstEdge = &edges.elems[i];
+            break;
         }
         if (!firstEdge) {
             break; // no more edges to process, we can exit
         }
         SNZ_ASSERTF(firstEdge->points.count > 0, "Edge with %lld points", firstEdge->points.count);
+        SNZ_LOG("AHH");
+        for (int64_t i = 0; i < firstEdge->points.count; i++) {
+            HMM_Vec3 pt = firstEdge->points.elems[i];
+            SNZ_LOGF("%f, %f, %f", pt.X, pt.Y, pt.Z);
+        }
 
         HMM_Vec3 projectionU = HMM_V3(0, 0, 0);
         HMM_Vec3 projectionV = HMM_V3(0, 0, 0);
         {
             HMM_Vec3 faceNormal = geo_triNormal(f->tris.elems[0]);
             projectionU = firstEdge->points.elems[firstEdge->points.count - 1];
-            projectionU = HMM_Norm(HMM_Sub(projectionU, firstEdge->points.elems[0]));
+            projectionU = HMM_Sub(projectionU, firstEdge->points.elems[0]);
             projectionV = HMM_Norm(HMM_Cross(projectionU, faceNormal));
             SNZ_ASSERT(isfinite(projectionV.X), "cross product failed.");
         }
