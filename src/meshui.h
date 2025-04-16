@@ -121,36 +121,35 @@ void meshu_sceneBuild(const mesh_Scene* scene, HMM_Mat4 vp, HMM_Vec3 cameraPos, 
         faceMeshVerts = SNZ_ARENA_ARR_END(scratch, ren3d_Vert);
 
         // text to indicate index of each face
-        // int i = -1;
-        // for (mesh_Face* f = mesh->firstFace; f; f = f->next) {
-        //     i++;
-        //     geo_Align uiAlign = (geo_Align){
-        //         .pt = HMM_V3(0, 0, 0),
-        //         .normal = HMM_V3(0, 0, 1),
-        //         .vertical = HMM_V3(0, 1, 0),
-        //     };
-        //     geo_Tri t = f->tris.elems[0];
-        //     geo_Align faceAlign = (geo_Align){
-        //         .pt = t.a,
-        //         .normal = geo_triNormal(t),
-        //         .vertical = HMM_Sub(t.b, t.a),
-        //     };
-        //     HMM_Mat4 textVP = geo_alignToM4(uiAlign, faceAlign);
-        //     textVP = HMM_Mul(vp, textVP);
-        //     const char* str = snz_arenaFormatStr(scratch, "face %d", i);
-        //     HMM_Vec4 color = HMM_Lerp(ui_colorText, f->sel.selectionAnim, ui_colorAccent);
-        //     snzr_drawTextScaled(
-        //         HMM_V2(0, 0),
-        //         HMM_V2(-INFINITY, -INFINITY),
-        //         HMM_V2(INFINITY, INFINITY),
-        //         color,
-        //         str,
-        //         strlen(str),
-        //         ui_labelFont,
-        //         textVP,
-        //         0.1,
-        //         false);
-        // }
+        for (int64_t i = 0; i < scene->faces.count; i++) {
+            geo_Align uiAlign = (geo_Align){
+                .pt = HMM_V3(0, 0, 0),
+                .normal = HMM_V3(0, 0, 1),
+                .vertical = HMM_V3(0, 1, 0),
+            };
+            const mesh_SceneGeo* f = &scene->faces.elems[i];
+            geo_Tri t = f->faceTris.elems[0];
+            geo_Align faceAlign = (geo_Align){
+                .pt = t.a,
+                .normal = geo_triNormal(t),
+                .vertical = HMM_Sub(t.b, t.a),
+            };
+            HMM_Mat4 textVP = geo_alignToM4(uiAlign, faceAlign);
+            textVP = HMM_Mul(vp, textVP);
+            const char* str = snz_arenaFormatStr(scratch, "face %d", i);
+            HMM_Vec4 color = HMM_Lerp(ui_colorText, f->sel.selectionAnim, ui_colorAccent);
+            snzr_drawTextScaled(
+                HMM_V2(0, 0),
+                HMM_V2(-INFINITY, -INFINITY),
+                HMM_V2(INFINITY, INFINITY),
+                color,
+                str,
+                strlen(str),
+                ui_labelFont,
+                textVP,
+                0.1,
+                false);
+        }
     }
 
     { // render

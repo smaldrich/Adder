@@ -111,6 +111,9 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
 
         faces = mesh_stlFileToFaces("testing/difference.stl", &main_baseMeshArena, scratch, &main_baseMeshPool);
         tl_timelinePushBaseGeometry(&main_timeline, HMM_V2(-300, -200), faces);
+
+        faces = mesh_cube(&main_baseMeshArena);
+        tl_timelinePushBaseGeometry(&main_timeline, HMM_V2(0, 0), faces);
     }
 }
 

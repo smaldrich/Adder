@@ -470,6 +470,10 @@ mesh_Edge mesh_facesToEdge(const mesh_Face* faceA, const mesh_Face* faceB, int64
         },
         .points = _mesh_orderedPointsFromLineSet(clipped, scratch, arena),
     };
+
+    if (geo_v3Equal(out.points.elems[0], out.points.elems[out.points.count - 1])) {
+        SNZ_LOG("edge w same start as end point");
+    }
     return out;
 }
 
@@ -513,7 +517,6 @@ boolSlice mesh_edgesGetFlipsToMatchFace(const mesh_Face* f, const mesh_EdgeSlice
                 continue;
             }
             firstEdge = &edges.elems[i];
-            culled.elems[i] = true;
         }
         if (!firstEdge) {
             break; // no more edges to process, we can exit
@@ -574,6 +577,12 @@ boolSlice mesh_edgesGetFlipsToMatchFace(const mesh_Face* f, const mesh_EdgeSlice
             }
         }
     } // end loop to seed new edge loops
+
+    SNZ_LOG("NEW EDGE FLIPPERS");
+    for (int64_t i = 0; i < outFlips.count; i++) {
+        SNZ_LOGF("idx: %lld,\tflipped: %d", i, outFlips.elems[i]);
+    }
+
     return outFlips;
 }
 
