@@ -523,10 +523,10 @@ boolSlice mesh_edgesGetFlipsToMatchFace(const mesh_Face* f, const mesh_EdgeSlice
             break; // no more edges to process, we can exit
         }
         SNZ_ASSERTF(firstEdge->points.count > 0, "Edge with %lld points", firstEdge->points.count);
-        SNZ_LOG("AHH");
+        SNZ_LOG("EDGE SEEDED");
         for (int64_t i = 0; i < firstEdge->points.count; i++) {
             HMM_Vec3 pt = firstEdge->points.elems[i];
-            SNZ_LOGF("%f, %f, %f", pt.X, pt.Y, pt.Z);
+            SNZ_LOGF("\t%f, %f, %f", pt.X, pt.Y, pt.Z);
         }
 
         HMM_Vec3 projectionU = HMM_V3(0, 0, 0);
@@ -534,49 +534,60 @@ boolSlice mesh_edgesGetFlipsToMatchFace(const mesh_Face* f, const mesh_EdgeSlice
         {
             HMM_Vec3 faceNormal = geo_triNormal(f->tris.elems[0]);
             projectionU = firstEdge->points.elems[firstEdge->points.count - 1];
-            projectionU = HMM_Sub(projectionU, firstEdge->points.elems[0]);
-            projectionV = HMM_Norm(HMM_Cross(projectionU, faceNormal));
+            projectionU = HMM_Norm(HMM_Sub(projectionU, firstEdge->points.elems[0]));
+            projectionV = HMM_Norm(HMM_Cross(faceNormal, projectionU));
             SNZ_ASSERT(isfinite(projectionV.X), "cross product failed.");
+
+            SNZ_LOGF("projU: %f, %f, %f", projectionU.X, projectionU.Y, projectionU.Z);
+            SNZ_LOGF("projV: %f, %f, %f", projectionV.X, projectionV.Y, projectionV.Z);
         }
 
         // loop until we have gone around the edge loop
         HMM_Vec3 pos = firstEdge->points.elems[0];
         SNZ_ARENA_ARR_BEGIN(scratch, int64_t);
         float area = 0;
-        for (int64_t i = 0; i < edges.count; i++) {
-            if (culled.elems[i]) {
-                continue;
-            }
-            const mesh_Edge* newEdge = &edges.elems[i];
-            HMM_Vec3 firstPoint = newEdge->points.elems[0];
-            HMM_Vec3 lastPoint = newEdge->points.elems[newEdge->points.count - 1];
+        while (true) { // FIXME: cutoff
+            bool anyFound = false;
+            for (int64_t i = 0; i < edges.count; i++) {
+                if (culled.elems[i]) {
+                    continue;
+                }
+                const mesh_Edge* newEdge = &edges.elems[i];
+                HMM_Vec3 firstPoint = newEdge->points.elems[0];
+                HMM_Vec3 lastPoint = newEdge->points.elems[newEdge->points.count - 1];
 
-            bool startMatches = geo_v3Equal(firstPoint, pos);
-            if (!startMatches && !geo_v3Equal(lastPoint, pos)) {
-                continue; // start and end both don't match current edge, it can't be adjacent, move on
-            }
-            culled.elems[i] = true;
-            pos = (startMatches) ? lastPoint : firstPoint;
-            outFlips.elems[i] = !startMatches; // indicate flipping if we matched with the end
-            *SNZ_ARENA_PUSH(scratch, int64_t) = i; // record visited
+                bool startMatches = geo_v3Equal(firstPoint, pos);
+                if (!startMatches && !geo_v3Equal(lastPoint, pos)) {
+                    continue; // start and end both don't match current edge, it can't be adjacent, move on
+                }
+                culled.elems[i] = true;
+                anyFound = true;
+                pos = (startMatches) ? lastPoint : firstPoint;
+                outFlips.elems[i] = !startMatches; // indicate flipping if we matched with the end
+                *SNZ_ARENA_PUSH(scratch, int64_t) = i; // record visited
+                SNZ_LOGF("Moving to: %f, %f, %f", pos.X, pos.Y, pos.Z);
 
-            // shoelace area formula // FIXME: is this incorrect because we aren't doing all the internal points?
-            HMM_Vec2 projectedFirst = (HMM_Vec2){
-                .X = HMM_Dot(firstPoint, projectionU),
-                .Y = HMM_Dot(firstPoint, projectionV),
-            };
-            HMM_Vec2 projectedLast = (HMM_Vec2){
-                .X = HMM_Dot(lastPoint, projectionU),
-                .Y = HMM_Dot(lastPoint, projectionV),
-            };
-            area += projectedFirst.X * projectedLast.Y - projectedLast.X * projectedFirst.Y;
+                // shoelace area formula // FIXME: is this incorrect because we aren't doing all the internal points?
+                HMM_Vec2 projectedFirst = (HMM_Vec2){
+                    .X = HMM_Dot(firstPoint, projectionU),
+                    .Y = HMM_Dot(firstPoint, projectionV),
+                };
+                HMM_Vec2 projectedLast = (HMM_Vec2){
+                    .X = HMM_Dot(lastPoint, projectionU),
+                    .Y = HMM_Dot(lastPoint, projectionV),
+                };
+                area += projectedFirst.X * projectedLast.Y - projectedLast.X * projectedFirst.Y;
+            }
+            if (!anyFound) {
+                break;
+            }
         }
         int64_tSlice visitedEdges = SNZ_ARENA_ARR_END(scratch, int64_t);
-
         // above zero indicates counterclockwise according to the face plane that we projected on to
-        // FIXME: move to CCW winding order
-        // flipping every edge we collected so that the returned flips make every loop CW relative to the face
-        if (area > 0) {
+        // flipping every edge we collected so that the returned flips make every loop CCW relative to the face
+        SNZ_LOGF("Area was: %f", area);
+        if (area < 0) {
+            SNZ_LOGF("Inverting flips", area);
             for (int64_t i = 0; i < visitedEdges.count; i++) {
                 int64_t newIdx = visitedEdges.elems[i];
                 outFlips.elems[newIdx] = !outFlips.elems[newIdx];
