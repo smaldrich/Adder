@@ -374,8 +374,8 @@ mesh_Scene tl_solveForNode(tl_Timeline* t, tl_Op* targetOp, snz_Arena* scratch) 
                     HMM_Vec3 pt2 = e->points.elems[ptIdx + flip];
                     HMM_Vec3 upperPt1 = HMM_Add(pt1, translation);
                     HMM_Vec3 upperPt2 = HMM_Add(pt2, translation);
-                    f->tris.elems[ptIdx * 2 + 0] = geo_triInit(pt1, pt2, upperPt2);
-                    f->tris.elems[ptIdx * 2 + 1] = geo_triInit(upperPt2, upperPt1, pt1);
+                    f->tris.elems[ptIdx * 2 + 0] = geo_triInit(pt1, upperPt2, pt2);
+                    f->tris.elems[ptIdx * 2 + 1] = geo_triInit(pt1, upperPt1, upperPt2);
                 }
             }
 
