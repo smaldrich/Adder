@@ -369,7 +369,7 @@ mesh_Scene tl_solveForNode(tl_Timeline* t, tl_Op* targetOp, snz_Arena* scratch) 
                     .elems = SNZ_ARENA_PUSH_ARR(t->generatedArena, triCount, geo_Tri),
                 };
                 for (int64_t ptIdx = 0; ptIdx < e->points.count - 1; ptIdx++) {
-                    bool flip = edgeFlips.elems[ptIdx];
+                    bool flip = edgeFlips.elems[edgeIdx];
                     HMM_Vec3 pt1 = e->points.elems[ptIdx + !flip];
                     HMM_Vec3 pt2 = e->points.elems[ptIdx + flip];
                     HMM_Vec3 upperPt1 = HMM_Add(pt1, translation);
