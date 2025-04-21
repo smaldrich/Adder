@@ -97,12 +97,13 @@ void ui_init(snz_Arena* fontArena, snz_Arena* scratch) {
     ui_lightLabelFont = snzr_fontInit(fontArena, scratch, "res/fonts/AzeretMono-ExtraLightItalic.ttf", 26);
 }
 
-void ui_debugLabelF(const char* boxTag, snz_Arena* scratch, const char* fmt, ...) {
+void ui_debugLabel(const char* name, snz_Arena* scratch, const char* fmt, ...) {
     va_list args;
     va_start(args, fmt);
-    snzu_boxNew(boxTag);
+    snzu_boxNew(name);
     const char* formatted = snz_arenaFormatStrV(scratch, fmt, args);
-    snzu_boxSetDisplayStr(&ui_paragraphFont, ui_colorText, formatted);
+    const char* formattedAndName = snz_arenaFormatStr(scratch, "%s: %s", name, formatted);
+    snzu_boxSetDisplayStr(&ui_labelFont, ui_colorText, formattedAndName);
     snzu_boxSetSizeFitText(ui_padding);
     va_end(args);
 }

@@ -44,7 +44,7 @@ set_Settings set_settingsDefault() {
         .squishyCamera = true,
         .crosshair = true,
 
-        .debugMode = false,
+        .debugMode = true,
     };
     return out;
 }
