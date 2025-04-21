@@ -413,6 +413,10 @@ void main_frame(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screen
                         snzu_boxFillParent();
                         snzu_boxSetDisplayStr(&ui_titleFont, ui_colorText, "Nothing Active. Check out the timeline.");
                         // FIXME: link text to go there
+                    } else if (main_settings.debugMode) {
+                        snzu_boxNew("op uid");
+                        snzu_boxSetSizeFitText(ui_padding);
+                        snzu_boxSetDisplayStr
                     }
                 }
             } else if (main_currentView == SC_VIEW_SETTINGS) {

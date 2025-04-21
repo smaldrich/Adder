@@ -97,6 +97,16 @@ void ui_init(snz_Arena* fontArena, snz_Arena* scratch) {
     ui_lightLabelFont = snzr_fontInit(fontArena, scratch, "res/fonts/AzeretMono-ExtraLightItalic.ttf", 26);
 }
 
+void ui_debugLabelF(const char* boxTag, snz_Arena* scratch, const char* fmt, ...) {
+    va_list args;
+    va_start(args, fmt);
+    snzu_boxNew(boxTag);
+    const char* formatted = snz_arenaFormatStrV(scratch, fmt, args);
+    snzu_boxSetDisplayStr(&ui_paragraphFont, ui_colorText, formatted);
+    snzu_boxSetSizeFitText(ui_padding);
+    va_end(args);
+}
+
 // returns true on the frame it is clicked
 bool ui_buttonWithHighlight(bool selected, const char* name) {
     bool out = false;

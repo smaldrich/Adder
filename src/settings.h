@@ -5,6 +5,7 @@
 #include "ser.h"
 
 typedef struct {
+    // serialized
     bool darkMode;
     bool musicMode;
     bool skybox;
@@ -13,6 +14,9 @@ typedef struct {
     bool timelinePreviewSpinBackground;
     bool squishyCamera;
     bool crosshair;
+
+    // non serialized
+    bool debugMode;
 } set_Settings;
 // NOTE: this is not meant to be a global anywhere, pass specific settings as flags down from wherever this
 // is being persisted betw frames.
@@ -39,6 +43,8 @@ set_Settings set_settingsDefault() {
         .timelinePreviewSpinBackground = true,
         .squishyCamera = true,
         .crosshair = true,
+
+        .debugMode = false,
     };
     return out;
 }
@@ -63,6 +69,7 @@ void set_build(set_Settings* settings) {
             "spin the background in timeline preview",
             "squishy camera",
             "crosshair",
+            "debug mode"
         };
 
         snzu_boxNew("holder");
@@ -103,6 +110,7 @@ void set_build(set_Settings* settings) {
                 ui_switch("timeline preview", &settings->timelinePreviewSpinBackground);
                 ui_switch("squishy camera", &settings->squishyCamera);
                 ui_switch("crosshair", &settings->crosshair);
+                ui_switch("debug mode", &settings->debugMode);
             }
             snzu_boxOrderChildrenInRowRecurse(10, SNZU_AX_Y, SNZU_ALIGN_LEFT);
         }
