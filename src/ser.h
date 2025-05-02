@@ -38,6 +38,7 @@ typedef enum {
     SER_TK_STRUCT,
     SER_TK_PTR,
     SER_TK_SLICE,
+    SER_TK_CSTRING,
 
     SER_TK_INT8,
     SER_TK_INT16,
@@ -59,6 +60,7 @@ const char* ser_tKindStrs[] = {
     "SER_TK_STRUCT",
     "SER_TK_PTR",
     "SER_TK_SLICE",
+    "SER_TK_CSTRING",
 
     "SER_TK_INT8",
     "SER_TK_INT16",
@@ -522,6 +524,14 @@ ser_WriteError _serw_writeField(_serw_WriteInst* write, _ser_SpecField* field, v
             }
         }
         return SER_WE_OK;
+    } else if (kind == SER_TK_CSTRING) {
+        _ser_SpecStruct* s = field->type->referencedStruct;
+        const char* string = (char*)obj + field->offsetInStruct;
+
+        uint64_t length = strlen(string);
+        _SERW_WRITE_BYTES_OR_RETURN(write, &length, sizeof(length), true);
+        _SERW_WRITE_BYTES_OR_RETURN(write, string, length, false);
+        return SER_WE_OK;
     }
 
 
@@ -720,6 +730,11 @@ ser_ReadError _serr_readField(_serr_ReadInst* read, _ser_SpecField* field, void*
                 return err;
             }
         }
+        return SER_RE_OK;
+    } else if (kind == SER_TK_CSTRING) {
+        uint64_t length = 0;
+        _SERR_READ_BYTES_OR_RETURN(read, &length, sizeof(uint64_t), true);
+        _SERR_READ_BYTES_OR_RETURN(read, outPos, length, false);
         return SER_RE_OK;
     }
 
