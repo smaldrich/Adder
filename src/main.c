@@ -82,13 +82,10 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
 
         FILE* f = fopen(MAIN_SETTINGS_PATH, "r");
         if (f) {
-            set_Settings* settings = NULL;
+            set_Settings* settings = &main_settings;
             ser_ReadError err = ser_read(f, set_Settings, scratch, scratch, (void**)&settings);
-            if (err == SER_RE_OK) {
-                main_settings = *settings; // FIXME: this is bad, why can't ser directly work on the og obj
-            }
-
-            if (err != SER_RE_OK) {
+            if (!err == SER_RE_OK) {
+                main_settings = (set_Settings){ 0 };
                 SNZ_LOGF("Loading settings file failed. Code: %d.", err);
             }
         }
@@ -408,11 +405,36 @@ void main_frame(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screen
                 // default scene screen if nothing active in timline.
                 // out here so that it is using the correct UI instance.
                 if (main_currentView == SC_VIEW_SCENE) {
-                    if (!main_timeline.activeOp) {
+                    tl_Op* activeOp = main_timeline.activeOp;
+                    if (!activeOp) {
                         snzu_boxNew("nothing in scene");
                         snzu_boxFillParent();
                         snzu_boxSetDisplayStr(&ui_titleFont, ui_colorText, "Nothing Active. Check out the timeline.");
                         // FIXME: link text to go there
+                    } else if (main_settings.debugMode) {
+                        snzu_boxNew("debug menu");
+                        snzu_boxFillParent();
+                        snzu_boxScope() {
+                            ui_debugLabel("op uid", scratch, "%lld", activeOp->uniqueId);
+                            ui_debugLabel("faces", scratch, "%lld", main_timelineScene.faces.count);
+                            ui_debugLabel("edges", scratch, "%lld", main_timelineScene.edges.count);
+                            ui_debugLabel("corners", scratch, "%lld", main_timelineScene.corners.count);
+
+                            int64_t triCount = 0;
+                            int64_t selectedTriCount = 0;
+                            for (int64_t i = 0; i < main_timelineScene.faces.count; i++) {
+                                mesh_SceneGeo* f = &main_timelineScene.faces.elems[i];
+                                triCount += f->faceTris.count;
+                                if (f->sel.selected) {
+                                    selectedTriCount += f->faceTris.count;
+                                }
+                            }
+                            ui_debugLabel("tri count", scratch, "%lld", triCount);
+                            ui_debugLabel("tris on face(s)", scratch, "%lld", selectedTriCount);
+
+                            ui_debugLabel("frame time", scratch, "%.4f", dt);
+                        }
+                        snzu_boxOrderChildrenInRowRecurse(0, SNZU_AX_Y, SNZU_ALIGN_LEFT);
                     }
                 }
             } else if (main_currentView == SC_VIEW_SETTINGS) {
