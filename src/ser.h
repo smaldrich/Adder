@@ -740,7 +740,7 @@ ser_ReadError _serr_readField(_serr_ReadInst* read, _ser_SpecField* field, void*
         _SERR_READ_BYTES_OR_RETURN(read, &length, sizeof(uint64_t), true);
         char* chars = NULL;
         if (length) {
-            chars = SNZ_ARENA_PUSH_ARR(read->outArena, length, char);
+            chars = SNZ_ARENA_PUSH_ARR(read->outArena, length + 1, char);
             _SERR_READ_BYTES_OR_RETURN(read, chars, length, false);
         }
 
