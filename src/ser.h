@@ -38,6 +38,7 @@ typedef enum {
     SER_TK_STRUCT,
     SER_TK_PTR,
     SER_TK_SLICE,
+    SER_TK_CSTRING,
 
     SER_TK_INT8,
     SER_TK_INT16,
@@ -59,6 +60,7 @@ const char* ser_tKindStrs[] = {
     "SER_TK_STRUCT",
     "SER_TK_PTR",
     "SER_TK_SLICE",
+    "SER_TK_CSTRING",
 
     "SER_TK_INT8",
     "SER_TK_INT16",
@@ -522,6 +524,18 @@ ser_WriteError _serw_writeField(_serw_WriteInst* write, _ser_SpecField* field, v
             }
         }
         return SER_WE_OK;
+    } else if (kind == SER_TK_CSTRING) {
+        const char* string = *(char**)((char*)obj + field->offsetInStruct);
+
+        if (string == NULL) {
+            uint64_t zero = 0;
+            _SERW_WRITE_BYTES_OR_RETURN(write, &zero, sizeof(uint64_t), false);
+        } else {
+            uint64_t length = strlen(string);
+            _SERW_WRITE_BYTES_OR_RETURN(write, &length, sizeof(length), true);
+            _SERW_WRITE_BYTES_OR_RETURN(write, string, length, false);
+        }
+        return SER_WE_OK;
     }
 
 
@@ -721,6 +735,19 @@ ser_ReadError _serr_readField(_serr_ReadInst* read, _ser_SpecField* field, void*
             }
         }
         return SER_RE_OK;
+    } else if (kind == SER_TK_CSTRING) {
+        uint64_t length = 0;
+        _SERR_READ_BYTES_OR_RETURN(read, &length, sizeof(uint64_t), true);
+        char* chars = NULL;
+        if (length) {
+            chars = SNZ_ARENA_PUSH_ARR(read->outArena, length, char);
+            _SERR_READ_BYTES_OR_RETURN(read, chars, length, false);
+        }
+
+        if (outPos) {
+            *(char**)(outPos) = chars;
+        }
+        return SER_RE_OK;
     }
 
     SNZ_ASSERT(kind > SER_TK_INVALID && kind < SER_TK_COUNT, "invalid kind?? after validation tho??");
@@ -906,6 +933,12 @@ ser_ReadError _ser_read(FILE* file, const char* typename, snz_Arena* outArena, s
 #include "timeline.h"
 #include "geometry.h"
 
+typedef struct {
+    const char* strA;
+    const char* strB;
+    const char* strC;
+} _ser_TestSomeString;
+
 void ser_tests() {
     snz_testPrintSection("ser 3");
     snz_Arena testArena = snz_arenaInit(10000000, "test arena");
@@ -935,53 +968,90 @@ void ser_tests() {
     // ser_addStructField(tl_Op, ser_tPtr(tl_Op), dependencies[0]);
     // ser_addStructField(tl_Op, ser_tStruct(HMM_Vec2), ui.pos);
 
+    ser_addStruct(_ser_TestSomeString, false);
+    ser_addStructField(_ser_TestSomeString, ser_tBase(SER_TK_CSTRING), strA);
+    ser_addStructField(_ser_TestSomeString, ser_tBase(SER_TK_CSTRING), strB);
+    ser_addStructField(_ser_TestSomeString, ser_tBase(SER_TK_CSTRING), strC);
+
     ser_end();
 
-    FILE* f = fopen("testing/ser3.adder", "wb");
-    geo_Tri tris[] = {
-        (geo_Tri) {
-            .a = HMM_V3(0, 1, 2),
-            .b = HMM_V3(3, 4, 5),
-            .c = HMM_V3(6, 7, 8),
-        },
-        (geo_Tri) {
-            .a = HMM_V3(0, 10, 20),
-            .b = HMM_V3(30, 40, 50),
-            .c = HMM_V3(60, 70, 80),
-        },
-    };
-    geo_TriSlice slice = (geo_TriSlice){
-        .elems = tris,
-        .count = sizeof(tris) / sizeof(*tris),
-    };
-    SNZ_ASSERT(ser_write(f, geo_TriSlice, &slice, &testArena) == SER_WE_OK, "write failure");
+    {
+        FILE* f = fopen("testing/ser3.adder", "wb");
+        geo_Tri tris[] = {
+            (geo_Tri) {
+                .a = HMM_V3(0, 1, 2),
+                .b = HMM_V3(3, 4, 5),
+                .c = HMM_V3(6, 7, 8),
+            },
+            (geo_Tri) {
+                .a = HMM_V3(0, 10, 20),
+                .b = HMM_V3(30, 40, 50),
+                .c = HMM_V3(60, 70, 80),
+            },
+        };
+        geo_TriSlice slice = (geo_TriSlice){
+            .elems = tris,
+            .count = sizeof(tris) / sizeof(*tris),
+        };
+        SNZ_ASSERT(ser_write(f, geo_TriSlice, &slice, &testArena) == SER_WE_OK, "write failure");
 
-    // tl_Op ops[] = {
-    //     (tl_Op) {
-    //         .kind = TL_OPK_BASE_GEOMETRY,
-    //         .ui.pos = HMM_V2(10, 10),
-    //     },
-    //     (tl_Op) {
-    //         .kind = TL_OPK_BASE_GEOMETRY,
-    //         .ui.pos = HMM_V2(1, 1),
-    //     },
-    //     (tl_Op) {
-    //         .kind = TL_OPK_SKETCH,
-    //         .ui.pos = HMM_V2(2, 2),
-    //     },
-    // };
-    // ops[0].next = &ops[1];
-    // ops[1].next = &ops[2];
-    // ops[1].dependencies[0] = &ops[2];
+        // tl_Op ops[] = {
+        //     (tl_Op) {
+        //         .kind = TL_OPK_BASE_GEOMETRY,
+        //         .ui.pos = HMM_V2(10, 10),
+        //     },
+        //     (tl_Op) {
+        //         .kind = TL_OPK_BASE_GEOMETRY,
+        //         .ui.pos = HMM_V2(1, 1),
+        //     },
+        //     (tl_Op) {
+        //         .kind = TL_OPK_SKETCH,
+        //         .ui.pos = HMM_V2(2, 2),
+        //     },
+        // };
+        // ops[0].next = &ops[1];
+        // ops[1].next = &ops[2];
+        // ops[1].dependencies[0] = &ops[2];
 
-    // ser_write(f, tl_Op, &ops[0], &testArena);
-    fclose(f);
+        // ser_write(f, tl_Op, &ops[0], &testArena);
+        fclose(f);
 
-    f = fopen("testing/ser3.adder", "rb");
-    geo_TriSlice* obj = NULL;
-    ser_ReadError err = ser_read(f, geo_TriSlice, &testArena, &testArena, (void**)&obj);
-    SNZ_ASSERTF(err == SER_RE_OK, "Read failed, code: %d.", err);
-    fclose(f);
+        f = fopen("testing/ser3.adder", "rb");
+        geo_TriSlice* obj = NULL;
+        ser_ReadError err = ser_read(f, geo_TriSlice, &testArena, &testArena, (void**)&obj);
+        SNZ_ASSERTF(err == SER_RE_OK, "Read failed, code: %d.", err);
+        fclose(f);
+    }
+
+    {
+        FILE* f = fopen("testing/serStrTest.adder", "wb");
+        _ser_TestSomeString strs = (_ser_TestSomeString){
+            .strA = "THIS IS THE FIRST ONE!!",
+            .strB = "THIS IS THE SECOND ONE!!",
+            .strC = "LAST ONE HERE!!!!",
+        };
+        ser_WriteError writeErr = ser_write(f, _ser_TestSomeString, &strs, &testArena);
+        SNZ_ASSERTF(writeErr == SER_WE_OK, "Write failed, code: %d.", writeErr);
+        fclose(f);
+
+        _ser_TestSomeString* outStrs = NULL;
+        f = fopen("testing/serStrTest.adder", "rb");
+        ser_ReadError err = ser_read(f, _ser_TestSomeString, &testArena, &testArena, (void**)&outStrs);
+        SNZ_ASSERTF(err == SER_RE_OK, "Read failed, code: %d.", err);
+        fclose(f);
+
+        SNZ_ASSERTF(strcmp(strs.strA, outStrs->strA) == 0,
+            "String A differed before and after write to file.\nBefore: %s,\nAfter: %s",
+            strs.strA, outStrs->strA);
+        SNZ_ASSERTF(strcmp(strs.strB, outStrs->strB) == 0,
+            "String B differed before and after write to file.\nBefore: %s,\nAfter: %s",
+            strs.strB, outStrs->strB);
+        SNZ_ASSERTF(strcmp(strs.strC, outStrs->strC) == 0,
+            "String B differed before and after write to file.\nBefore: %s,\nAfter: %s",
+            strs.strC, outStrs->strC);
+
+        snz_testPrint(true, "strings to and from file");
+    }
 
     snz_arenaDeinit(&testArena);
 
