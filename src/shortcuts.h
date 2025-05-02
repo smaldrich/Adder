@@ -17,6 +17,12 @@ typedef enum {
     SC_VIEW_ALL = SC_VIEW_SCENE | SC_VIEW_DOCS | SC_VIEW_SETTINGS | SC_VIEW_SHORTCUTS | SC_VIEW_TIMELINE,
 } sc_View;
 
+typedef enum {
+    SC_FLAGS_REQUIRE_SCENE,
+    SC_FLAGS_REQUIRE_SKETCH,
+    SC_FLAGS_REQUIRE_TIMELINE,
+} _sc_Flags;
+
 typedef struct {
     SDL_KeyCode key;
     SDL_Keymod mods;
@@ -31,6 +37,7 @@ typedef struct {
     mesh_Scene* scene;
 
     sc_View* currentView;  // read/write
+    mesh_GeoKind* outGeoFilter; // read/write
     tl_Op** argBarFocusOverride; // read/write
 } _sc_CommandFuncArgs;
 
@@ -41,8 +48,7 @@ typedef struct {
     sc_CommandFunc func;
     const char* nameLabel;
     const char* keyLabel;
-    int64_t availibleViews;
-    bool requiresActiveSketch;
+    _sc_Flags flags;
 } _sc_Command;
 
 _sc_Command* _sc_commands = NULL;
@@ -57,7 +63,7 @@ sc_CommandFunc sc_getActiveCommand() {
     return NULL;
 }
 
-static _sc_Command* _sc_commandInit(const char* displayName, const char* keyName, SDL_KeyCode code, SDL_Keymod mod, int64_t availibleViewMask, bool requiresActiveSketch, sc_CommandFunc func) {
+static _sc_Command* _sc_commandInit(const char* displayName, const char* keyName, SDL_KeyCode code, SDL_Keymod mod, _sc_Flags flags, sc_CommandFunc func) {
     _sc_Command* c = poolAllocPushArray(_sc_commandPool, _sc_commands, _sc_commandCount, _sc_Command);
     *c = (_sc_Command){
         .nameLabel = displayName,
@@ -515,6 +521,10 @@ void sc_init(PoolAlloc* pool) {
     _sc_commandInit("new geomety", "I", SDLK_i, KMOD_NONE, SC_VIEW_TIMELINE | SC_VIEW_SCENE, false, scc_timelineAddGeometry);
     _sc_commandInit("new sketch", "S", SDLK_s, KMOD_NONE, SC_VIEW_TIMELINE | SC_VIEW_SCENE, false, scc_timelineAddSketch);
     _sc_commandInit("extrude", "E", SDLK_e, KMOD_NONE, SC_VIEW_TIMELINE | SC_VIEW_SCENE, false, scc_timelineAddExtrude);
+
+    _sc_commandInit("Filter for corners", "1", SDLK_1, KMOD_NONE, SC_VIEW_SCENE, false);
+    _sc_commandInit("Filter for edges", "2", SDLK_2, KMOD_NONE, SC_VIEW_SCENE, false);
+    _sc_commandInit("Filter for faces", "3", SDLK_3, KMOD_NONE, SC_VIEW_SCENE false);
 
     // FIXME: forbid sketch flag
     _sc_commandInit("take", "T", SDLK_t, KMOD_NONE, SC_VIEW_SCENE, false, scc_sceneTake);
