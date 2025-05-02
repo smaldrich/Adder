@@ -18,6 +18,7 @@
 #include "geometry.h"
 #include "ser.h"
 #include "csg2.h"
+#include "prof.h"
 
 snz_Arena main_appLifetimeArena;
 snz_Arena main_fontArena;

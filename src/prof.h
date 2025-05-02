@@ -5,7 +5,9 @@ typedef struct {
     uint64_t startTick;
     uint64_t endTick;
     uint64_t parentIdx;
-    const char* line;
+
+    const char* file;
+    uint64_t line;
 } prof_Sample;
 
 SNZ_SLICE(prof_Sample);
@@ -22,33 +24,40 @@ void prof_registerSerSpecs() {
 struct {
     snz_Arena* arena;
     prof_Sample* activeSample;
+    prof_Sample* firstSample;
 } _prof_globs;
 
-void _prof_callStart(const char* line) {
+void _prof_callStart(const char* file, uint64_t line) {
     prof_Sample* sample = SNZ_ARENA_PUSH(_prof_globs.arena, prof_Sample);
     *sample = (prof_Sample){
         .startTick = SDL_GetPerformanceCounter(),
+        .parentIdx = (uint64_t)(_prof_globs.activeSample - _prof_globs.firstSample),
+        .file = file,
         .line = line,
-        .parentIdx = ,
     };
     _prof_globs.activeSample = sample;
 }
 
 void _prof_callEnd() {
-    _prof_globs.activeSample = _prof_globs.activeSample->parent;
     _prof_globs.activeSample->endTick = SDL_GetPerformanceCounter();
+    prof_Sample* parent = &_prof_globs.firstSample[_prof_globs.activeSample->parentIdx];
+    _prof_globs.activeSample = parent;
 }
 
-#define PROF_CALL(fn) \
+#define PROF_CALL(line) \
     do { \
-        _prof_callStart(#fn); \
-        fn; \
+        _prof_callStart(__FILE__, __LINE__); \
+        line; \
         _prof_callEnd(); \
-    } while (0)
+    } while(0)
+
+// put before a block to profile it - changes block into a for loop, which does the defered call to callEnd
+#define PROF_BLOCK() for(int _i_ = (_prof_callStart(__FILE__, __LINE__), 0); !_i_; (_prof_callEnd(), _i_++))
 
 void prof_start(snz_Arena* arena) {
     _prof_globs.arena = arena;
     SNZ_ARENA_ARR_BEGIN(arena, prof_Sample);
+    _prof_globs.firstSample = arena->start;
 }
 
 prof_SampleSlice prof_end() {
