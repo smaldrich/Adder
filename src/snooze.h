@@ -1585,17 +1585,21 @@ HMM_Vec2 snzu_boxGetEnd() {
     return _snzu_instance->selectedBox->end;
 }
 
-static void _snzu_boxMoveKeepSizeRecurse(_snzu_Box* box, HMM_Vec2 diff) {
+void snzu_boxMoveKeepSizeRecursePtr(_snzu_Box* box, HMM_Vec2 diff) {
     box->start = HMM_AddV2(box->start, diff);
     box->end = HMM_AddV2(box->end, diff);
     for (_snzu_Box* child = box->firstChild; child; child = child->nextSibling) {
-        _snzu_boxMoveKeepSizeRecurse(child, diff);
+        snzu_boxMoveKeepSizeRecursePtr(child, diff);
     }
+}
+
+void snzu_boxMoveKeepSizeRecurse(HMM_Vec2 diff) {
+    snzu_boxMoveKeepSizeRecursePtr(_snzu_instance->selectedBox, diff);
 }
 
 void snzu_boxSetStartKeepSizeRecursePtr(_snzu_Box* box, HMM_Vec2 newStart) {
     HMM_Vec2 diff = HMM_SubV2(newStart, box->start);
-    _snzu_boxMoveKeepSizeRecurse(box, diff);
+    snzu_boxMoveKeepSizeRecursePtr(box, diff);
 }
 
 // TODO: are there bad perf implications for this??
@@ -1684,7 +1688,7 @@ void snzu_boxAlignInParent(snzu_Axis ax, snzu_Align align) {
     }
     HMM_Vec2 change = HMM_Sub(newStart, initialPos);
     change.Elements[!ax] = 0;
-    _snzu_boxMoveKeepSizeRecurse(_snzu_instance->selectedBox, change);
+    snzu_boxMoveKeepSizeRecursePtr(_snzu_instance->selectedBox, change);
 }
 
 // stacks this box after it's previous sibling (if none, the parents origin), used to make rows of things easy

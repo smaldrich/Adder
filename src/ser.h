@@ -762,7 +762,7 @@ ser_ReadError _serr_readField(_serr_ReadInst* read, _ser_SpecField* field, void*
 #define ser_read(f, T, arena, scratch, outObj) _ser_read(f, #T, arena, scratch, outObj)
 ser_ReadError _ser_read(FILE* file, const char* typename, snz_Arena* outArena, snz_Arena* scratch, void** outObj) {
     _ser_assertInstanceValidated();
-    SNZ_ASSERT(outObj, "Expected a location to put result object.");
+    SNZ_ASSERT(outObj, "Expected a non-null out object");
 
     _serr_ReadInst read = (_serr_ReadInst){
         .file = file,

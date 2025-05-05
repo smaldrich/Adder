@@ -84,11 +84,21 @@ void set_build(set_Settings* settings) {
             snzu_boxScope() {
                 for (uint64_t i = 0; i < (sizeof(labels) / sizeof(*labels)); i++) {
                     snzu_boxNewF("%d", i);
-                    snzu_boxSetDisplayStr(&ui_labelFont, ui_colorText, labels[i]);
-                    snzu_boxSetSizeFitText(ui_padding);
+                    snzu_boxFillParent();
+                    float heightWithPadding = ui_labelFont.renderedSize + 4 * ui_padding;
+                    snzu_boxSetSizeFromStartAx(SNZU_AX_Y, heightWithPadding);
+                    if (i % 2 == 1) {
+                        snzu_boxSetColor(ui_colorAlmostBackground);
+                    }
+                    snzu_boxScope() {
+                        snzu_boxNewF("text", i);
+                        snzu_boxSetSizeMarginFromParent(2 * ui_padding);
+                        snzu_boxSetDisplayStr(&ui_labelFont, ui_colorText, labels[i]);
+                        snzu_boxSetSizeFitText(ui_padding);
+                    }
                 }
             }
-            snzu_boxOrderChildrenInRowRecurse(10, SNZU_AX_Y, SNZU_ALIGN_LEFT);
+            snzu_boxOrderChildrenInRowRecurse(0, SNZU_AX_Y, SNZU_ALIGN_LEFT);
             float size = snzu_boxGetSizeToFitChildrenAx(SNZU_AX_Y);
             snzu_boxSetSizeFromStartAx(SNZU_AX_Y, size);
         }
@@ -97,6 +107,7 @@ void set_build(set_Settings* settings) {
             snzu_boxNew("right side");
             snzu_boxFillParent();
             snzu_boxSizeFromEndPctParent(0.25, SNZU_AX_X);
+            snzu_boxMoveKeepSizeRecurse(HMM_V2(0, ui_padding));
             snzu_boxScope() {
                 const char* strs[] = {
                     "Light",
@@ -117,7 +128,7 @@ void set_build(set_Settings* settings) {
                 ui_switch("geometryFilter", &settings->geometryFilter);
                 ui_switch("debug mode", &settings->debugMode);
             }
-            snzu_boxOrderChildrenInRowRecurse(10, SNZU_AX_Y, SNZU_ALIGN_LEFT);
+            snzu_boxOrderChildrenInRowRecurse(2 * ui_padding, SNZU_AX_Y, SNZU_ALIGN_LEFT);
         }
     }
     // FIXME: UI variable for gap here (?)

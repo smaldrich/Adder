@@ -68,7 +68,7 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
     main_uiInstance = snzu_instanceInit();
     snzu_instanceSelect(&main_uiInstance);
     main_sceneUIInstance = snzu_instanceInit();
-    main_settings = set_settingsDefault();
+    main_settings = set_settingsDefault(); // loaded from disk below
 
     sound_init();
     ui_init(&main_fontArena, scratch); // tex loads happen here
@@ -83,12 +83,13 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
 
         FILE* f = fopen(MAIN_SETTINGS_PATH, "r");
         if (f) {
-            set_Settings* settings = &main_settings;
-            ser_ReadError err = ser_read(f, set_Settings, scratch, scratch, (void**)&settings);
+            set_Settings* loaded = NULL;
+            ser_ReadError err = ser_read(f, set_Settings, scratch, scratch, (void**)&loaded);
             if (!err == SER_RE_OK) {
-                main_settings = (set_Settings){ 0 };
+                main_settings = set_settingsDefault();
                 SNZ_LOGF("Loading settings file failed. Code: %d.", err);
             }
+            main_settings = *loaded;
         }
         fclose(f);
     }
