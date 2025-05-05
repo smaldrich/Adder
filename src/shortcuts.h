@@ -18,9 +18,10 @@ typedef enum {
 } sc_View;
 
 typedef enum {
-    SC_FLAGS_REQUIRE_SCENE,
-    SC_FLAGS_REQUIRE_SKETCH,
-    SC_FLAGS_REQUIRE_TIMELINE,
+    SC_FLAGS_NONE,
+    SC_FLAGS_REQUIRE_SCENE = (1 << 0),
+    SC_FLAGS_REQUIRE_SKETCH = (1 << 1),
+    SC_FLAGS_REQUIRE_TIMELINE = (1 << 2),
 } _sc_Flags;
 
 typedef struct {
@@ -73,8 +74,7 @@ static _sc_Command* _sc_commandInit(const char* displayName, const char* keyName
             .key = code,
             .mods = mod,
         },
-        .availibleViews = availibleViewMask,
-        .requiresActiveSketch = requiresActiveSketch,
+        .flags = flags,
     };
     return c;
 }
@@ -500,41 +500,59 @@ bool scc_sceneTake(_sc_CommandFuncArgs args) {
     return true;
 }
 
+bool scc_sceneSetFilterForCorners(_sc_CommandFuncArgs args) {
+    *args.outGeoFilter = MESH_GK_CORNER;
+    return true;
+}
+
+bool scc_sceneSetFilterForEdges(_sc_CommandFuncArgs args) {
+    *args.outGeoFilter = MESH_GK_EDGE;
+    return true;
+}
+
+bool scc_sceneSetFilterForFaces(_sc_CommandFuncArgs args) {
+    *args.outGeoFilter = MESH_GK_FACE;
+    return true;
+}
+
 void sc_init(PoolAlloc* pool) {
     _sc_commandPool = pool;
 
-    _sc_commandInit("look at", "V", SDLK_v, KMOD_NONE, SC_VIEW_SCENE, false, scc_sceneLookAt);
-    _sc_commandInit("rotate camera left", "Q", SDLK_q, KMOD_LSHIFT, SC_VIEW_SCENE, false, scc_sceneRotateCameraLeft);
-    _sc_commandInit("rotate camera right", "E", SDLK_e, KMOD_LSHIFT, SC_VIEW_SCENE, false, scc_sceneRotateCameraRight);
+    _sc_commandInit("look at", "V", SDLK_v, KMOD_NONE, SC_FLAGS_REQUIRE_SCENE, scc_sceneLookAt);
+    _sc_commandInit("rotate camera left", "Q", SDLK_q, KMOD_LSHIFT, SC_FLAGS_REQUIRE_SCENE, scc_sceneRotateCameraLeft);
+    _sc_commandInit("rotate camera right", "E", SDLK_e, KMOD_LSHIFT, SC_FLAGS_REQUIRE_SCENE, scc_sceneRotateCameraRight);
 
-    _sc_commandInit("delete", "X", SDLK_x, KMOD_NONE, SC_VIEW_SCENE, true, _scc_sketchDelete);
-    _sc_commandInit("line", "B", SDLK_b, KMOD_NONE, SC_VIEW_SCENE, true, scc_sketchLineMode);
-    _sc_commandInit("move", "G", SDLK_g, KMOD_NONE, SC_VIEW_SCENE, true, scc_sketchMove);
-    _sc_commandInit("rotate", "R", SDLK_r, KMOD_NONE, SC_VIEW_SCENE, true, scc_sketchRotate);
-    _sc_commandInit("distance", "D", SDLK_d, KMOD_NONE, SC_VIEW_SCENE, true, _scc_sketchAddDistanceConstraint);
-    _sc_commandInit("angle", "A", SDLK_a, KMOD_NONE, SC_VIEW_SCENE, true, _scc_sketchAddAngleConstraint);
+    _sc_commandInit("delete", "X", SDLK_x, KMOD_NONE, SC_FLAGS_REQUIRE_SKETCH, _scc_sketchDelete);
+    _sc_commandInit("line", "B", SDLK_b, KMOD_NONE, SC_FLAGS_REQUIRE_SKETCH, scc_sketchLineMode);
+    _sc_commandInit("move", "G", SDLK_g, KMOD_NONE, SC_FLAGS_REQUIRE_SKETCH, scc_sketchMove);
+    _sc_commandInit("rotate", "R", SDLK_r, KMOD_NONE, SC_FLAGS_REQUIRE_SKETCH, scc_sketchRotate);
+    _sc_commandInit("distance", "D", SDLK_d, KMOD_NONE, SC_FLAGS_REQUIRE_SKETCH, _scc_sketchAddDistanceConstraint);
+    _sc_commandInit("angle", "A", SDLK_a, KMOD_NONE, SC_FLAGS_REQUIRE_SKETCH, _scc_sketchAddAngleConstraint);
 
-    _sc_commandInit("delete", "X", SDLK_x, KMOD_NONE, SC_VIEW_TIMELINE, false, scc_timelineDelete);
-    _sc_commandInit("move", "G", SDLK_g, KMOD_NONE, SC_VIEW_TIMELINE, false, scc_timelineMove);
-    _sc_commandInit("rotate", "R", SDLK_r, KMOD_NONE, SC_VIEW_TIMELINE, false, scc_timelineRotate);
+    _sc_commandInit("delete", "X", SDLK_x, KMOD_NONE, SC_FLAGS_REQUIRE_TIMELINE, scc_timelineDelete);
+    _sc_commandInit("move", "G", SDLK_g, KMOD_NONE, SC_FLAGS_REQUIRE_TIMELINE, scc_timelineMove);
+    _sc_commandInit("rotate", "R", SDLK_r, KMOD_NONE, SC_FLAGS_REQUIRE_TIMELINE, scc_timelineRotate);
+
+    _sc_Flags tlSketchOrScene = SC_FLAGS_REQUIRE_TIMELINE | SC_FLAGS_REQUIRE_SKETCH | SC_FLAGS_REQUIRE_SCENE;
     // FIXME: rename this and add file dialogue and add stl parsing
-    _sc_commandInit("new geomety", "I", SDLK_i, KMOD_NONE, SC_VIEW_TIMELINE | SC_VIEW_SCENE, false, scc_timelineAddGeometry);
-    _sc_commandInit("new sketch", "S", SDLK_s, KMOD_NONE, SC_VIEW_TIMELINE | SC_VIEW_SCENE, false, scc_timelineAddSketch);
-    _sc_commandInit("extrude", "E", SDLK_e, KMOD_NONE, SC_VIEW_TIMELINE | SC_VIEW_SCENE, false, scc_timelineAddExtrude);
+    _sc_commandInit("new geomety", "I", SDLK_i, KMOD_NONE, tlSketchOrScene, scc_timelineAddGeometry);
+    _sc_commandInit("new sketch", "S", SDLK_s, KMOD_NONE, tlSketchOrScene, scc_timelineAddSketch);
+    _sc_commandInit("extrude", "E", SDLK_e, KMOD_NONE, tlSketchOrScene, scc_timelineAddExtrude);
 
-    _sc_commandInit("Filter for corners", "1", SDLK_1, KMOD_NONE, SC_VIEW_SCENE, false);
-    _sc_commandInit("Filter for edges", "2", SDLK_2, KMOD_NONE, SC_VIEW_SCENE, false);
-    _sc_commandInit("Filter for faces", "3", SDLK_3, KMOD_NONE, SC_VIEW_SCENE false);
+    // FIXME: these shouldn't be availible if geo filter is turned off
+    // but they should give a warning/err msg to let the user know that the filter is disabled
+    _sc_commandInit("Filter for corners", "1", SDLK_1, KMOD_NONE, SC_FLAGS_REQUIRE_SCENE, scc_sceneSetFilterForCorners);
+    _sc_commandInit("Filter for edges", "2", SDLK_2, KMOD_NONE, SC_FLAGS_REQUIRE_SCENE, scc_sceneSetFilterForEdges);
+    _sc_commandInit("Filter for faces", "3", SDLK_3, KMOD_NONE, SC_FLAGS_REQUIRE_SCENE, scc_sceneSetFilterForFaces);
 
-    // FIXME: forbid sketch flag
-    _sc_commandInit("take", "T", SDLK_t, KMOD_NONE, SC_VIEW_SCENE, false, scc_sceneTake);
-    _sc_commandInit("mark active", "W", SDLK_w, KMOD_NONE, SC_VIEW_TIMELINE, false, scc_timelineMarkActive);
+    _sc_commandInit("take", "T", SDLK_t, KMOD_NONE, SC_FLAGS_REQUIRE_SCENE, scc_sceneTake);
+    _sc_commandInit("mark active", "W", SDLK_w, KMOD_NONE, SC_FLAGS_REQUIRE_TIMELINE, scc_timelineMarkActive);
 
-    _sc_commandInit("goto main scene", "W", SDLK_w, KMOD_LSHIFT, SC_VIEW_ALL, false, _scc_goToMainScene);
-    _sc_commandInit("goto timeline", "T", SDLK_t, KMOD_LSHIFT, SC_VIEW_ALL, false, _scc_goToTimeline);
-    _sc_commandInit("goto settings", "S", SDLK_s, KMOD_LSHIFT, SC_VIEW_ALL, false, _scc_goToSettings);
-    _sc_commandInit("goto docs", "D", SDLK_d, KMOD_LSHIFT, SC_VIEW_ALL, false, _scc_goToDocs);
-    _sc_commandInit("goto shortcuts", "C", SDLK_c, KMOD_LSHIFT, SC_VIEW_ALL, false, _scc_goToShortcuts);
+    _sc_commandInit("goto main scene", "W", SDLK_w, KMOD_LSHIFT, SC_FLAGS_NONE, _scc_goToMainScene);
+    _sc_commandInit("goto timeline", "T", SDLK_t, KMOD_LSHIFT, SC_FLAGS_NONE, _scc_goToTimeline);
+    _sc_commandInit("goto settings", "S", SDLK_s, KMOD_LSHIFT, SC_FLAGS_NONE, _scc_goToSettings);
+    _sc_commandInit("goto docs", "D", SDLK_d, KMOD_LSHIFT, SC_FLAGS_NONE, _scc_goToDocs);
+    _sc_commandInit("goto shortcuts", "C", SDLK_c, KMOD_LSHIFT, SC_FLAGS_NONE, _scc_goToShortcuts);
 }
 
 // immediately sets the active cmd to null, so make sure you don't trample shit
@@ -574,15 +592,37 @@ static void _sc_buildCommandShortcutBox(_sc_Command* cmd, HMM_Vec4 textColor) {
 }
 
 bool _sc_commandShouldBeAvailible(_sc_Command* cmd, sc_View view, bool activeSketch) {
-    bool out = cmd->availibleViews & view;
-    if (cmd->requiresActiveSketch && !activeSketch) {
-        out = false;
+    _sc_Flags flags = cmd->flags;
+    if (flags == SC_FLAGS_NONE) {
+        return true;
     }
-    return out;
+
+    if (view == SC_VIEW_SCENE) {
+        if (activeSketch) {
+            if (flags & SC_FLAGS_REQUIRE_SKETCH) {
+                return true;
+            }
+        } else {
+            if (flags & SC_FLAGS_REQUIRE_SCENE) {
+                return true;
+            }
+        }
+    } else if (view == SC_VIEW_TIMELINE) {
+        return (flags & SC_FLAGS_REQUIRE_TIMELINE) != 0;
+    }
+    return false;
 }
 
 // literally every arg here gets modified by sc functions
-void sc_updateAndBuildHintWindow(sk_Sketch* activeSketch, tl_Timeline* timeline, sc_View* outCurrentView, mesh_Scene* scene, tl_Op** argBarFocusOverride, snz_Arena* scratch, bool targetOpen) {
+void sc_updateAndBuildHintWindow(
+    sk_Sketch* activeSketch,
+    tl_Timeline* timeline,
+    sc_View* outCurrentView,
+    mesh_GeoKind* outGeoFilter,
+    mesh_Scene* scene,
+    tl_Op** argBarFocusOverride,
+    snz_Arena* scratch,
+    bool targetOpen) {
     snzu_boxNew("updatesParent");
     snzu_boxFillParent();
 
@@ -591,6 +631,7 @@ void sc_updateAndBuildHintWindow(sk_Sketch* activeSketch, tl_Timeline* timeline,
         .activeSketch = activeSketch,
         .timeline = timeline,
         .currentView = outCurrentView,
+        .outGeoFilter = outGeoFilter,
         .firstFrame = false,
         .argBarFocusOverride = argBarFocusOverride,
         .scene = scene,

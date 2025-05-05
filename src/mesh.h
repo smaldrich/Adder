@@ -12,9 +12,9 @@
 
 typedef enum {
     MESH_GK_DOES_NOT_EXIST,
-    MESH_GK_CORNER,
-    MESH_GK_EDGE,
-    MESH_GK_FACE,
+    MESH_GK_CORNER = (1 << 0),
+    MESH_GK_EDGE = (1 << 1),
+    MESH_GK_FACE = (1 << 2),
 } mesh_GeoKind;
 
 /*

@@ -14,6 +14,7 @@ typedef struct {
     bool timelinePreviewSpinBackground;
     bool squishyCamera;
     bool crosshair;
+    bool geometryFilter;
 
     // non serialized
     bool debugMode;
@@ -31,6 +32,7 @@ void set_settingsSpec() {
     ser_addStructField(set_Settings, ser_tBase(SER_TK_UINT8), timelinePreviewSpinBackground);
     ser_addStructField(set_Settings, ser_tBase(SER_TK_UINT8), squishyCamera);
     ser_addStructField(set_Settings, ser_tBase(SER_TK_UINT8), crosshair);
+    ser_addStructField(set_Settings, ser_tBase(SER_TK_UINT8), geometryFilter);
 }
 
 set_Settings set_settingsDefault() {
@@ -43,6 +45,7 @@ set_Settings set_settingsDefault() {
         .timelinePreviewSpinBackground = true,
         .squishyCamera = true,
         .crosshair = true,
+        .geometryFilter = true,
 
         .debugMode = true,
     };
@@ -69,6 +72,7 @@ void set_build(set_Settings* settings) {
             "spin the background in timeline preview",
             "squishy camera",
             "crosshair",
+            "geometry filter",
             "debug mode"
         };
 
@@ -110,6 +114,7 @@ void set_build(set_Settings* settings) {
                 ui_switch("timeline preview", &settings->timelinePreviewSpinBackground);
                 ui_switch("squishy camera", &settings->squishyCamera);
                 ui_switch("crosshair", &settings->crosshair);
+                ui_switch("geometryFilter", &settings->geometryFilter);
                 ui_switch("debug mode", &settings->debugMode);
             }
             snzu_boxOrderChildrenInRowRecurse(10, SNZU_AX_Y, SNZU_ALIGN_LEFT);

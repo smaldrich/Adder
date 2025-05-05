@@ -18,7 +18,8 @@ static ui_SelectionStatus* _meshu_sceneGenSelStatuses(const mesh_Scene* scene, m
     return firstStatus;
 }
 
-void meshu_sceneBuild(const mesh_Scene* scene, HMM_Mat4 vp, HMM_Vec3 cameraPos, HMM_Vec3 mouseDir, const snzu_Interaction* inter, HMM_Vec2 panelSize, snz_Arena* scratch) {
+// filter may be more than one geo kind ored together
+void meshu_sceneBuild(mesh_GeoKind filter, const mesh_Scene* scene, HMM_Mat4 vp, HMM_Vec3 cameraPos, HMM_Vec3 mouseDir, const snzu_Interaction* inter, HMM_Vec2 panelSize, snz_Arena* scratch) {
     SNZ_ASSERT(cameraPos.X || !cameraPos.X, "AHH");
     SNZ_ASSERT(mouseDir.X || !mouseDir.X, "AHH");
 
@@ -35,7 +36,10 @@ void meshu_sceneBuild(const mesh_Scene* scene, HMM_Mat4 vp, HMM_Vec3 cameraPos, 
                     float distSquared = HMM_LenSqr(HMM_Sub(pos, cameraPos));
                     if (distSquared < minDistSquared) {
                         minDistSquared = distSquared;
-                        hoveredGeo = f;
+                        // only register the actual geometry if the filter allows
+                        if (filter & MESH_GK_FACE) {
+                            hoveredGeo = f;
+                        }
                         break;
                     }
                 }
@@ -47,40 +51,44 @@ void meshu_sceneBuild(const mesh_Scene* scene, HMM_Mat4 vp, HMM_Vec3 cameraPos, 
             clipDist = sqrtf(clipDist);
         }
 
-        for (int64_t edgeIdx = 0; edgeIdx < scene->edges.count; edgeIdx++) {
-            mesh_SceneGeo* e = &scene->edges.elems[edgeIdx];
-            for (int64_t pointIdx = 0; pointIdx < e->edgePoints.count - 1; pointIdx++) {
-                geo_Line l = (geo_Line){
-                    .a = e->edgePoints.elems[pointIdx],
-                    .b = e->edgePoints.elems[pointIdx + 1],
-                };
-                float distFromRay = 0;
-                HMM_Vec3 pos = geo_rayClosestPointOnSegment(cameraPos, HMM_Add(cameraPos, mouseDir), l.a, l.b, &distFromRay);
-                float distFromCamera = HMM_Len(HMM_Sub(pos, cameraPos));
+        if (filter & MESH_GK_EDGE) {
+            for (int64_t edgeIdx = 0; edgeIdx < scene->edges.count; edgeIdx++) {
+                mesh_SceneGeo* e = &scene->edges.elems[edgeIdx];
+                for (int64_t pointIdx = 0; pointIdx < e->edgePoints.count - 1; pointIdx++) {
+                    geo_Line l = (geo_Line){
+                        .a = e->edgePoints.elems[pointIdx],
+                        .b = e->edgePoints.elems[pointIdx + 1],
+                    };
+                    float distFromRay = 0;
+                    HMM_Vec3 pos = geo_rayClosestPointOnSegment(cameraPos, HMM_Add(cameraPos, mouseDir), l.a, l.b, &distFromRay);
+                    float distFromCamera = HMM_Len(HMM_Sub(pos, cameraPos));
 
-                float size = 0.01 * distFromCamera;
-                if (distFromRay > size) {
+                    float size = 0.01 * distFromCamera;
+                    if (distFromRay > size) {
+                        continue;
+                    } else if (distFromCamera > clipDist + size) {
+                        continue;
+                    }
+                    clipDist = distFromCamera;
+                    hoveredGeo = e;
+                }
+            }
+        }
+
+        if (filter & MESH_GK_CORNER) {
+            for (int64_t i = 0; i < scene->corners.count; i++) {
+                mesh_SceneGeo* c = &scene->corners.elems[i];
+                float dist = geo_rayPointDistance(cameraPos, mouseDir, c->cornerPos);
+                float distFromCamera = HMM_Len(HMM_Sub(c->cornerPos, cameraPos));
+                float size = 0.002 * distFromCamera;
+                if (dist > size) {
                     continue;
                 } else if (distFromCamera > clipDist + size) {
                     continue;
                 }
-                clipDist = distFromCamera;
-                hoveredGeo = e;
+                clipDist = dist;
+                hoveredGeo = c;
             }
-        }
-
-        for (int64_t i = 0; i < scene->corners.count; i++) {
-            mesh_SceneGeo* c = &scene->corners.elems[i];
-            float dist = geo_rayPointDistance(cameraPos, mouseDir, c->cornerPos);
-            float distFromCamera = HMM_Len(HMM_Sub(c->cornerPos, cameraPos));
-            float size = 0.002 * distFromCamera;
-            if (dist > size) {
-                continue;
-            } else if (distFromCamera > clipDist + size) {
-                continue;
-            }
-            clipDist = dist;
-            hoveredGeo = c;
         }
     } // end hover checks
 

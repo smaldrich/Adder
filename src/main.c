@@ -18,7 +18,6 @@
 #include "geometry.h"
 #include "ser.h"
 #include "csg2.h"
-#include "prof.h"
 
 snz_Arena main_appLifetimeArena;
 snz_Arena main_fontArena;
@@ -37,6 +36,7 @@ snzu_Instance main_sceneUIInstance;
 snzr_FrameBuffer main_sceneFB;
 
 sc_View main_currentView = SC_VIEW_TIMELINE;
+mesh_GeoKind main_currentGeoFilter = MESH_GK_FACE;
 tl_Op* main_argBarFocusOverride = NULL;
 set_Settings main_settings;
 
@@ -371,7 +371,11 @@ void main_frame(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screen
                             sku_drawAndBuildSketch(opSketch, alignOfSketch, vp, cameraPos, soundVal, HMM_V2(w, h), scratch);
                             sku_endFrameForUIInstance(inputs, alignOfSketch, vp, cameraPos, mouseDir);
                         } else {
-                            meshu_sceneBuild(&main_timelineScene, vp, cameraPos, mouseDir, inter, HMM_V2(w, h), scratch);
+                            mesh_GeoKind filter = main_currentGeoFilter;
+                            if (main_settings.geometryFilter == false) {
+                                filter = MESH_GK_CORNER | MESH_GK_EDGE | MESH_GK_FACE;
+                            }
+                            meshu_sceneBuild(filter, &main_timelineScene, vp, cameraPos, mouseDir, inter, HMM_V2(w, h), scratch);
                             snzu_frameDrawAndGenInteractions(inputs, HMM_M4D(1.0f));
                         }
 
@@ -528,7 +532,15 @@ void main_frame(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screen
                 activeSketch = &main_timeline.activeOp->val.sketch;
             }
         }
-        sc_updateAndBuildHintWindow(activeSketch, &main_timeline, &main_currentView, &main_timelineScene, &main_argBarFocusOverride, scratch, openHintWindow);
+        sc_updateAndBuildHintWindow(
+            activeSketch,
+            &main_timeline,
+            &main_currentView,
+            &main_currentGeoFilter,
+            &main_timelineScene,
+            &main_argBarFocusOverride,
+            scratch,
+            openHintWindow);
 
         snzu_boxNew("capsIndicator");
         snzu_boxFillParent();
