@@ -34,6 +34,7 @@ typedef enum {
     SER_TK_INVALID,
 
     SER_TK_STRUCT,
+    SER_TK_ENUM,
     SER_TK_PTR,
     SER_TK_SLICE,
     SER_TK_CSTRING,
@@ -56,6 +57,7 @@ typedef enum {
 const char* ser_tKindStrs[] = {
     "SER_TK_INVALID",
     "SER_TK_STRUCT",
+    "SER_TK_ENUM",
     "SER_TK_PTR",
     "SER_TK_SLICE",
     "SER_TK_CSTRING",
@@ -68,10 +70,12 @@ const char* ser_tKindStrs[] = {
     "SER_TK_UINT16",
     "SER_TK_UINT32",
     "SER_TK_UINT64",
+
     "SER_TK_FLOAT32",
     "SER_TK_FLOAT64",
 };
 
+// used only for things that can get straight copied to file during serialization
 int64_t _ser_tKindSizes[] = {
     [SER_TK_INT8] = sizeof(int8_t),
     [SER_TK_INT16] = sizeof(int16_t),
@@ -94,9 +98,12 @@ struct _ser_T {
     ser_TKind kind;
     _ser_T* inner; // FIXME: this isn't actually reqd, please remove :)
 
-    const char* referencedName;
-    int64_t referencedIndex;
-    _ser_SpecStruct* referencedStruct;
+    const char* referencedName; // loaded to global spec at construction time, used to find pointers
+    int64_t referencedIndex; // loaded to temp spec from file, again used to find ptrs
+    union {
+        _ser_SpecStruct* referencedStruct;
+        _ser_SpecStruct* referencedEnum;
+    };
     int offsetOfSliceLengthIntoStruct;
 };
 
@@ -125,10 +132,12 @@ typedef struct _ser_SpecEnum _ser_SpecEnum;
 struct _ser_SpecEnum {
     _ser_SpecEnum* next;
     const char* tag;
+    int64_t indexIntoSpec;
 
-    const char* names;
-    int64_t* values;
+    const char** names;
+    const int32_t* values;
     int64_t count;
+    // size within struct assumed to be sizeof(int32_t), asserted on creation
 };
 
 typedef struct {
@@ -156,7 +165,6 @@ static void _ser_pushActiveStructSpecIfAny() {
 }
 
 static void _ser_assertInstanceValidForAddingToSpec() {
-    SNZ_ASSERT(!_ser_globs.validated, "ser_begin hasn't been called yet.");
     SNZ_ASSERT(!_ser_globs.validated, "ser_end already called.");
 }
 
@@ -164,12 +172,15 @@ static void _ser_assertInstanceValidated() {
     SNZ_ASSERT(_ser_globs.validated, "ser_end hasn't been called yet.");
 }
 
+// FIXME: this function is a catch-all for things that need an initializer fn with
+// no data beyond type/kind
 _ser_T* ser_tBase(ser_TKind kind) {
     _ser_assertInstanceValidForAddingToSpec();
-    SNZ_ASSERT(kind != SER_TK_INVALID, "Kind of 0 (SER_TK_INVALID) isn't a base kind.");
-    SNZ_ASSERT(kind != SER_TK_STRUCT, "Kind of 1 (SER_TK_STRUCT) isn't a base kind.");
-    SNZ_ASSERT(kind != SER_TK_PTR, "Kind of 2 (SER_TK_PTR) isn't a base kind.");
-    SNZ_ASSERT(kind != SER_TK_SLICE, "Kind of 3 (SER_TK_SLICE) isn't a base kind.");
+    SNZ_ASSERT(kind != SER_TK_INVALID, "Kind of SER_TK_INVALID isn't a base kind.");
+    SNZ_ASSERT(kind != SER_TK_STRUCT, "Kind of SER_TK_STRUCT isn't a base kind.");
+    SNZ_ASSERT(kind != SER_TK_ENUM, "Kind of SER_TK_ENUM isn't a base kind.");
+    SNZ_ASSERT(kind != SER_TK_PTR, "Kind of SER_TK_PTR isn't a base kind.");
+    SNZ_ASSERT(kind != SER_TK_SLICE, "Kind of SER_TK_SLICE isn't a base kind.");
     _ser_T* out = SNZ_ARENA_PUSH(_ser_globs.specArena, _ser_T);
     out->kind = kind;
     return out;
@@ -180,6 +191,15 @@ _ser_T* _ser_tStruct(const char* name) {
     _ser_assertInstanceValidForAddingToSpec();
     _ser_T* out = SNZ_ARENA_PUSH(_ser_globs.specArena, _ser_T);
     out->kind = SER_TK_STRUCT;
+    out->referencedName = name;
+    return out;
+}
+
+#define ser_tEnum(T) _ser_tEnum(#T)
+_ser_T* _ser_tEnum(const char* name) {
+    _ser_assertInstanceValidForAddingToSpec();
+    _ser_T* out = SNZ_ARENA_PUSH(_ser_globs.specArena, _ser_T);
+    out->kind = SER_TK_ENUM;
     out->referencedName = name;
     return out;
 }
@@ -247,6 +267,24 @@ void _ser_addStructFieldSlice(
     _ser_addStructField(activeStructName, type, tag, ptrOffsetIntoStruct);
 }
 
+// names and values should not change over time as they are retained and not copied
+// ideally keep em hardcoded / macro gend
+#define ser_addEnum(name, valueCount, names, values) _ser_addEnum(#name, sizeof(name), valueCount, names, values)
+void _ser_addEnum(const char* tag, int64_t sizeOfEnum, int64_t valueCount, const char** names, const int32_t* values) {
+    _ser_assertInstanceValidForAddingToSpec();
+    SNZ_ASSERTF(sizeOfEnum == sizeof(int32_t), "Enum '%s' wasn't 32bits (was %lld). Ser isn't build to handle that.", tag, sizeOfEnum);
+    _ser_SpecEnum* spec = SNZ_ARENA_PUSH(_ser_globs.specArena, _ser_SpecEnum);
+    _ser_globs.spec.enumSpecCount++;
+    *spec = (_ser_SpecEnum){
+        .tag = tag,
+        .count = valueCount,
+        .values = values,
+        .names = names,
+        .next = _ser_globs.spec.firstEnumSpec,
+    };
+    _ser_globs.spec.firstEnumSpec = spec;
+}
+
 void ser_begin(snz_Arena* specArena) {
     SNZ_ASSERT(!_ser_globs.validated, "Global spec was already validated.");
     SNZ_ASSERT(!_ser_globs.spec.firstStructSpec, "Global spec was already started");
@@ -273,15 +311,27 @@ _ser_SpecField* _ser_getFieldSpecByName(_ser_SpecStruct* struc, const char* name
     return NULL;
 }
 
+_ser_SpecStruct* _ser_specGetEnumSpecByName(_ser_Spec* spec, const char* name) {
+    for (_ser_SpecEnum* e = spec->firstEnumSpec; e; e = e->next) {
+        if (strcmp(e->tag, name) == 0) {
+            return e;
+        }
+    }
+    return NULL;
+}
+
 // return indicates failure.
-bool _ser_validate(_ser_Spec* spec) {
+// used on both the global spec, as well as specs loaded from file
+// does a complete check, assuming the spec is malformed to hell and back (but that list structures and any ptrs are valid)
+// also does patching of referenced structs (_ser_T.referencedStruct/Enum) based on name or index
+// FIXME: this shouldn't be asserting failure, it should be returning it
+bool _ser_specValidate(_ser_Spec* spec) {
     // FIXME: could double check that offsets are within the size of a given struct
     int i = 0;
-    // FIXME: duplicates check for structs and fields
     for (_ser_SpecStruct* s = spec->firstStructSpec; s; s = s->next) {
         for (_ser_SpecStruct* other = s->next; other; other = other->next) {
             if (strcmp(other->tag, s->tag) == 0) {
-                return false;
+                SNZ_ASSERTF(false, "Two structs with the same name, '%s'.", s->tag);
             }
         }
         // FIXME: good error reporting here, trace of type, line no., etc.
@@ -289,14 +339,19 @@ bool _ser_validate(_ser_Spec* spec) {
         for (_ser_SpecField* f = s->firstField; f; f = f->next) {
             SNZ_ASSERT(f->tag && strlen(f->tag), "struct field with no tag.");
             SNZ_ASSERT(f->type, "can't have a field with no type.");
+            for (_ser_SpecField* other = f->next; other; other = other->next) {
+                if (strcmp(other->tag, f->tag) == 0) {
+                    SNZ_ASSERTF(false, "Two fields in struct '%s' with the same name, '%s'.", s->tag, f->tag);
+                }
+            }
 
             for (_ser_T* inner = f->type; inner; inner = inner->inner) {
                 SNZ_ASSERTF(inner->kind > SER_TK_INVALID && inner->kind < SER_TK_COUNT, "invalid kind: %d.", inner->kind);
                 if (inner->kind == SER_TK_STRUCT) {
                     // lookup by name if that exists, otherwise by index
                     if (inner->referencedName && strlen(inner->referencedName)) {
-                        inner->referencedStruct = _ser_getStructSpecByName(inner->referencedName);
-                        SNZ_ASSERTF(inner->referencedStruct, "no definition with the name '%s' found.", inner->referencedName);
+                        inner->referencedStruct = _ser_specGetStructSpecByName(spec, inner->referencedName);
+                        SNZ_ASSERTF(inner->referencedStruct, "no struct definition with the name '%s' found.", inner->referencedName);
                     } else {
                         // FIXME: O(N) here is shitty
                         inner->referencedStruct = spec->firstStructSpec;
@@ -306,9 +361,22 @@ bool _ser_validate(_ser_Spec* spec) {
                         }
                     }
 
-                    if (inner == f->type) {
+                    if (inner == f->type) { // check that topmost inner doesn't cause a cyclic struct
                         SNZ_ASSERT(inner->referencedStruct != s, "can't nest structs. make the field a ptr or ptr view.");
                     }
+                } else if (inner->kind == SER_TK_ENUM) {
+                    if (inner->referencedName && strlen(inner->referencedName)) {
+                        inner->referencedEnum = _ser_specGetEnumSpecByName(spec, inner->referencedName);
+                        SNZ_ASSERTF(inner->referencedEnum, "no enum definition with the name '%s' found.", inner->referencedName);
+                    } else {
+                        // FIXME: O(N) here is shitty
+                        inner->referencedEnum = spec->firstEnumSpec;
+                        for (int i = 0; i < inner->referencedIndex; i++) {
+                            inner->referencedEnum = inner->referencedEnum->next;
+                            // FIXME: just segfaults on an OOBs err here, fix that
+                        }
+                    }
+                    SNZ_ASSERTF(!inner->inner, "Enum '%s' has an inner kind", inner->referencedName);
                 } else if (inner->kind == SER_TK_PTR) {
                     SNZ_ASSERT(inner->inner, "ptr with no inner kind");
                     SNZ_ASSERT(inner->inner->kind == SER_TK_STRUCT, "ptr that doesn't point to struct type");
@@ -332,13 +400,36 @@ bool _ser_validate(_ser_Spec* spec) {
         s->indexIntoSpec = i;
         i++;
     } // end all structs
+
+    int enumIdx = 0;
+    for (_ser_SpecEnum* e = spec->firstEnumSpec; e; e = e->next) {
+        e->indexIntoSpec = enumIdx;
+        enumIdx++;
+
+        for (_ser_SpecEnum* other = e->next; other; other = other->next) {
+            if (strcmp(other->tag, e->tag) == 0) {
+                SNZ_ASSERTF(false, "Two enums with the same name, '%s'.", e->tag);
+            }
+        }
+        for (int64_t valIdx = 0; valIdx < e->count; valIdx++) {
+            for (int64_t otherIdx = valIdx + 1; otherIdx < e->count; otherIdx++) {
+                if (strcmp(e->names[valIdx], e->names[otherIdx]) == 0) {
+                    SNZ_ASSERTF(false, "Duplicate values named '%s' in enum '%s'", e->names[valIdx], e->tag);
+                } else if (e->values[valIdx] == e->values[otherIdx]) {
+                    SNZ_ASSERTF(false,
+                        "Two values ('%d' and '%d') with the same name ('%s') in enum '%s'",
+                        e->values[valIdx], e->values[otherIdx], e->names[valIdx], e->tag);
+                }
+            }
+        }
+    }
     return true;
 }
 
 void ser_end() {
     _ser_assertInstanceValidForAddingToSpec();
     _ser_pushActiveStructSpecIfAny();
-    _ser_validate(&_ser_globs.spec);
+    _ser_specValidate(&_ser_globs.spec);
     _ser_globs.validated = true;
 }
 
@@ -451,9 +542,9 @@ bool _ser_isSystemLittleEndian() {
 
 #define _SERW_WRITE_BYTES_OR_RETURN(w, src, size, swapWithEndianness) \
     do { \
-        ser_WriteError e = _serw_writeBytes(w, src, size, swapWithEndianness); \
-        if(e != SER_WE_OK) { \
-            return e; \
+        ser_WriteError _e_ = _serw_writeBytes(w, src, size, swapWithEndianness); \
+        if(_e_ != SER_WE_OK) { \
+            return _e_; \
         } \
     } while (0)
 
@@ -538,9 +629,12 @@ ser_WriteError _serw_writeField(_serw_WriteInst* write, _ser_SpecField* field, v
             }
         }
         return SER_WE_OK;
+    } else if (kind == SER_TK_ENUM) {
+        int32_t value = *(int32_t*)((char*)obj + field->offsetInStruct);
+        _serw_writeBytes(write, &value, sizeof(value), true);
+        return SER_WE_OK;
     } else if (kind == SER_TK_CSTRING) {
         const char* string = *(char**)((char*)obj + field->offsetInStruct);
-
         if (string == NULL) {
             uint64_t zero = 0;
             _SERW_WRITE_BYTES_OR_RETURN(write, &zero, sizeof(uint64_t), false);
@@ -596,6 +690,23 @@ ser_WriteError _ser_write(FILE* f, const char* typename, void* seedObj, snz_Aren
                         _SERW_WRITE_BYTES_OR_RETURN(&write, &idx, sizeof(idx), true);
                     }
                 }
+            }
+        }
+        _SERW_WRITE_BYTES_OR_RETURN(&write, &_ser_globs.spec.enumSpecCount, sizeof(_ser_globs.spec.enumSpecCount), true);
+        for (_ser_SpecEnum* e = _ser_globs.spec.firstEnumSpec; e; e = e->next) {
+            uint64_t tagLen = strlen(e->tag);
+            _SERW_WRITE_BYTES_OR_RETURN(&write, &tagLen, sizeof(tagLen), true); // length of tag
+            _SERW_WRITE_BYTES_OR_RETURN(&write, e->tag, tagLen, false); // tag
+
+            _SERW_WRITE_BYTES_OR_RETURN(&write, &e->count, sizeof(e->count), true); // value count
+            for (int64_t i = 0; i < e->count; i++) {
+                const char* name = e->names[i];
+                int32_t value = e->values[i];
+
+                uint64_t tagLen = strlen(name);
+                _SERW_WRITE_BYTES_OR_RETURN(&write, &tagLen, sizeof(tagLen), true); // length of tag
+                _SERW_WRITE_BYTES_OR_RETURN(&write, name, tagLen, false); // tag
+                _SERW_WRITE_BYTES_OR_RETURN(&write, &value, sizeof(value), true); // value
             }
         }
     } // end writing spec
@@ -749,6 +860,11 @@ ser_ReadError _serr_readField(_serr_ReadInst* read, _ser_SpecField* field, void*
             }
         }
         return SER_RE_OK;
+    } else if (kind == SER_TK_ENUM) {
+        int32_t* value = *(int32_t*)(outPos);
+        _SERR_READ_BYTES_OR_RETURN(read, value, sizeof(*value), true);
+        // FIXME: enum value translation
+        SNZ_ASSERT(false, "AHH FIXME THIS SHOULD BE ENUM VALUE TRANSLATION!!!");
     } else if (kind == SER_TK_CSTRING) {
         uint64_t length = 0;
         _SERR_READ_BYTES_OR_RETURN(read, &length, sizeof(uint64_t), true);
@@ -785,18 +901,19 @@ ser_ReadError _ser_read(FILE* file, const char* typename, snz_Arena* outArena, s
         .scratch = scratch,
     };
 
-    _ser_SpecStruct* firstStructSpec = NULL;
-    _ser_SpecStruct* lastStructSpec = NULL;
+    _ser_Spec spec = { 0 };
     _ser_SpecStruct* structSpecs = NULL;
-    int64_t structSpecCount = 0;
+    _ser_SpecEnum* enumSpecs = NULL;
+    _ser_SpecStruct* lastStructSpec = NULL;
+    _ser_SpecEnum* lastEnumSpec = NULL;
     { // parse spec
         uint64_t version = 0;
         _SERR_READ_BYTES_OR_RETURN(&read, &version, sizeof(version), true);
 
-        _SERR_READ_BYTES_OR_RETURN(&read, &structSpecCount, sizeof(structSpecCount), true);
-        structSpecs = SNZ_ARENA_PUSH_ARR(scratch, structSpecCount, _ser_SpecStruct);
+        _SERR_READ_BYTES_OR_RETURN(&read, &spec.structSpecCount, sizeof(spec.structSpecCount), true);
+        structSpecs = SNZ_ARENA_PUSH_ARR(scratch, spec.structSpecCount, _ser_SpecStruct);
 
-        for (int64_t i = 0; i < structSpecCount; i++) {
+        for (int64_t i = 0; i < spec.structSpecCount; i++) {
             _ser_SpecStruct* decl = &structSpecs[i];
             *decl = (_ser_SpecStruct){
                 .indexIntoSpec = i,
@@ -804,7 +921,7 @@ ser_ReadError _ser_read(FILE* file, const char* typename, snz_Arena* outArena, s
             if (lastStructSpec) {
                 lastStructSpec->next = decl;
             } else {
-                firstStructSpec = decl;
+                spec.firstStructSpec = decl;
             }
             lastStructSpec = decl;
 
@@ -835,7 +952,7 @@ ser_ReadError _ser_read(FILE* file, const char* typename, snz_Arena* outArena, s
                 _SERR_READ_BYTES_OR_RETURN(&read, &fileT, 1, false);
                 field->type->kind = (ser_TKind)fileT;
 
-                if (field->type->kind == SER_TK_STRUCT) {
+                if (field->type->kind == SER_TK_STRUCT || field->type->kind == SER_TK_ENUM) {
                     _SERR_READ_BYTES_OR_RETURN(&read, &field->type->referencedIndex, sizeof(field->type->referencedIndex), true);
                 } else if ((field->type->kind == SER_TK_PTR) || (field->type->kind == SER_TK_SLICE)) {
                     _ser_T* structT = SNZ_ARENA_PUSH(scratch, _ser_T);
@@ -849,10 +966,44 @@ ser_ReadError _ser_read(FILE* file, const char* typename, snz_Arena* outArena, s
                 }
             } // end field loop
         } // end decl loop
+
+        _SERR_READ_BYTES_OR_RETURN(&read, &spec.enumSpecCount, sizeof(spec.enumSpecCount), true);
+        enumSpecs = SNZ_ARENA_PUSH_ARR(scratch, spec.enumSpecCount, _ser_SpecEnum);
+        for (int64_t enumIdx = 0; enumIdx < spec.structSpecCount; enumIdx++) {
+            _ser_SpecEnum* e = &enumSpecs[enumIdx];
+            *e = (_ser_SpecEnum){
+                .indexIntoSpec = enumIdx,
+            };
+            if (lastEnumSpec) {
+                lastEnumSpec->next = e;
+            } else {
+                spec.firstEnumSpec = e;
+            }
+            lastEnumSpec = e;
+
+            int64_t tagLen = 0;
+            _SERR_READ_BYTES_OR_RETURN(&read, &tagLen, sizeof(tagLen), true);
+            char* tag = SNZ_ARENA_PUSH_ARR(read.scratch, tagLen + 1, char);
+            _SERR_READ_BYTES_OR_RETURN(&read, tag, tagLen, false);
+            e->tag = tag;
+
+            _SERR_READ_BYTES_OR_RETURN(&read, &e->count, sizeof(int64_t), true);
+            e->names = SNZ_ARENA_PUSH_ARR(scratch, e->count, const char*);
+            e->values = SNZ_ARENA_PUSH_ARR(scratch, e->count, int32_t);
+            for (int64_t valueIdx = 0; valueIdx < e->count; valueIdx++) {
+                // FIXME: read str fn
+                int64_t tagLen = 0;
+                _SERR_READ_BYTES_OR_RETURN(&read, &tagLen, sizeof(tagLen), true);
+                char* tag = SNZ_ARENA_PUSH_ARR(read.scratch, tagLen + 1, char);
+                _SERR_READ_BYTES_OR_RETURN(&read, tag, tagLen, false);
+                e->names[valueIdx] = tag;
+                _SERR_READ_BYTES_OR_RETURN(&read, &e->values[valueIdx], sizeof(int32_t), true);
+            }
+        } // end enum loop
     } // end spec parsing
 
     { // compare to original & fix up
-        for (_ser_SpecStruct* s = firstStructSpec; s; s = s->next) {
+        for (_ser_SpecStruct* s = spec.firstStructSpec; s; s = s->next) {
             _ser_SpecStruct* ogStruct = _ser_getStructSpecByName(s->tag);
             if (!ogStruct) {
                 continue;
@@ -881,7 +1032,10 @@ ser_ReadError _ser_read(FILE* file, const char* typename, snz_Arena* outArena, s
                 // FIXME: post read patches?
             }
         }
-        _ser_validate(firstStructSpec);
+        _ser_specValidate(&spec);
+
+        // FIXME: ENUM TRANSLATION HERE
+        SNZ_ASSERT(false, "AHHHHHHHHH ENUM TRANSLATION TABLES!");
     }
 
     void* firstObj = NULL;
@@ -893,7 +1047,7 @@ ser_ReadError _ser_read(FILE* file, const char* typename, snz_Arena* outArena, s
             if (feof(read.file)) { // here instead of the loop because this only triggers when you read over the bounds of the file
                 break;
             }
-            if (kind >= structSpecCount) {
+            if (kind >= spec.structSpecCount) {
                 return SER_RE_GARBAGE_SPEC;
             }
 
