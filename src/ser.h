@@ -23,8 +23,6 @@ API:
 
     ser_write(spec, F, T, obj) -> (err)
     ser_read(spec, F, T, arena) -> (err | obj*)
-    ser_writeJSON(spec, F, T, obj)
-    ser_readJSON(spec, F, T, arena)
 
 FILE SIDE:
     a spec with a named structure of everything in the file
@@ -123,20 +121,36 @@ struct _ser_SpecStruct {
     int64_t size;
 };
 
+typedef struct _ser_SpecEnum _ser_SpecEnum;
+struct _ser_SpecEnum {
+    _ser_SpecEnum* next;
+    const char* tag;
+
+    const char* names;
+    int64_t* values;
+    int64_t count;
+};
+
+typedef struct {
+    _ser_SpecStruct* firstStructSpec;
+    int64_t structSpecCount;
+    _ser_SpecEnum* firstEnumSpec;
+    int64_t enumSpecCount;
+} _ser_Spec;
+
 static struct {
     bool validated; // when true indicates all specs have been added and that no more will, also that the entire thing has been validated.
-    _ser_SpecStruct* firstStructSpec; // FIXME: enums too
-    int64_t structSpecCount;
-
     snz_Arena* specArena;
     _ser_SpecStruct* activeStructSpec;
+
+    _ser_Spec spec;
 } _ser_globs;
 
 static void _ser_pushActiveStructSpecIfAny() {
     if (_ser_globs.activeStructSpec) {
-        _ser_globs.structSpecCount++;
-        _ser_globs.activeStructSpec->next = _ser_globs.firstStructSpec;
-        _ser_globs.firstStructSpec = _ser_globs.activeStructSpec;
+        _ser_globs.spec.structSpecCount++;
+        _ser_globs.activeStructSpec->next = _ser_globs.spec.firstStructSpec;
+        _ser_globs.spec.firstStructSpec = _ser_globs.activeStructSpec;
         _ser_globs.activeStructSpec = NULL;
     }
 }
@@ -234,12 +248,15 @@ void _ser_addStructFieldSlice(
 }
 
 void ser_begin(snz_Arena* specArena) {
+    SNZ_ASSERT(!_ser_globs.validated, "Global spec was already validated.");
+    SNZ_ASSERT(!_ser_globs.spec.firstStructSpec, "Global spec was already started");
+    SNZ_ASSERT(!_ser_globs.spec.firstEnumSpec, "Global spec was already started");
     _ser_globs.specArena = specArena;
     _ser_globs.validated = false;
 }
 
-_ser_SpecStruct* _ser_getStructSpecByName(const char* name) {
-    for (_ser_SpecStruct* s = _ser_globs.firstStructSpec; s; s = s->next) {
+_ser_SpecStruct* _ser_specGetStructSpecByName(_ser_Spec* spec, const char* name) {
+    for (_ser_SpecStruct* s = spec->firstStructSpec; s; s = s->next) {
         if (strcmp(s->tag, name) == 0) {
             return s;
         }
@@ -257,11 +274,11 @@ _ser_SpecField* _ser_getFieldSpecByName(_ser_SpecStruct* struc, const char* name
 }
 
 // return indicates failure.
-bool _ser_validate(_ser_SpecStruct* firstStruct) {
+bool _ser_validate(_ser_Spec* spec) {
     // FIXME: could double check that offsets are within the size of a given struct
     int i = 0;
     // FIXME: duplicates check for structs and fields
-    for (_ser_SpecStruct* s = firstStruct; s; s = s->next) {
+    for (_ser_SpecStruct* s = spec->firstStructSpec; s; s = s->next) {
         for (_ser_SpecStruct* other = s->next; other; other = other->next) {
             if (strcmp(other->tag, s->tag) == 0) {
                 return false;
@@ -282,7 +299,7 @@ bool _ser_validate(_ser_SpecStruct* firstStruct) {
                         SNZ_ASSERTF(inner->referencedStruct, "no definition with the name '%s' found.", inner->referencedName);
                     } else {
                         // FIXME: O(N) here is shitty
-                        inner->referencedStruct = firstStruct;
+                        inner->referencedStruct = spec->firstStructSpec;
                         for (int i = 0; i < inner->referencedIndex; i++) {
                             inner->referencedStruct = inner->referencedStruct->next;
                             // FIXME: just segfaults on an OOBs err here, fix that
@@ -315,16 +332,13 @@ bool _ser_validate(_ser_SpecStruct* firstStruct) {
         s->indexIntoSpec = i;
         i++;
     } // end all structs
-
     return true;
 }
 
 void ser_end() {
     _ser_assertInstanceValidForAddingToSpec();
     _ser_pushActiveStructSpecIfAny();
-
-    _ser_validate(_ser_globs.firstStructSpec);
-
+    _ser_validate(&_ser_globs.spec);
     _ser_globs.validated = true;
 }
 
@@ -563,8 +577,8 @@ ser_WriteError _ser_write(FILE* f, const char* typename, void* seedObj, snz_Aren
     { // writing spec
         uint64_t version = SER_VERSION;
         _SERW_WRITE_BYTES_OR_RETURN(&write, &version, sizeof(version), true);
-        _SERW_WRITE_BYTES_OR_RETURN(&write, &_ser_globs.structSpecCount, sizeof(_ser_globs.structSpecCount), true);  // decl count
-        for (_ser_SpecStruct* s = _ser_globs.firstStructSpec; s; s = s->next) {
+        _SERW_WRITE_BYTES_OR_RETURN(&write, &_ser_globs.spec.structSpecCount, sizeof(_ser_globs.spec.structSpecCount), true);  // decl count
+        for (_ser_SpecStruct* s = _ser_globs.spec.firstStructSpec; s; s = s->next) {
             uint64_t tagLen = strlen(s->tag);
             _SERW_WRITE_BYTES_OR_RETURN(&write, &tagLen, sizeof(tagLen), true); // length of tag
             _SERW_WRITE_BYTES_OR_RETURN(&write, s->tag, tagLen, false); // tag

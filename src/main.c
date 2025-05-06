@@ -88,8 +88,9 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
             if (!err == SER_RE_OK) {
                 main_settings = set_settingsDefault();
                 SNZ_LOGF("Loading settings file failed. Code: %d.", err);
+            } else {
+                main_settings = *loaded;
             }
-            main_settings = *loaded;
         }
         fclose(f);
     }
