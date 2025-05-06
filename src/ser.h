@@ -102,7 +102,7 @@ struct _ser_T {
     int64_t referencedIndex; // loaded to temp spec from file, again used to find ptrs
     union {
         _ser_SpecStruct* referencedStruct;
-        _ser_SpecStruct* referencedEnum;
+        _ser_SpecEnum* referencedEnum;
     };
     int offsetOfSliceLengthIntoStruct;
 };
@@ -128,6 +128,13 @@ struct _ser_SpecStruct {
     int64_t size;
 };
 
+typedef struct {
+    int32_t sourceVal;
+    int32_t finalVal;
+    // if a new spec removed support for a value from an old spec
+    bool isImpossible;
+} _serr_EnumTranslation;
+
 typedef struct _ser_SpecEnum _ser_SpecEnum;
 struct _ser_SpecEnum {
     _ser_SpecEnum* next;
@@ -138,6 +145,10 @@ struct _ser_SpecEnum {
     const int32_t* values;
     int64_t count;
     // size within struct assumed to be sizeof(int32_t), asserted on creation
+
+    // translation data only used in read specs
+    int64_t translationCount;
+    _serr_EnumTranslation* translations;
 };
 
 typedef struct {
@@ -524,6 +535,7 @@ typedef enum {
     SER_WE_OK,
     SER_WE_WRITE_FAILED,
     SER_WE_PTR_PROBLEM,
+    SER_WE_INVALID_ENUM_VALUE,
 } ser_WriteError;
 
 typedef struct {
@@ -631,6 +643,20 @@ ser_WriteError _serw_writeField(_serw_WriteInst* write, _ser_SpecField* field, v
         return SER_WE_OK;
     } else if (kind == SER_TK_ENUM) {
         int32_t value = *(int32_t*)((char*)obj + field->offsetInStruct);
+        // assert that the value is in bounds so reading it won't fail.
+        const _ser_SpecEnum* sourceEnum = field->type->referencedEnum;
+        bool anyMatch = false;
+        for (int64_t valIdx = 0; valIdx < sourceEnum->count; valIdx++) {
+            if (value == sourceEnum->values[valIdx]) {
+                anyMatch = true;
+                break;
+            }
+        }
+
+        if (!anyMatch) {
+            // FIXME: good logs for errors in this fn
+            return SER_WE_INVALID_ENUM_VALUE;
+        }
         _serw_writeBytes(write, &value, sizeof(value), true);
         return SER_WE_OK;
     } else if (kind == SER_TK_CSTRING) {
@@ -687,6 +713,9 @@ ser_WriteError _ser_write(FILE* f, const char* typename, void* seedObj, snz_Aren
                     _SERW_WRITE_BYTES_OR_RETURN(&write, &enumVal, 1, false);
                     if (inner->kind == SER_TK_STRUCT) {
                         int64_t idx = inner->referencedStruct->indexIntoSpec;
+                        _SERW_WRITE_BYTES_OR_RETURN(&write, &idx, sizeof(idx), true);
+                    } else if (inner->kind == SER_TK_ENUM) {
+                        int64_t idx = inner->referencedEnum->indexIntoSpec;
                         _SERW_WRITE_BYTES_OR_RETURN(&write, &idx, sizeof(idx), true);
                     }
                 }
@@ -769,6 +798,7 @@ typedef enum {
     SER_RE_READ_FAILED,
     SER_RE_PTR_PROBLEM,
     SER_RE_GARBAGE_DATA,
+    SER_RE_UNMAPPABLE_ENUM_VALUE,
 } ser_ReadError;
 
 #define _SERR_READ_BYTES_OR_RETURN(read, out, size, swapWithEndianness) \
@@ -863,8 +893,20 @@ ser_ReadError _serr_readField(_serr_ReadInst* read, _ser_SpecField* field, void*
     } else if (kind == SER_TK_ENUM) {
         int32_t* value = *(int32_t*)(outPos);
         _SERR_READ_BYTES_OR_RETURN(read, value, sizeof(*value), true);
-        // FIXME: enum value translation
-        SNZ_ASSERT(false, "AHH FIXME THIS SHOULD BE ENUM VALUE TRANSLATION!!!");
+
+        _ser_SpecEnum* spec = field->type->referencedEnum;
+        for (int i = 0; i < spec->translationCount; i++) {
+            if (spec->translations[i].sourceVal != value) {
+                continue;
+            }
+            if (spec->translations[i].isImpossible) {
+                return SER_RE_UNMAPPABLE_ENUM_VALUE;
+            }
+            *value = spec->translations[i].finalVal;
+            return SER_RE_OK;
+        }
+        // no translation with this source was found
+        return SER_RE_UNMAPPABLE_ENUM_VALUE;
     } else if (kind == SER_TK_CSTRING) {
         uint64_t length = 0;
         _SERR_READ_BYTES_OR_RETURN(read, &length, sizeof(uint64_t), true);
@@ -1004,7 +1046,7 @@ ser_ReadError _ser_read(FILE* file, const char* typename, snz_Arena* outArena, s
 
     { // compare to original & fix up
         for (_ser_SpecStruct* s = spec.firstStructSpec; s; s = s->next) {
-            _ser_SpecStruct* ogStruct = _ser_getStructSpecByName(s->tag);
+            _ser_SpecStruct* ogStruct = _ser_specGetStructSpecByName(&spec, s->tag);
             if (!ogStruct) {
                 continue;
             }
@@ -1034,9 +1076,34 @@ ser_ReadError _ser_read(FILE* file, const char* typename, snz_Arena* outArena, s
         }
         _ser_specValidate(&spec);
 
-        // FIXME: ENUM TRANSLATION HERE
-        SNZ_ASSERT(false, "AHHHHHHHHH ENUM TRANSLATION TABLES!");
-    }
+        for (_ser_SpecEnum* e = spec.firstEnumSpec; e; e = e->next) {
+            _ser_SpecEnum* current = _ser_specGetEnumSpecByName(&spec, e->tag);
+            if (!current) {
+                continue;
+            }
+            _serr_EnumTranslation* translations = SNZ_ARENA_PUSH_ARR(scratch, e->count, _serr_EnumTranslation);
+            for (int i = 0; i < e->count; i++) {
+                _serr_EnumTranslation* translation = &translations[i];
+                translations[i].sourceVal = e->values[i];
+
+                const char* name = e->names[i];
+                int64_t translationIdx = -1;
+                for (int currentIdx = 0; currentIdx < current->count; currentIdx++) {
+                    const char* currentName = current->names[currentIdx];
+                    if (strcmp(currentName, name) == 0) {
+                        translationIdx = currentIdx;
+                        break;
+                    }
+                }
+
+                if (translationIdx == -1) {
+                    translation->isImpossible = true;
+                } else {
+                    translation->finalVal = current->values[translationIdx];
+                }
+            } // end per value loop
+        } // end enum translation gen
+    } // end compare to original/current spec
 
     void* firstObj = NULL;
     _ser_SpecStruct* firstObjSpec = NULL;
