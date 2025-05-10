@@ -136,14 +136,31 @@ typedef struct {
     bool isImpossible;
 } _serr_EnumTranslation;
 
+typedef struct {
+    const char* name;
+    int32_t value;
+} ser_EnumValue;
+
+#define ser_enumValuePush(arena, value) _ser_enumValuePush((arena), (#value), (value), sizeof(value))
+void _ser_enumValuePush(snz_Arena* arena, const char* name, int32_t value, int64_t size) {
+    SNZ_ASSERTF(
+        size == sizeof(int32_t),
+        "Enums are expected to always be 32 bit values, adding '%s' failed because it has %lld bits.",
+        name, size * 8);
+    *SNZ_ARENA_PUSH(arena, ser_EnumValue) = (ser_EnumValue){
+        .name = name,
+        .value = value,
+    };
+}
+
+SNZ_SLICE(ser_EnumValue);
+
 struct _ser_SpecEnum {
     _ser_SpecEnum* next;
     const char* tag;
     int64_t indexIntoSpec;
 
-    const char** names;
-    const int32_t* values;
-    int64_t count;
+    ser_EnumValueSlice values;
     // size within struct assumed to be sizeof(int32_t), asserted on creation
 
     // translation data only used in read specs
@@ -280,17 +297,15 @@ void _ser_addStructFieldSlice(
 
 // names and values should not change over time as they are retained and not copied
 // ideally keep em hardcoded / macro gend
-#define ser_addEnum(name, valueCount, names, values) _ser_addEnum(#name, sizeof(name), valueCount, names, values)
-void _ser_addEnum(const char* tag, int64_t sizeOfEnum, int64_t valueCount, const char** names, const int32_t* values) {
+#define ser_addEnum(name, values) _ser_addEnum(#name, sizeof(name), values)
+void _ser_addEnum(const char* tag, int64_t sizeOfEnum, ser_EnumValueSlice values) {
     _ser_assertInstanceValidForAddingToSpec();
     SNZ_ASSERTF(sizeOfEnum == sizeof(int32_t), "Enum '%s' wasn't 32bits (was %lld). Ser isn't build to handle that.", tag, sizeOfEnum);
     _ser_SpecEnum* spec = SNZ_ARENA_PUSH(_ser_globs.specArena, _ser_SpecEnum);
     _ser_globs.spec.enumSpecCount++;
     *spec = (_ser_SpecEnum){
         .tag = tag,
-        .count = valueCount,
         .values = values,
-        .names = names,
         .next = _ser_globs.spec.firstEnumSpec,
     };
     _ser_globs.spec.firstEnumSpec = spec;
@@ -422,14 +437,16 @@ bool _ser_specValidate(_ser_Spec* spec) {
                 SNZ_ASSERTF(false, "Two enums with the same name, '%s'.", e->tag);
             }
         }
-        for (int64_t valIdx = 0; valIdx < e->count; valIdx++) {
-            for (int64_t otherIdx = valIdx + 1; otherIdx < e->count; otherIdx++) {
-                if (strcmp(e->names[valIdx], e->names[otherIdx]) == 0) {
-                    SNZ_ASSERTF(false, "Duplicate values named '%s' in enum '%s'", e->names[valIdx], e->tag);
-                } else if (e->values[valIdx] == e->values[otherIdx]) {
+        for (int64_t valIdx = 0; valIdx < e->values.count; valIdx++) {
+            for (int64_t otherIdx = valIdx + 1; otherIdx < e->values.count; otherIdx++) {
+                const ser_EnumValue* value = &e->values.elems[valIdx];
+                const ser_EnumValue* other = &e->values.elems[otherIdx];
+                if (strcmp(value->name, other->name) == 0) {
+                    SNZ_ASSERTF(false, "Two values values named '%s' in enum '%s'", value->name, e->tag);
+                } else if (value->value == other->value) {
                     SNZ_ASSERTF(false,
                         "Two values ('%d' and '%d') with the same name ('%s') in enum '%s'",
-                        e->values[valIdx], e->values[otherIdx], e->names[valIdx], e->tag);
+                        value->value, other->value, value->name, e->tag);
                 }
             }
         }
@@ -648,8 +665,8 @@ ser_WriteError _serw_writeField(_serw_WriteInst* write, _ser_SpecField* field, v
         // assert that the value is in bounds so reading it won't fail.
         const _ser_SpecEnum* sourceEnum = field->type->referencedEnum;
         bool anyMatch = false;
-        for (int64_t valIdx = 0; valIdx < sourceEnum->count; valIdx++) {
-            if (value == sourceEnum->values[valIdx]) {
+        for (int64_t valIdx = 0; valIdx < sourceEnum->values.count; valIdx++) {
+            if (value == sourceEnum->values.elems[valIdx].value) {
                 anyMatch = true;
                 break;
             }
@@ -683,8 +700,8 @@ ser_WriteError _serw_writeField(_serw_WriteInst* write, _ser_SpecField* field, v
 }
 
 // FIXME: typecheck of some kind on obj
-#define ser_write(F, T, obj, scratch) _ser_write(F, #T, obj, scratch)
-ser_WriteError _ser_write(FILE* f, const char* typename, void* seedObj, snz_Arena* scratch) {
+#define ser_write(F, T, obj, scratch) _ser_write(F, #T, sizeof(T), obj, scratch)
+ser_WriteError _ser_write(FILE* f, const char* typename, int64_t size, void* seedObj, snz_Arena* scratch) {
     _ser_assertInstanceValidated();
 
     _serw_WriteInst write = { 0 };
@@ -695,6 +712,10 @@ ser_WriteError _ser_write(FILE* f, const char* typename, void* seedObj, snz_Aren
     write.nextStruct->obj = seedObj;
     write.nextStruct->spec = _ser_specGetStructSpecByName(&_ser_globs.spec, typename);
     SNZ_ASSERTF(write.nextStruct->spec, "No definition for struct '%s'", typename);
+    SNZ_ASSERTF(
+        write.nextStruct->spec->size == size,
+        "Size of type '%s' was %lld, didn't match expected size of %lld.",
+        typename, size, write.nextStruct->spec->size);
 
     { // writing spec
         uint64_t version = SER_VERSION;
@@ -730,15 +751,14 @@ ser_WriteError _ser_write(FILE* f, const char* typename, void* seedObj, snz_Aren
             _SERW_WRITE_BYTES_OR_RETURN(&write, &tagLen, sizeof(tagLen), true); // length of tag
             _SERW_WRITE_BYTES_OR_RETURN(&write, e->tag, tagLen, false); // tag
 
-            _SERW_WRITE_BYTES_OR_RETURN(&write, &e->count, sizeof(e->count), true); // value count
-            for (int64_t i = 0; i < e->count; i++) {
-                const char* name = e->names[i];
-                int32_t value = e->values[i];
+            _SERW_WRITE_BYTES_OR_RETURN(&write, &e->values.count, sizeof(e->values.count), true); // value count
+            for (int64_t i = 0; i < e->values.count; i++) {
+                const ser_EnumValue* val = &e->values.elems[i];
 
-                uint64_t tagLen = strlen(name);
+                uint64_t tagLen = strlen(val->name);
                 _SERW_WRITE_BYTES_OR_RETURN(&write, &tagLen, sizeof(tagLen), true); // length of tag
-                _SERW_WRITE_BYTES_OR_RETURN(&write, name, tagLen, false); // tag
-                _SERW_WRITE_BYTES_OR_RETURN(&write, &value, sizeof(value), true); // value
+                _SERW_WRITE_BYTES_OR_RETURN(&write, val->name, tagLen, false); // tag
+                _SERW_WRITE_BYTES_OR_RETURN(&write, &val->value, sizeof(val->value), true); // value
             }
         }
     } // end writing spec
@@ -939,10 +959,16 @@ ser_ReadError _serr_readField(_serr_ReadInst* read, _ser_SpecField* field, void*
 }
 
 // FIXME: typeof macro instead of doing a separate type param?
-#define ser_read(f, T, arena, scratch, outObj) _ser_read(f, #T, arena, scratch, outObj)
-ser_ReadError _ser_read(FILE* file, const char* typename, snz_Arena* outArena, snz_Arena* scratch, void** outObj) {
+#define ser_read(f, T, arena, scratch, outObj) _ser_read(f, #T, sizeof(T), arena, scratch, outObj)
+ser_ReadError _ser_read(FILE* file, const char* typename, int64_t typeSize, snz_Arena* outArena, snz_Arena* scratch, void** outObj) {
     _ser_assertInstanceValidated();
     SNZ_ASSERT(outObj, "Expected a non-null out object");
+    _ser_SpecStruct* checkSpec = _ser_specGetStructSpecByName(&_ser_globs.spec, typename);
+    SNZ_ASSERTF(checkSpec, "Read would fail, there is no defined spec for struct '%s'", typename);
+    SNZ_ASSERTF(
+        checkSpec->size == typeSize,
+        "Declared and actual size of struct '%s' differ. Was: %lld, expected: %lld",
+        typeSize, checkSpec->size);
     // SNZ_LOG("\t\tBEGINNING READ");
 
     _serr_ReadInst read = (_serr_ReadInst){
@@ -1039,21 +1065,19 @@ ser_ReadError _ser_read(FILE* file, const char* typename, snz_Arena* outArena, s
             _SERR_READ_BYTES_OR_RETURN(&read, tag, tagLen, false);
             e->tag = tag;
 
-            _SERR_READ_BYTES_OR_RETURN(&read, &e->count, sizeof(int64_t), true);
-            const char** names = SNZ_ARENA_PUSH_ARR(scratch, e->count, const char*);
-            int32_t* values = SNZ_ARENA_PUSH_ARR(scratch, e->count, int32_t);
-            for (int64_t valueIdx = 0; valueIdx < e->count; valueIdx++) {
+            _SERR_READ_BYTES_OR_RETURN(&read, &e->values.count, sizeof(int64_t), true);
+            e->values.elems = SNZ_ARENA_PUSH_ARR(scratch, e->values.count, ser_EnumValue);
+            for (int64_t valueIdx = 0; valueIdx < e->values.count; valueIdx++) {
                 // FIXME: read str fn
                 int64_t tagLen = 0;
                 _SERR_READ_BYTES_OR_RETURN(&read, &tagLen, sizeof(tagLen), true);
                 char* tag = SNZ_ARENA_PUSH_ARR(scratch, tagLen + 1, char);
                 _SERR_READ_BYTES_OR_RETURN(&read, tag, tagLen, false);
-                names[valueIdx] = tag;
 
-                _SERR_READ_BYTES_OR_RETURN(&read, &values[valueIdx], sizeof(int32_t), true);
+                ser_EnumValue* val = &e->values.elems[valueIdx];
+                val->name = tag;
+                _SERR_READ_BYTES_OR_RETURN(&read, &val->value, sizeof(val->value), true);
             }
-            e->names = names;
-            e->values = values;
         } // end enum loop
     } // end spec parsing
 
@@ -1094,16 +1118,16 @@ ser_ReadError _ser_read(FILE* file, const char* typename, snz_Arena* outArena, s
             if (!current) {
                 continue;
             }
-            _serr_EnumTranslation* translations = SNZ_ARENA_PUSH_ARR(scratch, e->count, _serr_EnumTranslation);
-            for (int i = 0; i < e->count; i++) {
-                _serr_EnumTranslation* translation = &translations[i];
-                translations[i].sourceVal = e->values[i];
+            _serr_EnumTranslation* translations = SNZ_ARENA_PUSH_ARR(scratch, e->values.count, _serr_EnumTranslation);
+            for (int i = 0; i < e->values.count; i++) {
+                ser_EnumValue* sourceValue = &e->values.elems[i];
 
-                const char* name = e->names[i];
+                _serr_EnumTranslation* translation = &translations[i];
+                translations[i].sourceVal = sourceValue->value;
                 int64_t translationIdx = -1;
-                for (int currentIdx = 0; currentIdx < current->count; currentIdx++) {
-                    const char* currentName = current->names[currentIdx];
-                    if (strcmp(currentName, name) == 0) {
+                for (int currentIdx = 0; currentIdx < current->values.count; currentIdx++) {
+                    ser_EnumValue currentValue = current->values.elems[currentIdx];
+                    if (strcmp(currentValue.name, sourceValue->name) == 0) {
                         translationIdx = currentIdx;
                         break;
                     }
@@ -1112,9 +1136,12 @@ ser_ReadError _ser_read(FILE* file, const char* typename, snz_Arena* outArena, s
                 if (translationIdx == -1) {
                     translation->isImpossible = true;
                 } else {
-                    translation->finalVal = current->values[translationIdx];
+                    translation->finalVal = current->values.elems[translationIdx].value;
                 }
             } // end per value loop
+
+            current->translations = translations;
+            current->translationCount = e->values.count;
         } // end enum translation gen
     } // end compare to original/current spec
 
@@ -1183,11 +1210,20 @@ ser_ReadError _ser_read(FILE* file, const char* typename, snz_Arena* outArena, s
 #include "timeline.h"
 #include "geometry.h"
 
+typedef enum {
+    _SER_TE_A = 0,
+    _SER_TE_B = 10,
+    _SER_TE_C = 11,
+    _SER_TE_D = 2,
+} _ser_TestEnum;
+
 typedef struct {
+    _ser_TestEnum kind;
     const char* strA;
     const char* strB;
     const char* strC;
-} _ser_TestSomeString;
+    _ser_TestEnum kind2;
+} _ser_TestSomeStringsAndEnums;
 
 void ser_tests() {
     snz_testPrintSection("ser 3");
@@ -1218,10 +1254,19 @@ void ser_tests() {
     // ser_addStructField(tl_Op, ser_tPtr(tl_Op), dependencies[0]);
     // ser_addStructField(tl_Op, ser_tStruct(HMM_Vec2), ui.pos);
 
-    ser_addStruct(_ser_TestSomeString, false);
-    ser_addStructField(_ser_TestSomeString, ser_tBase(SER_TK_CSTRING), strA);
-    ser_addStructField(_ser_TestSomeString, ser_tBase(SER_TK_CSTRING), strB);
-    ser_addStructField(_ser_TestSomeString, ser_tBase(SER_TK_CSTRING), strC);
+    ser_addStruct(_ser_TestSomeStringsAndEnums, false);
+    ser_addStructField(_ser_TestSomeStringsAndEnums, ser_tBase(SER_TK_CSTRING), strA);
+    ser_addStructField(_ser_TestSomeStringsAndEnums, ser_tBase(SER_TK_CSTRING), strB);
+    ser_addStructField(_ser_TestSomeStringsAndEnums, ser_tBase(SER_TK_CSTRING), strC);
+    ser_addStructField(_ser_TestSomeStringsAndEnums, ser_tEnum(_ser_TestEnum), kind);
+    ser_addStructField(_ser_TestSomeStringsAndEnums, ser_tEnum(_ser_TestEnum), kind2);
+
+    SNZ_ARENA_ARR_BEGIN(&testArena, ser_EnumValue);
+    ser_enumValuePush(&testArena, _SER_TE_A);
+    ser_enumValuePush(&testArena, _SER_TE_B);
+    ser_enumValuePush(&testArena, _SER_TE_C);
+    ser_enumValuePush(&testArena, _SER_TE_D);
+    ser_addEnum(_ser_TestEnum, SNZ_ARENA_ARR_END(&testArena, ser_EnumValue));
 
     ser_end();
 
@@ -1284,18 +1329,20 @@ void ser_tests() {
 
     {
         FILE* f = fopen("testing/serStrTest.adder", "wb");
-        _ser_TestSomeString strs = (_ser_TestSomeString){
+        _ser_TestSomeStringsAndEnums strs = (_ser_TestSomeStringsAndEnums){
             .strA = "THIS IS THE FIRST ONE!!",
             .strB = "THIS IS THE SECOND ONE!!",
             .strC = "LAST ONE HERE!!!!",
+            .kind = _SER_TE_B,
+            .kind2 = _SER_TE_D,
         };
-        ser_WriteError writeErr = ser_write(f, _ser_TestSomeString, &strs, &testArena);
+        ser_WriteError writeErr = ser_write(f, _ser_TestSomeStringsAndEnums, &strs, &testArena);
         SNZ_ASSERTF(writeErr == SER_WE_OK, "Write failed, code: %d.", writeErr);
         fclose(f);
 
-        _ser_TestSomeString* outStrs = NULL;
+        _ser_TestSomeStringsAndEnums* outStrs = NULL;
         f = fopen("testing/serStrTest.adder", "rb");
-        ser_ReadError err = ser_read(f, _ser_TestSomeString, &testArena, &testArena, (void**)&outStrs);
+        ser_ReadError err = ser_read(f, _ser_TestSomeStringsAndEnums, &testArena, &testArena, (void**)&outStrs);
         SNZ_ASSERTF(err == SER_RE_OK, "Read failed, code: %d.", err);
         fclose(f);
 
@@ -1308,8 +1355,10 @@ void ser_tests() {
         SNZ_ASSERTF(strcmp(strs.strC, outStrs->strC) == 0,
             "String B differed before and after write to file.\nBefore: %s,\nAfter: %s",
             strs.strC, outStrs->strC);
+        SNZ_ASSERTF(strs.kind == outStrs->kind, "Enum value mismatch, was: %d, expected: %d.", outStrs->kind, strs.kind);
+        SNZ_ASSERTF(strs.kind2 == outStrs->kind2, "Enum value mismatch, was: %d, expected: %d.", outStrs->kind2, strs.kind2);
 
-        snz_testPrint(true, "strings to and from file");
+        snz_testPrint(true, "strings and enums to and from file");
     }
 
     snz_arenaDeinit(&testArena);
