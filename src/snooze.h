@@ -163,7 +163,7 @@ void* snz_arenaPush(snz_Arena* a, int64_t size, int64_t count) {
     if (!(o + (size * count) < (char*)(a->start) + a->reserved)) {
         SNZ_ASSERTF(false,
                     "arena push failed for '%s'. Cap: %lld, Used: %llu, Requested: %llu",
-                    a->name, a->reserved, (uint64_t)a->end - (uint64_t)a->start, size);
+                    a->name, a->reserved, (uint64_t)a->end - (uint64_t)a->start, count * size);
     }
     a->end = o + (size * count);
     return o;

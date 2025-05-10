@@ -93,6 +93,7 @@ int64_t _ser_tKindSizes[] = {
 typedef struct _ser_T _ser_T;
 typedef struct _ser_SpecField _ser_SpecField;
 typedef struct _ser_SpecStruct _ser_SpecStruct;
+typedef struct _ser_SpecEnum _ser_SpecEnum;
 
 struct _ser_T {
     ser_TKind kind;
@@ -135,7 +136,6 @@ typedef struct {
     bool isImpossible;
 } _serr_EnumTranslation;
 
-typedef struct _ser_SpecEnum _ser_SpecEnum;
 struct _ser_SpecEnum {
     _ser_SpecEnum* next;
     const char* tag;
@@ -322,7 +322,7 @@ _ser_SpecField* _ser_getFieldSpecByName(_ser_SpecStruct* struc, const char* name
     return NULL;
 }
 
-_ser_SpecStruct* _ser_specGetEnumSpecByName(_ser_Spec* spec, const char* name) {
+_ser_SpecEnum* _ser_specGetEnumSpecByName(_ser_Spec* spec, const char* name) {
     for (_ser_SpecEnum* e = spec->firstEnumSpec; e; e = e->next) {
         if (strcmp(e->tag, name) == 0) {
             return e;
@@ -561,6 +561,8 @@ bool _ser_isSystemLittleEndian() {
     } while (0)
 
 ser_WriteError _serw_writeBytes(_serw_WriteInst* write, const void* src, int64_t size, bool swapWithEndianness) {
+    // SNZ_LOGF("%#x: bytes: %lld", write->positionIntoFile, size);
+
     uint8_t* srcChars = (uint8_t*)src;
     if (swapWithEndianness && _ser_isSystemLittleEndian()) {
         uint8_t* buf = snz_arenaPush(write->scratch, size, 1);
@@ -691,7 +693,7 @@ ser_WriteError _ser_write(FILE* f, const char* typename, void* seedObj, snz_Aren
 
     write.nextStruct = SNZ_ARENA_PUSH(scratch, _serw_QueuedStruct);
     write.nextStruct->obj = seedObj;
-    write.nextStruct->spec = _ser_getStructSpecByName(typename);
+    write.nextStruct->spec = _ser_specGetStructSpecByName(&_ser_globs.spec, typename);
     SNZ_ASSERTF(write.nextStruct->spec, "No definition for struct '%s'", typename);
 
     { // writing spec
@@ -721,6 +723,7 @@ ser_WriteError _ser_write(FILE* f, const char* typename, void* seedObj, snz_Aren
                 }
             }
         }
+        // SNZ_LOGF("beginning enums @%#x", write.positionIntoFile);
         _SERW_WRITE_BYTES_OR_RETURN(&write, &_ser_globs.spec.enumSpecCount, sizeof(_ser_globs.spec.enumSpecCount), true);
         for (_ser_SpecEnum* e = _ser_globs.spec.firstEnumSpec; e; e = e->next) {
             uint64_t tagLen = strlen(e->tag);
@@ -740,6 +743,7 @@ ser_WriteError _ser_write(FILE* f, const char* typename, void* seedObj, snz_Aren
         }
     } // end writing spec
 
+    // SNZ_LOGF("beginning data @%#x", write.positionIntoFile);
     // write all structs and their deps
     while (write.nextStruct) { // FIXME: cutoff
         _serw_QueuedStruct* s = write.nextStruct;
@@ -812,6 +816,7 @@ typedef enum {
 
 // if out is null, moves the file ptr forward without actually reading the bytes
 ser_ReadError _serr_readBytes(_serr_ReadInst* read, void* out, int64_t size, bool swapWithEndianness) {
+    // SNZ_LOGF("%#x, bytes: %lld", read->positionIntoFile, size);
     ser_ReadError err = SER_RE_OK;
     if (!out) {
         if (fseek(read->file, size, SEEK_CUR)) {
@@ -857,11 +862,14 @@ ser_ReadError _serr_readField(_serr_ReadInst* read, _ser_SpecField* field, void*
 
         int64_t count = 0;
         _SERR_READ_BYTES_OR_RETURN(read, &count, sizeof(count), true);
+        // SNZ_LOGF("Read slice length of %lld", count);
 
         void* slice = NULL;
         if (obj != NULL) {
             slice = snz_arenaPush(read->outArena, count * structSpec->size, 1);
-            *(void**)((char*)obj + field->offsetInStruct) = slice;
+            *(void**)(outPos) = slice;
+            // FIXME: what if missing? this breaks serverely
+            // SNZ_LOGF("Slice read with count being %lld bytes into struct", field->type->offsetOfSliceLengthIntoStruct);
             *(int64_t*)((char*)obj + field->type->offsetOfSliceLengthIntoStruct) = count; // FIXME: again, ensure length field is the correct size/type
         }
 
@@ -891,12 +899,12 @@ ser_ReadError _serr_readField(_serr_ReadInst* read, _ser_SpecField* field, void*
         }
         return SER_RE_OK;
     } else if (kind == SER_TK_ENUM) {
-        int32_t* value = *(int32_t*)(outPos);
+        int32_t* value = (int32_t*)(outPos);
         _SERR_READ_BYTES_OR_RETURN(read, value, sizeof(*value), true);
 
         _ser_SpecEnum* spec = field->type->referencedEnum;
         for (int i = 0; i < spec->translationCount; i++) {
-            if (spec->translations[i].sourceVal != value) {
+            if (spec->translations[i].sourceVal != *value) {
                 continue;
             }
             if (spec->translations[i].isImpossible) {
@@ -935,6 +943,7 @@ ser_ReadError _serr_readField(_serr_ReadInst* read, _ser_SpecField* field, void*
 ser_ReadError _ser_read(FILE* file, const char* typename, snz_Arena* outArena, snz_Arena* scratch, void** outObj) {
     _ser_assertInstanceValidated();
     SNZ_ASSERT(outObj, "Expected a non-null out object");
+    // SNZ_LOG("\t\tBEGINNING READ");
 
     _serr_ReadInst read = (_serr_ReadInst){
         .file = file,
@@ -1009,9 +1018,10 @@ ser_ReadError _ser_read(FILE* file, const char* typename, snz_Arena* outArena, s
             } // end field loop
         } // end decl loop
 
+        // SNZ_LOGF("beginning enums @%#x", read.positionIntoFile);
         _SERR_READ_BYTES_OR_RETURN(&read, &spec.enumSpecCount, sizeof(spec.enumSpecCount), true);
         enumSpecs = SNZ_ARENA_PUSH_ARR(scratch, spec.enumSpecCount, _ser_SpecEnum);
-        for (int64_t enumIdx = 0; enumIdx < spec.structSpecCount; enumIdx++) {
+        for (int64_t enumIdx = 0; enumIdx < spec.enumSpecCount; enumIdx++) {
             _ser_SpecEnum* e = &enumSpecs[enumIdx];
             *e = (_ser_SpecEnum){
                 .indexIntoSpec = enumIdx,
@@ -1030,23 +1040,26 @@ ser_ReadError _ser_read(FILE* file, const char* typename, snz_Arena* outArena, s
             e->tag = tag;
 
             _SERR_READ_BYTES_OR_RETURN(&read, &e->count, sizeof(int64_t), true);
-            e->names = SNZ_ARENA_PUSH_ARR(scratch, e->count, const char*);
-            e->values = SNZ_ARENA_PUSH_ARR(scratch, e->count, int32_t);
+            const char** names = SNZ_ARENA_PUSH_ARR(scratch, e->count, const char*);
+            int32_t* values = SNZ_ARENA_PUSH_ARR(scratch, e->count, int32_t);
             for (int64_t valueIdx = 0; valueIdx < e->count; valueIdx++) {
                 // FIXME: read str fn
                 int64_t tagLen = 0;
                 _SERR_READ_BYTES_OR_RETURN(&read, &tagLen, sizeof(tagLen), true);
-                char* tag = SNZ_ARENA_PUSH_ARR(read.scratch, tagLen + 1, char);
+                char* tag = SNZ_ARENA_PUSH_ARR(scratch, tagLen + 1, char);
                 _SERR_READ_BYTES_OR_RETURN(&read, tag, tagLen, false);
-                e->names[valueIdx] = tag;
-                _SERR_READ_BYTES_OR_RETURN(&read, &e->values[valueIdx], sizeof(int32_t), true);
+                names[valueIdx] = tag;
+
+                _SERR_READ_BYTES_OR_RETURN(&read, &values[valueIdx], sizeof(int32_t), true);
             }
+            e->names = names;
+            e->values = values;
         } // end enum loop
     } // end spec parsing
 
     { // compare to original & fix up
         for (_ser_SpecStruct* s = spec.firstStructSpec; s; s = s->next) {
-            _ser_SpecStruct* ogStruct = _ser_specGetStructSpecByName(&spec, s->tag);
+            _ser_SpecStruct* ogStruct = _ser_specGetStructSpecByName(&_ser_globs.spec, s->tag);
             if (!ogStruct) {
                 continue;
             }
@@ -1104,6 +1117,8 @@ ser_ReadError _ser_read(FILE* file, const char* typename, snz_Arena* outArena, s
             } // end per value loop
         } // end enum translation gen
     } // end compare to original/current spec
+
+    // SNZ_LOGF("beginning data @%#x", read.positionIntoFile);
 
     void* firstObj = NULL;
     _ser_SpecStruct* firstObjSpec = NULL;
@@ -1255,6 +1270,15 @@ void ser_tests() {
         geo_TriSlice* obj = NULL;
         ser_ReadError err = ser_read(f, geo_TriSlice, &testArena, &testArena, (void**)&obj);
         SNZ_ASSERTF(err == SER_RE_OK, "Read failed, code: %d.", err);
+
+        SNZ_ASSERTF(obj->count == slice.count, "Read slice has different length (%lld) than original (%lld)", obj->count, slice.count);
+        for (int i = 0; i < obj->count; i++) {
+            geo_Tri newTri = obj->elems[i];
+            geo_Tri ogTri = slice.elems[i];
+            SNZ_ASSERT(geo_v3Equal(newTri.a, ogTri.a), "tris differed after file load.");
+            SNZ_ASSERT(geo_v3Equal(newTri.b, ogTri.b), "tris differed after file load.");
+            SNZ_ASSERT(geo_v3Equal(newTri.c, ogTri.c), "tris differed after file load.");
+        }
         fclose(f);
     }
 
