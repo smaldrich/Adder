@@ -1361,6 +1361,8 @@ void ser_tests() {
         snz_testPrint(true, "strings and enums to and from file");
     }
 
+    // FIXME: rearrangement and missing field tests (structs and enums too)
+
     snz_arenaDeinit(&testArena);
 
     // reset globals so everything else works right
