@@ -14,11 +14,15 @@ HMM_Vec3 fth_cellOffsets[] = {
     {.X = 1, .Y = 1, .Z = -1 },
     {.X = 1, .Y = -1, .Z = -1 },
     {.X = 1, .Y = -1, .Z = 1 },
+
     {.X = -1, .Y = 1, .Z = 1 },
     {.X = -1, .Y = 1, .Z = -1 },
     {.X = -1, .Y = -1, .Z = -1 },
     {.X = -1, .Y = -1, .Z = 1 },
 };
+#define FTH_CELL_OFFSETS_COUNT 8
+
+#define FTH_REFINE_MAX 10
 
 typedef struct {
     /*
@@ -37,15 +41,38 @@ typedef struct {
     uint8_t* cells;
     int64_t cellsSize;
     HMM_Vec3 origin;
-    float firstCellSize; // full side lengths off the parent cell
+
+    // all solids origins should be aligned to the (---) corner of a one width grid.
+    // i.e. origins are integer values, cube extends in the +++ direction, widths are always 1 (meters)
 } fth_Solid;
 
-fth_Solid fth_cube(HMM_Vec3 origin, float halfWidth, int refinement, snz_Arena* arena) {
-    SNZ_ASSERTF(refinement > 0, "Invalid refinement of %d, should be > 0", refinement);
-
-    for (int i = 0; i < refinement; i++) {
+// recursive call to generate cells for a one section within a bound of a cube
+void _fth_cube(
+    int64_t level, int64_t maxRefine,
+    HMM_Vec3 boundStart, float boundSideLength,
+    HMM_Vec3 cubeOrigin, float cubeHalfWidth,
+    snz_Arena* arena) {
+    for (int i = 0; i < FTH_CELL_OFFSETS_COUNT; i++) {
 
     }
+}
+
+fth_Solid fth_cube(HMM_Vec3 origin, float halfWidth, int maxRefine, snz_Arena* arena) {
+    SNZ_ASSERTF(maxRefine > 0, "Invalid refinement of %d, should be > 0", maxRefine);
+
+    for (int i = 0; i < maxRefine; i++) {
+
+    }
+}
+
+void _fth_transform(int64_t start, int refine, HMM_Mat4 transform, const fth_Solid* original, snz_Arena* arena) {
+    SNZ_ASSERT(refine < FTH_REFINE_MAX, "solid passed max refine.");
+    SNZ_ASSERTF(start < original->cellsSize, "Cell out of bounds. Tried: %lld, max: %lld", start, original->cellsSize);
+    uint8_t kind = original->cells[start];
+}
+
+fth_Solid fth_transform(HMM_Mat4 transform, const fth_Solid* original, snz_Arena* arena) {
+
 }
 
 fth_Solid fth_halfSpace() {
