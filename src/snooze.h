@@ -102,6 +102,8 @@ SNZ_SLICE(HMM_Vec3);
 SNZ_SLICE(HMM_Vec3Slice);
 SNZ_SLICE(bool);
 SNZ_SLICE(int64_t);
+SNZ_SLICE(int8_t);
+SNZ_SLICE(uint8_t);
 
 // FIXME: multiple def guards
 
