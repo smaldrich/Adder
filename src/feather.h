@@ -1,6 +1,7 @@
 #pragma once
 
 #include "snooze.h"
+#include "render3d.h"
 
 #define FTH_CELL_OFFSETS_COUNT 8
 
@@ -61,54 +62,28 @@ HMM_Vec3 fth_cellBorderToPoint(fth_CellBorder cell, fth_CellBound bound) {
 
 typedef struct {
     union {
-        fth_Cell* inner;
+        fth_Cell* ptr;
         fth_CellBorder offset;
     } inners[FTH_CELL_OFFSETS_COUNT];
     int16_t innerKinds;
     // wasting a lot of bytes if many outer/inner cells, but it makes lookups faster so who knows
-    // FIXME: profile an irregular vs. regular struct setup
+    // FIXME: profile regular vs. irregular setup
 } fth_Cell;
 
-typedef HMM_Vec3(*fth_ClosestPointFunc) (HMM_Vec3 pos);
+void _fth_sphereToSolidRecurse(fth_Cell* parent, snz_Arena* arena, float radius, HMM_Vec3 cellOrigin, int maxSubdivs, int subdivision) {
+    float childCellSize = powf(0.5, subdivision);
+    for (int i = FTH_CELL_OFFSETS_COUNT - 1; i >= 0; i--) {
 
-struct {
-    HMM_Mat4 transform;
-    HMM_Mat4 inverseTransform;
-    float radius;
-} _fth_closestPointArgsSphere;
-
-void fth_closestPointSetupSphere(HMM_Mat4 model, float radius) {
-    _fth_closestPointArgsSphere.transform = model;
-    _fth_closestPointArgsSphere.inverseTransform = HMM_InvGeneralM4(model);
-    _fth_closestPointArgsSphere.radius = radius;
-}
-
-HMM_Vec3 fth_closestPointFuncSphere(HMM_Vec3 sourcePt) {
-    HMM_Vec4 sourcePt4 = HMM_V4(sourcePt.X, sourcePt.Y, sourcePt.Z, 1);
-    HMM_Vec3 pos = HMM_Mul(_fth_closestPointArgsSphere.inverseTransform, sourcePt4).XYZ;
-
-    HMM_Vec4 onSphere = HMM_V4(0, 0, 0, 1);
-    onSphere.XYZ = HMM_Mul(HMM_Norm(pos), _fth_closestPointArgsSphere.radius);
-    HMM_Vec3 final = HMM_Mul(_fth_closestPointArgsSphere.transform, onSphere).XYZ;
-    return final;
-}
-
-void fth_closestPointFuncToCells(fth_Cell* cell, fth_CellBound bound, fth_ClosestPointFunc func) {
-    SNZ_ASSERT(cell->innerKinds == 0, "closestPointFuncToCells requires parent cell to be zeroed.");
-    float innerSize = bound.size / 2;
-    HMM_Vec3 innerCenterOffset = HMM_V3(innerSize / 2, innerSize / 2, innerSize / 2);
-    for (int i = 0; i < FTH_CELL_OFFSETS_COUNT; i++) {
-        HMM_Vec3 innerStart = HMM_Add(bound.origin, HMM_MulV3F(fth_cellOffsets[i], innerSize));
-        HMM_Vec3 innerCenter = HMM_Add(innerStart, innerCenterOffset);
-
-        HMM_Vec3 closestPoint = func(innerCenter);
-        HMM_Vec3 diff = HMM_Sub(closestPoint, innerCenter);
-        bool withinCell = true;
-        for (int ax = 0; ax < 3; ax++) {
-            if (diff.Elements[ax] > innerSize / 2) {
-                withinCell = false;
-                break;
-            }
+        if (subdivision < maxSubdivs) {
+            fth_Cell* child = SNZ_ARENA_PUSH(arena, fth_Cell);
+            parent->inners[i].ptr = child;
+            _fth_sphereToSolidRecurse(child, arena, radius, maxSubdivs, subdivision + 1);
         }
-    } // end looping over all 8 cells
+    }
+}
+
+const fth_Cell* fth_sphereToSolid(snz_Arena* arena, float radius, int subdivCount) {
+    fth_Cell* cell = SNZ_ARENA_PUSH(arena, fth_Cell);
+    _fth_sphereToSolidRecurse(cell, arena, radius, 7, 1);
+    return cell;
 }
