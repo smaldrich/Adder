@@ -24,8 +24,7 @@ int fth_quadrantToCellOffsetIdx(bool x, bool y, bool z) {
 typedef enum {
     FTH_CK_PARENT,
     FTH_CK_BORDER,
-    FTH_CK_OUTSIDE,
-    FTH_CK_INSIDE,
+    FTH_CK_EMPTY,
 } fth_CellKind;
 
 typedef struct {
@@ -70,20 +69,48 @@ typedef struct {
     // FIXME: profile regular vs. irregular setup
 } fth_Cell;
 
+HMM_Vec3 _fth_sampleSphere(HMM_Vec3 pos, float radius) {
+    HMM_Vec3 out = pos;
+    out = HMM_Mul(HMM_Norm(out), radius);
+    return out;
+}
+
 void _fth_sphereToSolidRecurse(fth_Cell* parent, snz_Arena* arena, float radius, HMM_Vec3 cellOrigin, int maxSubdivs, int subdivision) {
     float childCellSize = powf(0.5, subdivision);
     for (int i = FTH_CELL_OFFSETS_COUNT - 1; i >= 0; i--) {
+        HMM_Vec3 childOrigin = HMM_Add(cellOrigin, HMM_MulV3F(fth_cellOffsets[i], childCellSize));
+        float halfSize = childCellSize / 2;
+        HMM_Vec3 childCenter = HMM_Add(childOrigin, HMM_V3(halfSize, halfSize, halfSize));
+        HMM_Vec3 surface = HMM_Sub(_fth_sampleSphere(childCenter, radius), childOrigin);
 
-        if (subdivision < maxSubdivs) {
+        bool outOfCell = surface.X > childCellSize || surface.X < 0;
+        outOfCell |= surface.Y > childCellSize || surface.Y < 0;
+        outOfCell |= surface.Z > childCellSize || surface.Z < 0;
+        fth_CellKind kind = FTH_CK_EMPTY;
+        if (outOfCell) { // outside of cell
+            // << default case for kind
+        } else if (subdivision < maxSubdivs) { // if we still should subdivide, do that
+            kind = FTH_CK_PARENT;
             fth_Cell* child = SNZ_ARENA_PUSH(arena, fth_Cell);
             parent->inners[i].ptr = child;
-            _fth_sphereToSolidRecurse(child, arena, radius, maxSubdivs, subdivision + 1);
+            _fth_sphereToSolidRecurse(child, arena, radius, childOrigin, maxSubdivs, subdivision + 1);
+        } else {
+            kind = FTH_CK_BORDER;
         }
+        parent->innerKinds = (parent->innerKinds << 2) | (0b11 & kind);
     }
 }
 
 const fth_Cell* fth_sphereToSolid(snz_Arena* arena, float radius, int subdivCount) {
     fth_Cell* cell = SNZ_ARENA_PUSH(arena, fth_Cell);
-    _fth_sphereToSolidRecurse(cell, arena, radius, 7, 1);
+    _fth_sphereToSolidRecurse(cell, arena, radius, HMM_V3(0, 0, 0), 7, 1);
     return cell;
+}
+
+void _fth_cellToRenderable(const fth_Cell* cell, snz_Arena* scratch) {
+
+}
+
+ren3d_Mesh fth_solidToRenderable(fth_Cell* solid, snz_Arena* scratch) {
+
 }
