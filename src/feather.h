@@ -57,7 +57,7 @@ HMM_Vec3 fth_cellBorderToPoint(fth_CellBorder cell, HMM_Vec3 boundOrigin, float 
 typedef struct {
     union {
         fth_Cell* ptr;
-        fth_CellBorder offset;
+        fth_CellBorder border;
     } inners[FTH_CELL_OFFSETS_COUNT];
     int16_t innerKinds;
     // wasting a lot of bytes if many outer/inner cells, but it makes lookups faster so who knows
@@ -93,7 +93,7 @@ void _fth_sphereToSolidRecurse(fth_Cell* parent, snz_Arena* arena, float radius,
             _fth_sphereToSolidRecurse(child, arena, radius, childOrigin, maxSubdivs, subdivision + 1);
         } else {
             kind = FTH_CK_BORDER;
-            parent->inners[i].offset = fth_pointToCellBorder(surface, childCellSize);
+            parent->inners[i].border = fth_pointToCellBorder(surface, childCellSize);
         }
         parent->innerKinds = (parent->innerKinds << 2) | (0b11 & kind);
     }
@@ -105,16 +105,29 @@ const fth_Cell* fth_sphereToSolid(snz_Arena* arena, float radius, int subdivCoun
     return cell;
 }
 
-void fth_solidGetCell(const fth_Cell* solid, HMM_Vec3 pos) {
+fth_CellKind fth_solidGetCell(const fth_Cell* solid, HMM_Vec3 pos, fth_CellBorder* outBorder) {
     fth_Cell* cell = solid;
     HMM_Vec3 cellOrigin = HMM_V3(0, 0, 0);
     float cellSize = 1;
 
-    while (true) {
+    while (true) { // FIXME: cutoff
         cellSize /= 2;
         HMM_Vec3 center = HMM_Add(cellOrigin, HMM_V3(cellSize, cellSize, cellSize));
         HMM_Vec3 diff = HMM_Sub(pos, center);
         int childIdx = fth_octantToCellIdx(pos.X > 0, pos.Y > 0, pos.Z > 0); // FIXME: how does floating point imprecision interact with border samples????
+
+        cellOrigin = HMM_Add(cellOrigin, HMM_MulV3(HMM_V3(cellSize, cellSize, cellSize), fth_cellOffsets[childIdx]));
+
+        fth_CellKind innerKind = (cell->innerKinds >> (2 * childIdx)) & 0b11;
+        if (innerKind == FTH_CK_PARENT) {
+            cell = cell->inners[childIdx].ptr;
+            continue;
+        }
+
+        if (innerKind == FTH_CK_BORDER) {
+            *outBorder = cell->inners[childIdx].border;
+        }
+        return innerKind;
     }
 }
 
