@@ -17,20 +17,16 @@ HMM_Vec3 fth_cellOffsets[FTH_CELL_OFFSETS_COUNT] = {
     {.X = 1, .Y = 1, .Z = 1 },
 };
 
-int fth_quadrantToCellOffsetIdx(bool x, bool y, bool z) {
+int fth_octantToCellIdx(bool x, bool y, bool z) {
     return (x << 2) + (y << 1) + z;
 }
 
 typedef enum {
     FTH_CK_PARENT,
     FTH_CK_BORDER,
+    FTH_CK_SOLID,
     FTH_CK_EMPTY,
 } fth_CellKind;
-
-typedef struct {
-    HMM_Vec3 origin;
-    float size;
-} fth_CellBound;
 
 typedef struct {
     // represent percent offsets within the cell to the point on the surface
@@ -39,10 +35,9 @@ typedef struct {
     uint16_t z;
 } fth_CellBorder;
 
-fth_CellBorder fth_pointToCellBorder(HMM_Vec3 point, fth_CellBound bound) {
-    HMM_Vec3 diff = HMM_Sub(point, bound.origin);
-    HMM_Vec3 pct = HMM_DivV3F(point, bound.size);
-
+// point expected to be relative to bound origin
+fth_CellBorder fth_pointToCellBorder(HMM_Vec3 point, float cellSize) {
+    HMM_Vec3 pct = HMM_DivV3F(point, cellSize);
     fth_CellBorder out = (fth_CellBorder){
         (int16_t)(pct.X * UINT16_MAX),
         (int16_t)(pct.Y * UINT16_MAX),
@@ -51,11 +46,11 @@ fth_CellBorder fth_pointToCellBorder(HMM_Vec3 point, fth_CellBound bound) {
     return out;
 }
 
-HMM_Vec3 fth_cellBorderToPoint(fth_CellBorder cell, fth_CellBound bound) {
+HMM_Vec3 fth_cellBorderToPoint(fth_CellBorder cell, HMM_Vec3 boundOrigin, float boundSize) {
     HMM_Vec3 pt = HMM_V3(cell.x, cell.y, cell.z);
     pt = HMM_DivV3F(pt, UINT16_MAX);
-    pt = HMM_MulV3F(pt, bound.size);
-    pt = HMM_Add(pt, bound.origin);
+    pt = HMM_MulV3F(pt, boundSize);
+    pt = HMM_Add(pt, boundOrigin);
     return pt;
 }
 
@@ -69,9 +64,10 @@ typedef struct {
     // FIXME: profile regular vs. irregular setup
 } fth_Cell;
 
-HMM_Vec3 _fth_sampleSphere(HMM_Vec3 pos, float radius) {
+HMM_Vec3 _fth_sampleSphere(HMM_Vec3 pos, float radius, bool* outWithin) {
     HMM_Vec3 out = pos;
     out = HMM_Mul(HMM_Norm(out), radius);
+    *outWithin = HMM_Len(pos) < radius;
     return out;
 }
 
@@ -81,12 +77,13 @@ void _fth_sphereToSolidRecurse(fth_Cell* parent, snz_Arena* arena, float radius,
         HMM_Vec3 childOrigin = HMM_Add(cellOrigin, HMM_MulV3F(fth_cellOffsets[i], childCellSize));
         float halfSize = childCellSize / 2;
         HMM_Vec3 childCenter = HMM_Add(childOrigin, HMM_V3(halfSize, halfSize, halfSize));
-        HMM_Vec3 surface = HMM_Sub(_fth_sampleSphere(childCenter, radius), childOrigin);
+        bool within = false;
+        HMM_Vec3 surface = HMM_Sub(_fth_sampleSphere(childCenter, radius, &within), childOrigin);
 
         bool outOfCell = surface.X > childCellSize || surface.X < 0;
         outOfCell |= surface.Y > childCellSize || surface.Y < 0;
         outOfCell |= surface.Z > childCellSize || surface.Z < 0;
-        fth_CellKind kind = FTH_CK_EMPTY;
+        fth_CellKind kind = within ? FTH_CK_SOLID : FTH_CK_EMPTY;
         if (outOfCell) { // outside of cell
             // << default case for kind
         } else if (subdivision < maxSubdivs) { // if we still should subdivide, do that
@@ -96,6 +93,7 @@ void _fth_sphereToSolidRecurse(fth_Cell* parent, snz_Arena* arena, float radius,
             _fth_sphereToSolidRecurse(child, arena, radius, childOrigin, maxSubdivs, subdivision + 1);
         } else {
             kind = FTH_CK_BORDER;
+            parent->inners[i].offset = fth_pointToCellBorder(surface, childCellSize);
         }
         parent->innerKinds = (parent->innerKinds << 2) | (0b11 & kind);
     }
@@ -107,8 +105,17 @@ const fth_Cell* fth_sphereToSolid(snz_Arena* arena, float radius, int subdivCoun
     return cell;
 }
 
-void _fth_cellToRenderable(const fth_Cell* cell, snz_Arena* scratch) {
+void fth_solidGetCell(const fth_Cell* solid, HMM_Vec3 pos) {
+    fth_Cell* cell = solid;
+    HMM_Vec3 cellOrigin = HMM_V3(0, 0, 0);
+    float cellSize = 1;
 
+    while (true) {
+        cellSize /= 2;
+        HMM_Vec3 center = HMM_Add(cellOrigin, HMM_V3(cellSize, cellSize, cellSize));
+        HMM_Vec3 diff = HMM_Sub(pos, center);
+        int childIdx = fth_octantToCellIdx(pos.X > 0, pos.Y > 0, pos.Z > 0); // FIXME: how does floating point imprecision interact with border samples????
+    }
 }
 
 ren3d_Mesh fth_solidToRenderable(fth_Cell* solid, snz_Arena* scratch) {
