@@ -99,6 +99,7 @@ void snz_testPrintSection(const char* name) {
 
 SNZ_SLICE(HMM_Vec2);
 SNZ_SLICE(HMM_Vec3);
+SNZ_SLICE(HMM_Vec4);
 SNZ_SLICE(HMM_Vec3Slice);
 SNZ_SLICE(bool);
 SNZ_SLICE(int64_t);

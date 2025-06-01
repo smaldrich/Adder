@@ -70,10 +70,17 @@ fth_CellKind fth_cellGetInnerKind(const fth_Cell* cell, int idx) {
     return (cell->innerKinds >> (2 * idx)) & 0x3; // 0b11, masks off last two bits
 }
 
+HMM_Mat4 _fth_sphereTransform = { 0 };
 HMM_Vec3 _fth_sampleSphere(HMM_Vec3 pos, float radius, bool* outWithin) {
-    HMM_Vec3 out = pos;
+    HMM_Vec4 pos4 = HMM_V4(pos.X, pos.Y, pos.Z, 1);
+    HMM_Vec3 transformed = HMM_Mul(HMM_InvGeneral(_fth_sphereTransform), pos4).XYZ;
+
+    HMM_Vec3 out = transformed;
     out = HMM_Mul(HMM_Norm(out), radius);
-    *outWithin = HMM_Len(pos) < radius;
+    *outWithin = HMM_Len(transformed) < radius;
+
+    HMM_Vec4 out4 = HMM_V4(out.X, out.Y, out.Z, 1);
+    return HMM_Mul(_fth_sphereTransform, out4).XYZ;
     return out;
 }
 
@@ -139,18 +146,29 @@ fth_CellKind fth_solidGetCellByPath(const fth_Cell* solid, int targetDepth, uint
         yPath >>= 1;
         zPath >>= 1;
     }
-
     SNZ_ASSERTF(false, "Went past target subdivision depth of %d", targetDepth);
     return false;
 }
 
-void fth_solidDrawAsBillboards(const fth_Cell* cell, HMM_Vec3 boundOrigin, float boundSize, HMM_Mat4 vp, HMM_Vec2 screenSize) {
+void fth_solidDrawAsBillboards(const fth_Cell* cell, HMM_Vec3 boundOrigin, float boundSize, HMM_Mat4 vp, HMM_Vec2 screenSize, snz_Arena* scratch) {
     float innerSize = boundSize / 2;
     for (int i = 0; i < FTH_CELL_OFFSETS_COUNT; i++) {
         HMM_Vec3 innerOrigin = HMM_Add(boundOrigin, HMM_Mul(HMM_V3(innerSize, innerSize, innerSize), fth_cellOffsets[i]));
+        HMM_Vec3 pts[4] = {
+            innerOrigin,
+            HMM_Add(innerOrigin, HMM_V3(innerSize / 2, 0, 0)),
+            HMM_Add(innerOrigin, HMM_V3(0, innerSize / 2, 0)),
+            HMM_Add(innerOrigin, HMM_V3(0, 0, innerSize / 2)),
+        };
+        for (int i = 0; i < 3; i++) {
+            HMM_Vec4 drawPts[2] = { 0 };
+            drawPts[0].XYZ = pts[0];
+            drawPts[1].XYZ = pts[i + 1];
+            snzr_drawLine(drawPts, 2, ui_colorText, 4, vp);
+        }
         fth_CellKind kind = fth_cellGetInnerKind(cell, i);
         if (kind == FTH_CK_PARENT) {
-            fth_solidDrawAsBillboards(cell->inners[i].ptr, innerOrigin, innerSize, vp, screenSize);
+            fth_solidDrawAsBillboards(cell->inners[i].ptr, innerOrigin, innerSize, vp, screenSize, scratch);
         } else if (kind == FTH_CK_BORDER) {
             HMM_Vec3 position = fth_cellBorderToPoint(cell->inners[i].border, innerOrigin, innerSize);
             ren3d_drawBillboard(vp, screenSize, *ui_cornerTexture, ui_colorAccent, position, HMM_V2(50, 50));

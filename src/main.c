@@ -58,7 +58,7 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
     csg_tests();
     fflush(_snz_logFile);
 
-    main_appLifetimeArena = snz_arenaInit(100000, "main app lifetime arena");
+    main_appLifetimeArena = snz_arenaInit(10000000, "main app lifetime arena");
     main_fontArena = snz_arenaInit(10000000, "main font arena");
     main_sketchArena = snz_arenaInit(10000000, "main sketch arena");
     main_baseMeshArena = snz_arenaInit(1000000000, "main base mesh arena");
@@ -119,7 +119,8 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
         tl_timelinePushBaseGeometry(&main_timeline, HMM_V2(0, 0), faces);
     }
 
-    main_fthSolid = fth_sphereToSolid(&main_appLifetimeArena, 0.215, 6);
+    _fth_sphereTransform = HMM_Translate(HMM_V3(0.4, 0.4, 0.4));
+    main_fthSolid = fth_sphereToSolid(&main_appLifetimeArena, 0.215, 4);
 }
 
 // returns the normal of the ray starting at cameraPos
@@ -385,7 +386,7 @@ void main_frame(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screen
                             meshu_sceneBuild(filter, &main_timelineScene, vp, cameraPos, mouseDir, inter, HMM_V2(w, h), scratch);
                             snzu_frameDrawAndGenInteractions(inputs, HMM_M4D(1.0f));
 
-                            fth_solidDrawAsBillboards(main_fthSolid, HMM_V3(0, 0, 0), 1, vp, screenSize);
+                            fth_solidDrawAsBillboards(main_fthSolid, HMM_V3(0, 0, 0), 1, vp, screenSize, scratch);
                         }
 
                         // draw crosshair
