@@ -18,6 +18,7 @@
 #include "geometry.h"
 #include "ser.h"
 #include "csg2.h"
+#include "feather.h"
 
 snz_Arena main_appLifetimeArena;
 snz_Arena main_fontArena;
@@ -39,6 +40,8 @@ sc_View main_currentView = SC_VIEW_TIMELINE;
 mesh_GeoKind main_currentGeoFilter = MESH_GK_FACE;
 tl_Op* main_argBarFocusOverride = NULL;
 set_Settings main_settings;
+
+const fth_Cell* main_fthSolid = NULL;
 
 #define MAIN_SETTINGS_PATH "settings.adder"
 
@@ -115,6 +118,8 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
         faces = mesh_cube(&main_baseMeshArena);
         tl_timelinePushBaseGeometry(&main_timeline, HMM_V2(0, 0), faces);
     }
+
+    main_fthSolid = fth_sphereToSolid(&main_appLifetimeArena, 0.215, 6);
 }
 
 // returns the normal of the ray starting at cameraPos
@@ -379,6 +384,8 @@ void main_frame(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screen
                             }
                             meshu_sceneBuild(filter, &main_timelineScene, vp, cameraPos, mouseDir, inter, HMM_V2(w, h), scratch);
                             snzu_frameDrawAndGenInteractions(inputs, HMM_M4D(1.0f));
+
+                            fth_solidDrawAsBillboards(main_fthSolid, HMM_V3(0, 0, 0), 1, vp, screenSize);
                         }
 
                         // draw crosshair

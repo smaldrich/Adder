@@ -2,6 +2,7 @@
 
 #include "snooze.h"
 #include "render3d.h"
+#include "ui.h"
 
 #define FTH_CELL_OFFSETS_COUNT 8
 
@@ -54,7 +55,8 @@ HMM_Vec3 fth_cellBorderToPoint(fth_CellBorder cell, HMM_Vec3 boundOrigin, float 
     return pt;
 }
 
-typedef struct {
+typedef struct fth_Cell fth_Cell;
+struct fth_Cell {
     union {
         fth_Cell* ptr;
         fth_CellBorder border;
@@ -62,7 +64,11 @@ typedef struct {
     int16_t innerKinds;
     // wasting a lot of bytes if many outer/inner cells, but it makes lookups faster so who knows
     // FIXME: profile regular vs. irregular setup
-} fth_Cell;
+};
+
+fth_CellKind fth_cellGetInnerKind(const fth_Cell* cell, int idx) {
+    return (cell->innerKinds >> (2 * idx)) & 0x3; // 0b11, masks off last two bits
+}
 
 HMM_Vec3 _fth_sampleSphere(HMM_Vec3 pos, float radius, bool* outWithin) {
     HMM_Vec3 out = pos;
@@ -95,42 +101,59 @@ void _fth_sphereToSolidRecurse(fth_Cell* parent, snz_Arena* arena, float radius,
             kind = FTH_CK_BORDER;
             parent->inners[i].border = fth_pointToCellBorder(surface, childCellSize);
         }
-        parent->innerKinds = (parent->innerKinds << 2) | (0b11 & kind);
+        // 0x3 is 0b11, masks off last two bits of kind
+        parent->innerKinds = (parent->innerKinds << 2) | (0x3 & kind);
     }
 }
 
 const fth_Cell* fth_sphereToSolid(snz_Arena* arena, float radius, int subdivCount) {
     fth_Cell* cell = SNZ_ARENA_PUSH(arena, fth_Cell);
-    _fth_sphereToSolidRecurse(cell, arena, radius, HMM_V3(0, 0, 0), 7, 1);
+    _fth_sphereToSolidRecurse(cell, arena, radius, HMM_V3(0, 0, 0), subdivCount, 1);
     return cell;
 }
 
-fth_CellKind fth_solidGetCell(const fth_Cell* solid, HMM_Vec3 pos, fth_CellBorder* outBorder) {
-    fth_Cell* cell = solid;
-    HMM_Vec3 cellOrigin = HMM_V3(0, 0, 0);
-    float cellSize = 1;
+// where xPath, yPath, zPath are bitstrings that represent the direction to go on each axis of the octree per level.
+// i.e. 0100 means left right left left, where the least sig. bit is the one at the base of the tree.
+fth_CellKind fth_solidGetCellByPath(const fth_Cell* solid, int targetDepth, uint32_t xPath, uint32_t yPath, uint32_t zPath, fth_CellBorder* outBorder) {
+    SNZ_ASSERT(targetDepth <= 32, "why do you have more than 32 subdivisions");
+    const fth_Cell* cell = solid;
+    int depth = 1;
+    while (depth <= targetDepth) {
+        bool x = xPath & 1;
+        bool y = yPath & 1;
+        bool z = zPath & 1;
+        int childIdx = fth_octantToCellIdx(x, y, z);
+        fth_CellKind kind = fth_cellGetInnerKind(cell, childIdx);
 
-    while (true) { // FIXME: cutoff
-        cellSize /= 2;
-        HMM_Vec3 center = HMM_Add(cellOrigin, HMM_V3(cellSize, cellSize, cellSize));
-        HMM_Vec3 diff = HMM_Sub(pos, center);
-        int childIdx = fth_octantToCellIdx(pos.X > 0, pos.Y > 0, pos.Z > 0); // FIXME: how does floating point imprecision interact with border samples????
-
-        cellOrigin = HMM_Add(cellOrigin, HMM_MulV3(HMM_V3(cellSize, cellSize, cellSize), fth_cellOffsets[childIdx]));
-
-        fth_CellKind innerKind = (cell->innerKinds >> (2 * childIdx)) & 0b11;
-        if (innerKind == FTH_CK_PARENT) {
-            cell = cell->inners[childIdx].ptr;
-            continue;
+        if (kind != FTH_CK_PARENT) {
+            if (kind == FTH_CK_BORDER) {
+                *outBorder = cell->inners[childIdx].border;
+                SNZ_ASSERTF(depth == targetDepth, "Expected depth for border nodes was %d, ended at %d instead.", targetDepth, depth);
+            }
+            return kind;
         }
 
-        if (innerKind == FTH_CK_BORDER) {
-            *outBorder = cell->inners[childIdx].border;
-        }
-        return innerKind;
+        cell = cell->inners[childIdx].ptr;
+        depth++;
+        xPath >>= 1;
+        yPath >>= 1;
+        zPath >>= 1;
     }
+
+    SNZ_ASSERTF(false, "Went past target subdivision depth of %d", targetDepth);
+    return false;
 }
 
-ren3d_Mesh fth_solidToRenderable(fth_Cell* solid, snz_Arena* scratch) {
-
+void fth_solidDrawAsBillboards(const fth_Cell* cell, HMM_Vec3 boundOrigin, float boundSize, HMM_Mat4 vp, HMM_Vec2 screenSize) {
+    float innerSize = boundSize / 2;
+    for (int i = 0; i < FTH_CELL_OFFSETS_COUNT; i++) {
+        HMM_Vec3 innerOrigin = HMM_Add(boundOrigin, HMM_Mul(HMM_V3(innerSize, innerSize, innerSize), fth_cellOffsets[i]));
+        fth_CellKind kind = fth_cellGetInnerKind(cell, i);
+        if (kind == FTH_CK_PARENT) {
+            fth_solidDrawAsBillboards(cell->inners[i].ptr, innerOrigin, innerSize, vp, screenSize);
+        } else if (kind == FTH_CK_BORDER) {
+            HMM_Vec3 position = fth_cellBorderToPoint(cell->inners[i].border, innerOrigin, innerSize);
+            ren3d_drawBillboard(vp, screenSize, *ui_cornerTexture, ui_colorAccent, position, HMM_V2(50, 50));
+        }
+    }
 }
