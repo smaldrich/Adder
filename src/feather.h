@@ -154,18 +154,18 @@ void fth_solidDrawAsBillboards(const fth_Cell* cell, HMM_Vec3 boundOrigin, float
     float innerSize = boundSize / 2;
     for (int i = 0; i < FTH_CELL_OFFSETS_COUNT; i++) {
         HMM_Vec3 innerOrigin = HMM_Add(boundOrigin, HMM_Mul(HMM_V3(innerSize, innerSize, innerSize), fth_cellOffsets[i]));
-        HMM_Vec3 pts[4] = {
-            innerOrigin,
-            HMM_Add(innerOrigin, HMM_V3(innerSize / 2, 0, 0)),
-            HMM_Add(innerOrigin, HMM_V3(0, innerSize / 2, 0)),
-            HMM_Add(innerOrigin, HMM_V3(0, 0, innerSize / 2)),
-        };
-        for (int i = 0; i < 3; i++) {
-            HMM_Vec4 drawPts[2] = { 0 };
-            drawPts[0].XYZ = pts[0];
-            drawPts[1].XYZ = pts[i + 1];
-            snzr_drawLine(drawPts, 2, ui_colorText, 4, vp);
-        }
+        // HMM_Vec3 pts[4] = {
+        //     innerOrigin,
+        //     HMM_Add(innerOrigin, HMM_V3(innerSize / 2, 0, 0)),
+        //     HMM_Add(innerOrigin, HMM_V3(0, innerSize / 2, 0)),
+        //     HMM_Add(innerOrigin, HMM_V3(0, 0, innerSize / 2)),
+        // };
+        // for (int i = 0; i < 3; i++) {
+        //     HMM_Vec4 drawPts[2] = { 0 };
+        //     drawPts[0].XYZ = pts[0];
+        //     drawPts[1].XYZ = pts[i + 1];
+        //     snzr_drawLine(drawPts, 2, ui_colorText, 4, vp);
+        // }
         fth_CellKind kind = fth_cellGetInnerKind(cell, i);
         if (kind == FTH_CK_PARENT) {
             fth_solidDrawAsBillboards(cell->inners[i].ptr, innerOrigin, innerSize, vp, screenSize, scratch);

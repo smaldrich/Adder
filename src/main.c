@@ -120,7 +120,7 @@ void main_init(snz_Arena* scratch, SDL_Window* window) {
     }
 
     _fth_sphereTransform = HMM_Translate(HMM_V3(0.4, 0.4, 0.4));
-    main_fthSolid = fth_sphereToSolid(&main_appLifetimeArena, 0.215, 4);
+    main_fthSolid = fth_sphereToSolid(&main_appLifetimeArena, 0.215, 8);
 }
 
 // returns the normal of the ray starting at cameraPos
