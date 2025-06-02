@@ -183,16 +183,13 @@ void fth_solidToTrisSample(const fth_Cell* solid, int targetDepth, int xPath, in
 
     // loops thru all 4 combos of 0 & 1 on both axes of the planes given.
     for (int i = 0; i < 4; i++) {
-        int ax1 = i & 1; // 1st bit of i
-        int ax2 = i & 2; // 2nd bit of i
-
-        HMM_Vec3 axis = HMM_V3(0, 0, 0);
-        axis.Elements[_fth_planes[planeIdx][0]] = ax1;
-        axis.Elements[_fth_planes[planeIdx][1]] = ax2;
+        int additions[3] = { 0, 0, 0 };
+        additions[_fth_planes[planeIdx][0]] = i & 1; // first bit of i
+        additions[_fth_planes[planeIdx][1]] = i & 2; // second bit of i
 
         samples[i].kind = fth_solidGetCellByPath(solid, targetDepth, xPath, yPath, zPath, &samples[i].border);
         if (samples[i].kind != FTH_CK_BORDER) {
-            break;
+            return;
         }
     }
 }
@@ -202,6 +199,4 @@ ren3d_Mesh fth_solidToTris(const fth_Cell* cell, snz_Arena* arena) {
         int x;
         int y;
     } path = { 0 };
-
-
 }
