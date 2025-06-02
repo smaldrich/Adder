@@ -154,18 +154,7 @@ void fth_solidDrawAsBillboards(const fth_Cell* cell, HMM_Vec3 boundOrigin, float
     float innerSize = boundSize / 2;
     for (int i = 0; i < FTH_CELL_OFFSETS_COUNT; i++) {
         HMM_Vec3 innerOrigin = HMM_Add(boundOrigin, HMM_Mul(HMM_V3(innerSize, innerSize, innerSize), fth_cellOffsets[i]));
-        // HMM_Vec3 pts[4] = {
-        //     innerOrigin,
-        //     HMM_Add(innerOrigin, HMM_V3(innerSize / 2, 0, 0)),
-        //     HMM_Add(innerOrigin, HMM_V3(0, innerSize / 2, 0)),
-        //     HMM_Add(innerOrigin, HMM_V3(0, 0, innerSize / 2)),
-        // };
-        // for (int i = 0; i < 3; i++) {
-        //     HMM_Vec4 drawPts[2] = { 0 };
-        //     drawPts[0].XYZ = pts[0];
-        //     drawPts[1].XYZ = pts[i + 1];
-        //     snzr_drawLine(drawPts, 2, ui_colorText, 4, vp);
-        // }
+
         fth_CellKind kind = fth_cellGetInnerKind(cell, i);
         if (kind == FTH_CK_PARENT) {
             fth_solidDrawAsBillboards(cell->inners[i].ptr, innerOrigin, innerSize, vp, screenSize, scratch);
@@ -174,4 +163,45 @@ void fth_solidDrawAsBillboards(const fth_Cell* cell, HMM_Vec3 boundOrigin, float
             ren3d_drawBillboard(vp, screenSize, *ui_cornerTexture, ui_colorAccent, position, HMM_V2(50, 50));
         }
     }
+}
+
+#define _FTH_PLANES_COUNT 3
+
+// each element is the two axis on which the plane operates (0 = x, 1 = y, 2 = z)
+const int _fth_planes[3][2] = {
+    { 0, 1 },
+    { 1, 2 },
+    { 2, 0 },
+};
+
+void fth_solidToTrisSample(const fth_Cell* solid, int targetDepth, int xPath, int yPath, int zPath, int planeIdx, snz_Arena* arena) {
+    SNZ_ASSERTF(planeIdx > 0 && planeIdx < _FTH_PLANES_COUNT, "plane index (%d) out of bounds somehow.", planeIdx);
+    struct {
+        fth_CellKind kind;
+        fth_CellBorder border;
+    } samples[4] = { 0 };
+
+    // loops thru all 4 combos of 0 & 1 on both axes of the planes given.
+    for (int i = 0; i < 4; i++) {
+        int ax1 = i & 1; // 1st bit of i
+        int ax2 = i & 2; // 2nd bit of i
+
+        HMM_Vec3 axis = HMM_V3(0, 0, 0);
+        axis.Elements[_fth_planes[planeIdx][0]] = ax1;
+        axis.Elements[_fth_planes[planeIdx][1]] = ax2;
+
+        samples[i].kind = fth_solidGetCellByPath(solid, targetDepth, xPath, yPath, zPath, &samples[i].border);
+        if (samples[i].kind != FTH_CK_BORDER) {
+            break;
+        }
+    }
+}
+
+ren3d_Mesh fth_solidToTris(const fth_Cell* cell, snz_Arena* arena) {
+    struct {
+        int x;
+        int y;
+    } path = { 0 };
+
+
 }
