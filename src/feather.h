@@ -120,10 +120,18 @@ const fth_Cell* fth_sphereToSolid(snz_Arena* arena, float radius, int subdivCoun
 }
 
 // where xPath, yPath, zPath are bitstrings that represent the direction to go on each axis of the octree per level.
-// i.e. 0100 means left right left left, where the least sig. bit is the one at the base of the tree.
+// most significant bit marks decision at the highest level of the tree
 fth_CellKind fth_solidGetCellByPath(const fth_Cell* solid, int targetDepth, uint32_t xPath, uint32_t yPath, uint32_t zPath, fth_CellBorder* outBorder) {
     SNZ_ASSERT(targetDepth <= 32, "why do you have more than 32 subdivisions");
     const fth_Cell* cell = solid;
+
+    for (int i = 0; i < targetDepth; i++) {
+        int mask = 1 << (targetDepth - i);
+        bool x = xPath & mask;
+        bool y = yPath & mask;
+        bool z = zPath & mask;
+    }
+
     int depth = 1;
     while (depth <= targetDepth) {
         bool x = xPath & 1;
@@ -179,7 +187,9 @@ void fth_solidToTrisSample(const fth_Cell* solid, int targetDepth, int xPath, in
     struct {
         fth_CellKind kind;
         fth_CellBorder border;
+        HMM_Vec3 boundOrigin;
     } samples[4] = { 0 };
+    float sampleBoundSize = powf(0.5, targetDepth);
 
     // loops thru all 4 combos of 0 & 1 on both axes of the planes given.
     for (int i = 0; i < 4; i++) {
@@ -187,7 +197,13 @@ void fth_solidToTrisSample(const fth_Cell* solid, int targetDepth, int xPath, in
         additions[_fth_planes[planeIdx][0]] = i & 1; // first bit of i
         additions[_fth_planes[planeIdx][1]] = i & 2; // second bit of i
 
-        samples[i].kind = fth_solidGetCellByPath(solid, targetDepth, xPath, yPath, zPath, &samples[i].border);
+        samples[i].kind = fth_solidGetCellByPath(
+            solid,
+            targetDepth,
+            xPath + additions[0],
+            yPath + additions[1],
+            zPath + additions[2],
+            &samples[i].border);
         if (samples[i].kind != FTH_CK_BORDER) {
             return;
         }
