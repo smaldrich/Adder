@@ -18,7 +18,7 @@
 #include "geometry.h"
 #include "ser.h"
 #include "csg2.h"
-#include "feather.h"
+// #include "feather.h"
 
 snz_Arena main_appLifetimeArena;
 snz_Arena main_fontArena;
@@ -579,6 +579,7 @@ void main_frame(float dt, snz_Arena* scratch, snzu_Input inputs, HMM_Vec2 screen
 }
 
 int main() {
+    SNZ_ASSERT(false, "AHH");
     snz_main("ADDER V0.0", "res/textures/icon.bmp", main_init, main_frame);
     sound_deinit();
     poolAllocDeinit(&main_baseMeshPool);
